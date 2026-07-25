@@ -152,7 +152,7 @@ export function MapView({ prepared }: Props) {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      // 동 이름 — 병력 숫자 바로 위에 표시. (같은 소스, 위로 오프셋)
+      // 동 이름 — 작은 흰 글자로 병력 숫자 위에 표시. (값과의 구분은 '크기'가 담당)
       map.addLayer({
         id: NAME_LAYER,
         type: "symbol",
@@ -161,16 +161,17 @@ export function MapView({ prepared }: Props) {
         layout: {
           "text-field": ["get", "name"],
           "text-size": 11,
-          "text-offset": [0, -1.1], // 병력 숫자 위쪽
+          "text-offset": [0, -1.5], // 병력 숫자 위, 간격 넉넉히
           "text-allow-overlap": true,
           "text-ignore-placement": true,
         },
         paint: {
-          "text-color": "#e5e7eb",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1.2,
+          "text-color": "#ffffff",
+          "text-halo-color": "#0b1220",
+          "text-halo-width": 1.6,
         },
       });
+      // 병력 수 — 핵심 값. 이름보다 훨씬 크고 두꺼운 외곽선으로 크게 강조.
       map.addLayer({
         id: BADGE_LAYER,
         type: "symbol",
@@ -178,13 +179,15 @@ export function MapView({ prepared }: Props) {
         minzoom: 12, // README.md §7.2 — 병력 숫자는 근접 줌에서만
         layout: {
           "text-field": ["get", "troops"],
-          "text-size": 12,
+          "text-size": 18,
+          "text-offset": [0, 0.35], // 이름과 겹치지 않게 살짝 아래로
           "text-allow-overlap": true,
         },
         paint: {
           "text-color": "#ffffff",
           "text-halo-color": "#000000",
-          "text-halo-width": 1.2,
+          "text-halo-width": 2.8,
+          "text-halo-blur": 0.3,
         },
       });
 
