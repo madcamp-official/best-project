@@ -75,7 +75,8 @@ export function MapView({ prepared }: Props) {
         id: BASEMAP_LAYER,
         type: "raster",
         source: BASEMAP_SOURCE,
-        paint: { "raster-opacity": 0.9, "raster-brightness-max": 0.75 },
+        // 실지도를 조금 더 잘 보이게: 불투명도 최대 + 밝기 상한을 0.75→0.9로 올림.
+        paint: { "raster-opacity": 1, "raster-brightness-max": 0.9 },
       });
 
       map.addSource(SOURCE_ID, {
