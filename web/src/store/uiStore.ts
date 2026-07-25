@@ -15,7 +15,7 @@ export interface SelectedInfo {
 // README.md §1 기술 스택 — "UI 상태(선택 동, HUD)"만 Zustand에 둔다.
 // 3,500개 동 배열 자체는 world/worldView.ts(React 밖, 서버 상태 사본)에 두고 요약만 끌어온다.
 interface UIState {
-  phase: "loading" | "ready" | "error";
+  phase: "loading" | "join" | "ready" | "error";
   errorMessage: string | null;
   selectedIndex: number | null;
   selectedInfo: SelectedInfo | null;

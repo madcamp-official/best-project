@@ -13,10 +13,13 @@ export function Hud() {
   if (phase === "loading") {
     return (
       <div className="hud-overlay hud-center">
-        <p>서울 행정동 지도를 불러오는 중...</p>
+        <p>전국 행정동 지도를 불러오는 중...</p>
       </div>
     );
   }
+
+  // 접속 화면(닉네임 입력) 표시 중에는 HUD를 감춘다 — JoinScreen이 화면을 덮는다.
+  if (phase === "join") return null;
 
   if (phase === "error") {
     return (

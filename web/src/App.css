@@ -4,6 +4,82 @@
   height: 100vh;
 }
 
+/* 접속 화면 (JoinScreen) */
+.join-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 20, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.join-card {
+  width: min(360px, 90vw);
+  padding: 28px 26px;
+  border-radius: 16px;
+  background: rgba(15, 20, 32, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.join-title {
+  margin: 0 0 6px;
+  font-size: 30px;
+  font-weight: 800;
+  color: #f1f5f9;
+  letter-spacing: 1px;
+}
+
+.join-sub {
+  margin: 0 0 22px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.join-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font-size: 15px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0b1220;
+  color: #e5e7eb;
+  outline: none;
+}
+
+.join-input:focus {
+  border-color: #e8484f;
+}
+
+.join-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  background: #e8484f;
+  color: #fff;
+  cursor: pointer;
+}
+
+.join-button:disabled {
+  background: #4b5563;
+  cursor: not-allowed;
+}
+
+.join-hint {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
 .map-view {
   position: absolute;
   inset: 0;
