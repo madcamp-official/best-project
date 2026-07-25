@@ -17,6 +17,8 @@ import type {
 
 const TICK_MS = 200; // 서버 tick = DELTA 주기 (5Hz)
 const LEADERBOARD_EVERY = 5; // tick 5회마다 = 1Hz
+const SAVE_EVERY = 10; // tick 10회마다 = 2s 간격으로 월드 스냅샷 저장
+const WORLD_KEY = "world-snapshot"; // 재접속 복구용 (실서버라면 서버 메모리/파일에 있음)
 
 export class LocalConnection implements Connection {
   private gs: core.GameState;
@@ -46,8 +48,50 @@ export class LocalConnection implements Connection {
       this.startIndex,
       Date.now()
     );
-    // 환경 세력(E) 스폰 — 시작 동에서 몇 홉 떨어진 소규모 클러스터(초반에 만날 수 있게).
-    core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
+    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
+    // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
+    if (!this.restoreWorld()) {
+      core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
+    }
+  }
+
+  private restoreWorld(): boolean {
+    try {
+      const raw = localStorage.getItem(WORLD_KEY);
+      if (!raw) return false;
+      const snap = JSON.parse(raw) as {
+        n: number;
+        ownerId: number[];
+        troops: number[];
+        holders: { id: number; name: string; paletteIdx: number }[];
+        nextLogId: number;
+      };
+      if (!snap || snap.n !== this.gs.n || !Array.isArray(snap.ownerId)) return false;
+      this.gs.ownerId = Uint8Array.from(snap.ownerId);
+      this.gs.troops = Uint16Array.from(snap.troops);
+      this.gs.holders = new Map(snap.holders.map((h) => [h.id, h]));
+      this.gs.nextLogId = snap.nextLogId ?? 1;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private saveWorld(): void {
+    try {
+      localStorage.setItem(
+        WORLD_KEY,
+        JSON.stringify({
+          n: this.gs.n,
+          ownerId: Array.from(this.gs.ownerId),
+          troops: Array.from(this.gs.troops),
+          holders: Array.from(this.gs.holders.values()),
+          nextLogId: this.gs.nextLogId,
+        })
+      );
+    } catch {
+      // localStorage 용량 초과 등은 조용히 무시(다음 저장에서 재시도).
+    }
   }
 
   // 플레이어 시작 동에서 BFS로 ~4홉 떨어진 씨앗 + 인접 중립 동으로 E 시작 클러스터를 만든다.
@@ -132,6 +176,7 @@ export class LocalConnection implements Connection {
 
     this.tickCount++;
     if (this.tickCount % LEADERBOARD_EVERY === 0) this.flushLeaderboard();
+    if (this.tickCount % SAVE_EVERY === 0) this.saveWorld(); // 재접속 복구용 스냅샷
   }
 
   private flushDelta(now: number): void {
