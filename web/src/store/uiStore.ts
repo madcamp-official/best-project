@@ -1,7 +1,6 @@
 import { create } from "zustand";
-import { MY_HOLDER_ID } from "../config";
-import { game, getLeaderboard, computeRank } from "../game/state";
-import type { LeaderboardRow } from "../game/state";
+import { world, getLeaderboard, computeRank } from "../world/worldView";
+import type { LeaderboardRow } from "../game/core";
 import type { LogEntry, Rank } from "../game/types";
 
 export interface SelectedInfo {
@@ -14,7 +13,7 @@ export interface SelectedInfo {
 }
 
 // README.md §1 기술 스택 — "UI 상태(선택 동, HUD)"만 Zustand에 둔다.
-// 3,500개 동 배열 자체는 game/state.ts(React 밖)에 그대로 둔 채, 요약만 여기로 끌어온다.
+// 3,500개 동 배열 자체는 world/worldView.ts(React 밖, 서버 상태 사본)에 두고 요약만 끌어온다.
 interface UIState {
   phase: "loading" | "ready" | "error";
   errorMessage: string | null;
@@ -53,22 +52,22 @@ export const useUIStore = create<UIState>((set, get) => ({
   refreshSummary: () => {
     const { selectedIndex } = get();
     const selectedInfo: SelectedInfo | null =
-      selectedIndex === null
+      selectedIndex === null || selectedIndex >= world.n
         ? null
         : {
             index: selectedIndex,
-            name: game.meta[selectedIndex].name,
-            ownerName: game.holders.get(game.ownerId[selectedIndex])?.name ?? "?",
-            isMine: game.ownerId[selectedIndex] === MY_HOLDER_ID,
-            troops: game.troops[selectedIndex],
-            cap: game.troopCap[selectedIndex],
+            name: world.meta[selectedIndex].name,
+            ownerName: world.holders.get(world.ownerId[selectedIndex])?.name ?? "?",
+            isMine: world.ownerId[selectedIndex] === world.myHolderId,
+            troops: world.troops[selectedIndex],
+            cap: world.troopCap[selectedIndex],
           };
 
     set({
       selectedInfo,
       leaderboard: getLeaderboard(),
-      myRank: computeRank(MY_HOLDER_ID),
-      logEntries: game.logEntries,
+      myRank: computeRank(world.myHolderId),
+      logEntries: world.logEntries,
     });
   },
 
