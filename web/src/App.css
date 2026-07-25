@@ -1,0 +1,153 @@
+.app-root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+}
+
+.map-view {
+  position: absolute;
+  inset: 0;
+}
+
+.hud-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 13px;
+}
+
+.hud-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #cbd5e1;
+}
+
+.hud-error {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.hud-error-detail {
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.hud-panel {
+  position: absolute;
+  pointer-events: auto;
+  background: rgba(15, 20, 32, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 180px;
+  backdrop-filter: blur(4px);
+}
+
+.hud-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #f1f5f9;
+}
+
+.hud-top-left {
+  top: 12px;
+  left: 12px;
+}
+
+.hud-top-right {
+  top: 12px;
+  right: 12px;
+}
+
+.hud-bottom-left {
+  bottom: 12px;
+  left: 12px;
+  max-width: 260px;
+}
+
+.hud-bottom-right {
+  bottom: 12px;
+  right: 12px;
+}
+
+.hud-rank {
+  margin-bottom: 6px;
+  color: #cbd5e1;
+}
+
+.hud-leaderboard {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.hud-leaderboard li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+}
+
+.hud-leaderboard li.me {
+  color: #fecaca;
+  font-weight: 600;
+}
+
+.hud-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.hud-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  color: #cbd5e1;
+}
+
+.hud-log-empty {
+  color: #64748b;
+}
+
+.hud-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  margin-top: 4px;
+}
+
+.hud-sortie {
+  margin-top: 6px;
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.hud-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  pointer-events: none;
+  font-weight: 600;
+}
