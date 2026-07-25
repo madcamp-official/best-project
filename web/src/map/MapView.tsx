@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadSeoulDong";
-import * as game from "../game/state";
+import { game, tickProduction, tickOrders, drainDirty, trySortie } from "../game/state";
 import { useUIStore } from "../store/uiStore";
 import { MY_HOLDER_ID, PALETTE } from "../config";
 
@@ -315,10 +315,10 @@ export function MapView({ prepared }: Props) {
     const loop = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
-      game.tickProduction(dt);
-      game.tickOrders(now); // 도착한 유닛의 전투/증원 처리 (dirty 추가)
+      tickProduction(dt);
+      tickOrders(now); // 도착한 유닛의 전투/증원 처리 (dirty 추가)
 
-      const changed = game.drainDirty();
+      const changed = drainDirty();
       if (changed.length > 0 && map.isStyleLoaded()) {
         // 소유권이 바뀐 동 + 그 동에 접한 아크만 다시 계산해 국경선을 갱신한다.
         const arcsToUpdate = new Set<number>();
@@ -416,7 +416,7 @@ function handleAction(idx: number) {
     return;
   }
 
-  const result = game.trySortie(selectedIndex, idx, MY_HOLDER_ID);
+  const result = trySortie(selectedIndex, idx, MY_HOLDER_ID);
   if (!result.ok) showToast(result.reason);
   // 소유권 변경분(채움색·국경선)은 rAF 루프가 dirty set을 보고 반영한다.
   useUIStore.getState().refreshSummary();

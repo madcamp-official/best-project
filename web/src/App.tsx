@@ -4,7 +4,7 @@ import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
 import { loadSeoulDong } from "./data/loadSeoulDong";
 import type { PreparedMap } from "./data/loadSeoulDong";
-import * as game from "./game/state";
+import { initGame, pickStartIndex } from "./game/state";
 import { useUIStore } from "./store/uiStore";
 
 // README.md §9 마일스톤 1~2 — 서버 없는 오프라인 목업.
@@ -19,8 +19,8 @@ function App() {
       try {
         const map = await loadSeoulDong();
         if (cancelled) return;
-        const startIndex = game.pickStartIndex(map.meta);
-        game.initGame(map.n, map.neighborIndex, map.meta, startIndex);
+        const startIndex = pickStartIndex(map.meta);
+        initGame(map.n, map.neighborIndex, map.meta, startIndex);
         setPrepared(map);
       } catch (err) {
         if (cancelled) return;

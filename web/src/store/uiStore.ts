@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { MY_HOLDER_ID } from "../config";
-import * as game from "../game/state";
+import { game, getLeaderboard, computeRank } from "../game/state";
 import type { LeaderboardRow } from "../game/state";
 import type { LogEntry, Rank } from "../game/types";
 
@@ -66,8 +66,8 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     set({
       selectedInfo,
-      leaderboard: game.getLeaderboard(),
-      myRank: game.computeRank(MY_HOLDER_ID),
+      leaderboard: getLeaderboard(),
+      myRank: computeRank(MY_HOLDER_ID),
       logEntries: game.logEntries,
     });
   },
