@@ -5,7 +5,7 @@
 
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadDong";
-import { CONFIG, MY_HOLDER_ID } from "../config";
+import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
 import type { Order } from "../game/types";
 import type { Connection } from "./connection";
 import type {
@@ -33,17 +33,49 @@ export class LocalConnection implements Connection {
   private tickCount = 0;
   private pendingOrders: Order[] = []; // 이번 DELTA 구간에 새로 발주된 이동 유닛
   private lastSentLogId = 0;
+  private startIndex: number;
+  private envTimerMs = 0; // 환경 세력 행동 주기 누산기
 
   constructor(private prepared: PreparedMap) {
     // core가 유일한 진실. 시작 동 배정 = 데이터 무게중심 근처(목업).
-    const startIndex = core.pickStartIndex(prepared.meta);
+    this.startIndex = core.pickStartIndex(prepared.meta);
     this.gs = core.createGameState(
       prepared.n,
       prepared.neighborIndex,
       prepared.meta,
-      startIndex,
+      this.startIndex,
       Date.now()
     );
+    // 환경 세력(E) 스폰 — 시작 동에서 몇 홉 떨어진 소규모 클러스터(초반에 만날 수 있게).
+    core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
+  }
+
+  // 플레이어 시작 동에서 BFS로 ~4홉 떨어진 씨앗 + 인접 중립 동으로 E 시작 클러스터를 만든다.
+  // (README §4.6 "외곽 스폰"의 데모 절충 — 중앙 시작이라 근처 링에 둬야 초반에 조우한다.)
+  private pickEnvCells(): number[] {
+    const { neighborIndex, n } = this.prepared;
+    const dist = new Int32Array(n).fill(-1);
+    const q: number[] = [this.startIndex];
+    dist[this.startIndex] = 0;
+    let seed = -1;
+    for (let h = 0; h < q.length; h++) {
+      const cur = q[h];
+      if (seed < 0 && dist[cur] >= 4) seed = cur;
+      for (const nb of neighborIndex[cur]) {
+        if (dist[nb] === -1) {
+          dist[nb] = dist[cur] + 1;
+          q.push(nb);
+        }
+      }
+    }
+    if (seed < 0) seed = q.length > 1 ? q[q.length - 1] : this.startIndex;
+
+    const cells = [seed];
+    for (const nb of neighborIndex[seed]) {
+      if (cells.length >= CONFIG.ENV_START_CELLS) break;
+      if (this.gs.ownerId[nb] === NEUTRAL_HOLDER_ID) cells.push(nb);
+    }
+    return cells;
   }
 
   join(nickname: string, token?: string): void {
@@ -87,6 +119,14 @@ export class LocalConnection implements Connection {
 
     core.tickProduction(this.gs, dt);
     core.tickOrders(this.gs, now, wall); // 도착 유닛 전투 처리(dirty·log 갱신)
+
+    // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
+    this.envTimerMs += TICK_MS;
+    if (this.envTimerMs >= CONFIG.ENV_ACT_INTERVAL_SEC * 1000) {
+      this.envTimerMs = 0;
+      const envOrder = core.tickEnv(this.gs, now);
+      if (envOrder) this.pendingOrders.push(envOrder);
+    }
 
     this.flushDelta(now);
 

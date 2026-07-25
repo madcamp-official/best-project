@@ -5,7 +5,7 @@ import type { PreparedMap } from "../data/loadDong";
 import { world, drainDirty, pruneArrivedOrders } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
-import { MY_HOLDER_ID, PALETTE } from "../config";
+import { PALETTE } from "../config";
 
 interface Props {
   prepared: PreparedMap;
@@ -62,6 +62,10 @@ export function MapView({ prepared, connection }: Props) {
     // 우클릭을 병력 이동/공격에 쓰므로 우클릭 드래그 회전을 끈다 (평면 톱다운 유지).
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
+    // 개발 편의용 디버그 훅 (프로덕션 빌드에선 제외됨).
+    if (import.meta.env.DEV) {
+      Object.assign(window, { __map: map, __world: world });
+    }
 
     map.on("error", (e) => {
       console.error("[maplibre error]", e.error);
@@ -94,7 +98,8 @@ export function MapView({ prepared, connection }: Props) {
         type: "fill",
         source: SOURCE_ID,
         paint: {
-          "fill-color": buildOwnerColorExpr("fill"),
+          // feature-state "owner"에는 holder의 paletteIdx(색 슬롯)를 넣는다.
+          "fill-color": buildPaletteMatchExpr(["feature-state", "owner"], "fill"),
           "fill-opacity": ["case", ["==", ["feature-state", "owner"], 0], 0.16, 0.42],
         },
       });
@@ -206,7 +211,7 @@ export function MapView({ prepared, connection }: Props) {
         source: UNIT_SOURCE,
         paint: {
           "circle-radius": 8,
-          "circle-color": PALETTE[MY_HOLDER_ID].stroke,
+          "circle-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 2,
         },
@@ -231,7 +236,7 @@ export function MapView({ prepared, connection }: Props) {
       });
 
       for (let i = 0; i < prepared.n; i++) {
-        map.setFeatureState({ source: SOURCE_ID, id: i }, { owner: world.ownerId[i] });
+        map.setFeatureState({ source: SOURCE_ID, id: i }, { owner: paletteIdxOf(world.ownerId[i]) });
       }
       for (let i = 0; i < prepared.arcSides.length; i++) {
         setArcState(map, prepared, i);
@@ -330,7 +335,7 @@ export function MapView({ prepared, connection }: Props) {
         // 소유권이 바뀐 동 + 그 동에 접한 아크만 다시 계산해 국경선을 갱신한다.
         const arcsToUpdate = new Set<number>();
         for (const idx of changed) {
-          map.setFeatureState({ source: SOURCE_ID, id: idx }, { owner: world.ownerId[idx] });
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { owner: paletteIdxOf(world.ownerId[idx]) });
           for (const ai of prepared.dongArcs[idx]) arcsToUpdate.add(ai);
         }
         for (const ai of arcsToUpdate) setArcState(map, prepared, ai);
@@ -382,10 +387,10 @@ function setArcState(map: MaplibreMap, prepared: PreparedMap, i: number) {
   const oa = a >= 0 ? world.ownerId[a] : -1;
   const ob = b >= 0 ? world.ownerId[b] : -1; // -1 = 지도 바깥
   const frontier = oa !== ob;
-  const holder = borderHolder(oa, ob);
+  const pIdx = paletteIdxOf(borderHolder(oa, ob));
   map.setFeatureState(
     { source: ARC_SOURCE, id: i },
-    { frontier, color: (PALETTE[holder] ?? PALETTE[0]).stroke }
+    { frontier, color: (PALETTE[pIdx] ?? PALETTE[0]).stroke }
   );
 }
 
@@ -463,7 +468,7 @@ function updateUnits(map: MaplibreMap, now: number) {
     const b = world.meta[o.to].centroid;
     return {
       type: "Feature" as const,
-      properties: { amount: o.amount },
+      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId) },
       geometry: {
         type: "Point" as const,
         coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
@@ -483,9 +488,14 @@ function averageCenter(prepared: PreparedMap): [number, number] {
   return [sx / prepared.meta.length, sy / prepared.meta.length];
 }
 
-// owner(feature-state, holderId) → PALETTE 색 매칭 expression. 매칭 실패 시 중립색 fallback.
-function buildOwnerColorExpr(kind: "fill" | "stroke") {
-  const expr: unknown[] = ["match", ["feature-state", "owner"]];
+// holderId → 그 holder의 paletteIdx (색 슬롯). holder 미등록/미상은 중립(0).
+function paletteIdxOf(holderId: number): number {
+  return world.holders.get(holderId)?.paletteIdx ?? 0;
+}
+
+// paletteIdx(keyExpr가 가리키는 값) → PALETTE 색 매칭 expression. 매칭 실패 시 중립색 fallback.
+function buildPaletteMatchExpr(keyExpr: unknown, kind: "fill" | "stroke") {
+  const expr: unknown[] = ["match", keyExpr];
   PALETTE.forEach((c, idx) => {
     expr.push(idx, kind === "fill" ? c.fill : c.stroke);
   });

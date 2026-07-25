@@ -1,5 +1,5 @@
 import { useUIStore } from "../store/uiStore";
-import { CONFIG, MY_HOLDER_ID, PALETTE } from "../config";
+import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, PALETTE } from "../config";
 
 export function Hud() {
   const phase = useUIStore((s) => s.phase);
@@ -67,6 +67,9 @@ export function Hud() {
         </div>
         <div className="hud-legend-row">
           <span className="hud-swatch" style={{ background: PALETTE[1].stroke }} /> 나
+        </div>
+        <div className="hud-legend-row">
+          <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} /> 야만인 (E)
         </div>
       </div>
 
