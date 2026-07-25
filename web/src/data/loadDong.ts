@@ -28,13 +28,15 @@ export interface PreparedMap {
   arcGeojson: FeatureCollection<LineString>;
   arcSides: ArcSide[];
   dongArcs: number[][]; // admIndex → 그 동에 접한 아크 인덱스 목록
+  isolated: number[]; // 인접 차수 0인 동(섬·월경지) admIndex 목록 (README §2.3)
 }
 
 type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 
-// README.md §2 데이터 절 — admdongkor light emd → 서울 스코프로 필터 →
+// README.md §2 데이터 절 — admdongkor light emd 로드 → (SCOPE_SIDOCD 필터) →
 // TopoJSON 위상으로 인접 그래프 + 아크(공유 경계선) 추출 → polylabel 라벨 지점 계산.
-export async function loadSeoulDong(): Promise<PreparedMap> {
+// SCOPE_SIDOCD = null 이면 전국 전체(~3,500동), 시도 코드면 해당 시도만(성능 폴백).
+export async function loadDong(): Promise<PreparedMap> {
   const versions = adk.versions();
   const latest = versions[versions.length - 1];
   const fc = (await adk.get(latest, "emd")) as unknown as FeatureCollection<
@@ -50,7 +52,7 @@ export async function loadSeoulDong(): Promise<PreparedMap> {
   >;
 
   const filtered = fc.features.filter(
-    (f) => f.properties.sidocd === SCOPE_SIDOCD && f.properties.emd8
+    (f) => f.properties.emd8 && (SCOPE_SIDOCD === null || f.properties.sidocd === SCOPE_SIDOCD)
   );
 
   const meta: DongStaticMeta[] = [];
@@ -94,7 +96,18 @@ export async function loadSeoulDong(): Promise<PreparedMap> {
   const n = meta.length;
   const { arcGeojson, arcSides, dongArcs } = extractArcs(topo, geomCollection, n);
 
-  return { n, geojson, meta, neighborIndex, arcGeojson, arcSides, dongArcs };
+  // README §2.3 — 인접 차수 0(섬·월경지) 실측. 전국 전환 시 처리 방침 판단 자료.
+  const isolated: number[] = [];
+  for (let i = 0; i < n; i++) if (neighborIndex[i].length === 0) isolated.push(i);
+  if (isolated.length > 0) {
+    const names = isolated.slice(0, 20).map((i) => meta[i].name).join(", ");
+    console.warn(
+      `[loadDong] 인접 차수 0인 동 ${isolated.length}개 (섬·월경지): ${names}` +
+        (isolated.length > 20 ? " …" : "")
+    );
+  }
+
+  return { n, geojson, meta, neighborIndex, arcGeojson, arcSides, dongArcs, isolated };
 }
 
 // TopoJSON 아크는 인접한 두 폴리곤이 하나로 공유한다. 각 아크가 어떤 동들에

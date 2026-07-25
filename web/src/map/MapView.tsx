@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { PreparedMap } from "../data/loadSeoulDong";
+import type { PreparedMap } from "../data/loadDong";
 import { game, tickProduction, tickOrders, drainDirty, trySortie } from "../game/state";
 import { useUIStore } from "../store/uiStore";
 import { MY_HOLDER_ID, PALETTE } from "../config";

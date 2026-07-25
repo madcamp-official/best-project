@@ -19,9 +19,9 @@ export const CONFIG = {
 export const NEUTRAL_HOLDER_ID = 0;
 export const MY_HOLDER_ID = 1;
 
-// 목업 범위: 서울 424동 (README.md §2.3 — 지리를 눈으로 알아 인접 그래프 버그를 잡기 쉬움)
-export const SCOPE_SIDOCD = "11";
-export const SCOPE_SIDONM = "서울특별시";
+// 범위 (README.md §2.3): null = 전국 전체(~3,500동, 데모 기본).
+// "11" 처럼 시도 코드를 넣으면 그 시도만 로드 — 전국 렌더 성능이 막힐 때의 폴백.
+export const SCOPE_SIDOCD: string | null = null;
 
 // holderId(팔레트 인덱스) → 채움/테두리 색.
 // 플레이어 구분은 테두리(진하고 채도 높은 색)가 담당하고, 채움은 그 위에 얹는

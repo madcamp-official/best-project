@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
-import { loadSeoulDong } from "./data/loadSeoulDong";
-import type { PreparedMap } from "./data/loadSeoulDong";
+import { loadDong } from "./data/loadDong";
+import type { PreparedMap } from "./data/loadDong";
 import { initGame, pickStartIndex } from "./game/state";
 import { useUIStore } from "./store/uiStore";
 
@@ -17,7 +17,7 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const map = await loadSeoulDong();
+        const map = await loadDong();
         if (cancelled) return;
         const startIndex = pickStartIndex(map.meta);
         initGame(map.n, map.neighborIndex, map.meta, startIndex);
