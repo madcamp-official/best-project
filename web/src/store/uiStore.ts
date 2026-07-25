@@ -48,6 +48,10 @@ interface UIState {
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 계급 승급 토스트용 — 직전 계급 레벨. -1 = 아직 초기화 전(첫 계산은 토스트 안 함).
+const RANK_LEVEL: Record<string, number> = { 동장: 1, 시장: 2, 도지사: 3 };
+let prevRankLevel = -1;
+
 export const useUIStore = create<UIState>((set, get) => ({
   phase: "loading",
   errorMessage: null,
@@ -83,12 +87,20 @@ export const useUIStore = create<UIState>((set, get) => ({
           };
 
     // 순위표는 서버 LEADERBOARD로 갱신되므로 여기서 건드리지 않는다.
+    const myRank = computeRank(world.myHolderId);
     set({
       selectedInfo,
       myHolderId: world.myHolderId,
-      myRank: computeRank(world.myHolderId),
+      myRank,
       logEntries: world.logEntries,
     });
+
+    // 계급 승급 토스트 (첫 계산과 강등은 제외).
+    const lvl = myRank ? RANK_LEVEL[myRank] : 0;
+    if (prevRankLevel >= 0 && lvl > prevRankLevel && myRank) {
+      get().showToast(`${myRank} 승급! 🎉`);
+    }
+    prevRankLevel = lvl;
   },
 
   setLeaderboard: (rows, envCells, totalCells) => {

@@ -60,6 +60,17 @@ function App() {
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
     connectionRef.current?.join(nickname, token);
+    // 첫 참가자에게만 조작 안내 (한 번 보면 다시 안 뜸).
+    if (!localStorage.getItem("onboarded")) {
+      localStorage.setItem("onboarded", "1");
+      setTimeout(
+        () =>
+          useUIStore
+            .getState()
+            .showToast("좌클릭으로 내 동 선택 → 우클릭으로 출정! 야만인을 물리치고 영토를 넓히세요"),
+        900
+      );
+    }
   };
 
   return (

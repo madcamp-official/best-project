@@ -15,7 +15,11 @@ export function Hud() {
   if (phase === "loading") {
     return (
       <div className="hud-overlay hud-center">
-        <p>전국 행정동 지도를 불러오는 중...</p>
+        <div className="loading-box">
+          <div className="loading-spinner" />
+          <p className="loading-title">전국 지도를 준비하는 중…</p>
+          <p className="loading-sub">3,500개 행정동의 경계·인접 그래프를 계산하고 있어요</p>
+        </div>
       </div>
     );
   }
