@@ -38,9 +38,13 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.myHolderId = msg.holderId;
 }
 
+// 함락(소유권 변경)이 일어난 admIndex 큐 — 렌더러가 꺼내 플래시 연출에 쓴다.
+export const captureFlashes: number[] = [];
+
 // DELTA 적용 — 변경된 동만 갱신하고 dirty에 모은다(렌더러가 배치 반영).
 export function applyDelta(msg: DeltaMessage) {
   for (const [admIndex, owner, troops] of msg.cells) {
+    if (world.ownerId[admIndex] !== owner) captureFlashes.push(admIndex); // 소유권 변경 = 함락
     world.ownerId[admIndex] = owner;
     world.troops[admIndex] = troops;
     world.dirty.add(admIndex);
@@ -50,6 +54,11 @@ export function applyDelta(msg: DeltaMessage) {
     // 서버가 최신순으로 보낸다고 가정하고 앞에 붙인다(README §8 append-only 로그).
     world.logEntries = [...msg.events, ...world.logEntries].slice(0, 30);
   }
+}
+
+export function drainCaptureFlashes(): number[] {
+  if (captureFlashes.length === 0) return [];
+  return captureFlashes.splice(0, captureFlashes.length);
 }
 
 // 도착 시각이 지난 이동 유닛을 시각적으로 제거한다(api-spec §2.5).

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadDong";
-import { world, drainDirty, pruneArrivedOrders } from "../world/worldView";
+import { world, drainDirty, pruneArrivedOrders, drainCaptureFlashes } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
 import { PALETTE } from "../config";
@@ -18,6 +18,8 @@ const SOURCE_ID = "dong";
 const FILL_LAYER = "dong-fill";
 const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
+const FLASH_LAYER = "dong-flash";
+const FLASH_MS = 600; // 함락 플래시 지속 시간
 const ARC_SOURCE = "arcs";
 const FRONTIER_GLOW = "frontier-glow";
 const FRONTIER_LAYER = "frontier";
@@ -51,8 +53,8 @@ export function MapView({ prepared, connection }: Props) {
         sources: {},
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1220" } }],
       },
-      center: averageCenter(prepared),
-      zoom: 10.4,
+      center: myStartCenter(prepared), // 시작 시 내 영토로 카메라 이동
+      zoom: 11,
       attributionControl: false,
       doubleClickZoom: false, // 더블클릭 확대 비활성화 (동을 빠르게 두 번 클릭할 때 오확대 방지)
     });
@@ -100,7 +102,13 @@ export function MapView({ prepared, connection }: Props) {
         paint: {
           // feature-state "owner"에는 holder의 paletteIdx(색 슬롯)를 넣는다.
           "fill-color": buildPaletteMatchExpr(["feature-state", "owner"], "fill"),
-          "fill-opacity": ["case", ["==", ["feature-state", "owner"], 0], 0.16, 0.42],
+          // 내 영토(mine)는 더 진하게 강조 → 한눈에 구분.
+          "fill-opacity": [
+            "case",
+            ["==", ["feature-state", "owner"], 0], 0.16,
+            ["==", ["feature-state", "mine"], true], 0.55,
+            0.4,
+          ],
         },
       });
 
@@ -154,6 +162,16 @@ export function MapView({ prepared, connection }: Props) {
           "line-color": "#ffffff",
           "line-width": 2.5,
           "line-opacity": ["case", ["==", ["feature-state", "selected"], true], 1, 0],
+        },
+      });
+      // 함락 순간 흰색 플래시(짧게 번쩍이고 사라진다). feature-state "flash"(0~1)를 rAF가 페이드.
+      map.addLayer({
+        id: FLASH_LAYER,
+        type: "fill",
+        source: SOURCE_ID,
+        paint: {
+          "fill-color": "#ffffff",
+          "fill-opacity": ["coalesce", ["feature-state", "flash"], 0],
         },
       });
 
@@ -236,7 +254,10 @@ export function MapView({ prepared, connection }: Props) {
       });
 
       for (let i = 0; i < prepared.n; i++) {
-        map.setFeatureState({ source: SOURCE_ID, id: i }, { owner: paletteIdxOf(world.ownerId[i]) });
+        map.setFeatureState(
+          { source: SOURCE_ID, id: i },
+          { owner: paletteIdxOf(world.ownerId[i]), mine: world.ownerId[i] === world.myHolderId }
+        );
       }
       for (let i = 0; i < prepared.arcSides.length; i++) {
         setArcState(map, prepared, i);
@@ -322,6 +343,7 @@ export function MapView({ prepared, connection }: Props) {
     let raf = 0;
     let lastSummaryAt = 0;
     let hadUnits = false;
+    const flashing = new Map<number, number>(); // admIndex → 플래시 시작 시각
     const loop = (now: number) => {
       // 소스가 아직 없으면(load 핸들러 전) 아무것도 하지 않는다 — dirty를 소진하지 않아 보존된다.
       if (!map.getSource(SOURCE_ID)) {
@@ -335,11 +357,26 @@ export function MapView({ prepared, connection }: Props) {
         // 소유권이 바뀐 동 + 그 동에 접한 아크만 다시 계산해 국경선을 갱신한다.
         const arcsToUpdate = new Set<number>();
         for (const idx of changed) {
-          map.setFeatureState({ source: SOURCE_ID, id: idx }, { owner: paletteIdxOf(world.ownerId[idx]) });
+          map.setFeatureState(
+            { source: SOURCE_ID, id: idx },
+            { owner: paletteIdxOf(world.ownerId[idx]), mine: world.ownerId[idx] === world.myHolderId }
+          );
           for (const ai of prepared.dongArcs[idx]) arcsToUpdate.add(ai);
         }
         for (const ai of arcsToUpdate) setArcState(map, prepared, ai);
         updateBadges(map, prepared);
+      }
+
+      // 함락 플래시 — 새 함락은 시작 시각 기록, 매 프레임 흰색을 페이드아웃.
+      for (const idx of drainCaptureFlashes()) flashing.set(idx, now);
+      for (const [idx, start] of flashing) {
+        const a = 1 - (now - start) / FLASH_MS;
+        if (a <= 0) {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: 0 });
+          flashing.delete(idx);
+        } else {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: a * 0.6 });
+        }
       }
 
       // 이동 중인 유닛 원 위치를 매 프레임 갱신. 없으면 마지막에 한 번 비운다.
@@ -486,6 +523,14 @@ function averageCenter(prepared: PreparedMap): [number, number] {
     sy += m.centroid[1];
   }
   return [sx / prepared.meta.length, sy / prepared.meta.length];
+}
+
+// 내 첫 영토 동의 중심 — 시작 시 카메라를 여기로. 내 동이 없으면 전체 무게중심.
+function myStartCenter(prepared: PreparedMap): [number, number] {
+  for (let i = 0; i < world.n; i++) {
+    if (world.ownerId[i] === world.myHolderId) return world.meta[i].centroid;
+  }
+  return averageCenter(prepared);
 }
 
 // holderId → 그 holder의 paletteIdx (색 슬롯). holder 미등록/미상은 중립(0).
