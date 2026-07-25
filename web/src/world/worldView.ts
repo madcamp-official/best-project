@@ -63,3 +63,4 @@ export function pruneArrivedOrders(nowMs: number) {
 export const drainDirty = () => core.drainDirty(world);
 export const getLeaderboard = () => core.getLeaderboard(world);
 export const computeRank = (holderId: number) => core.computeRank(world, holderId);
+export const envCellCount = () => core.envCellCount(world);

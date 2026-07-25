@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import { world, getLeaderboard, computeRank } from "../world/worldView";
-import type { LeaderboardRow } from "../game/core";
+import { world, computeRank } from "../world/worldView";
 import type { LogEntry, Rank } from "../game/types";
 
 export interface SelectedInfo {
@@ -12,6 +11,14 @@ export interface SelectedInfo {
   cap: number;
 }
 
+// 순위표 한 줄 — 서버 LEADERBOARD 메시지(holderId/name/count)에 색 슬롯(paletteIdx)을 붙인 것.
+export interface LeaderboardRowUI {
+  holderId: number;
+  name: string;
+  count: number;
+  paletteIdx: number;
+}
+
 // README.md §1 기술 스택 — "UI 상태(선택 동, HUD)"만 Zustand에 둔다.
 // 3,500개 동 배열 자체는 world/worldView.ts(React 밖, 서버 상태 사본)에 두고 요약만 끌어온다.
 interface UIState {
@@ -19,7 +26,10 @@ interface UIState {
   errorMessage: string | null;
   selectedIndex: number | null;
   selectedInfo: SelectedInfo | null;
-  leaderboard: LeaderboardRow[];
+  leaderboard: LeaderboardRowUI[];
+  envCells: number; // 환경 세력(E) 잔존 동 수 (README §8)
+  totalCells: number;
+  myHolderId: number;
   myRank: Rank;
   logEntries: LogEntry[];
   toast: string | null;
@@ -27,6 +37,12 @@ interface UIState {
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
+  // 서버 LEADERBOARD 메시지 반영 (rows는 중립·E 제외된 플레이어 순위).
+  setLeaderboard: (
+    rows: { holderId: number; name: string; count: number }[],
+    envCells: number,
+    totalCells: number
+  ) => void;
   showToast: (message: string) => void;
 }
 
@@ -38,6 +54,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   selectedIndex: null,
   selectedInfo: null,
   leaderboard: [],
+  envCells: 0,
+  totalCells: 0,
+  myHolderId: 0,
   myRank: null,
   logEntries: [],
   toast: null,
@@ -63,12 +82,21 @@ export const useUIStore = create<UIState>((set, get) => ({
             cap: world.troopCap[selectedIndex],
           };
 
+    // 순위표는 서버 LEADERBOARD로 갱신되므로 여기서 건드리지 않는다.
     set({
       selectedInfo,
-      leaderboard: getLeaderboard(),
+      myHolderId: world.myHolderId,
       myRank: computeRank(world.myHolderId),
       logEntries: world.logEntries,
     });
+  },
+
+  setLeaderboard: (rows, envCells, totalCells) => {
+    const leaderboard: LeaderboardRowUI[] = rows.map((r) => ({
+      ...r,
+      paletteIdx: world.holders.get(r.holderId)?.paletteIdx ?? 0,
+    }));
+    set({ leaderboard, envCells, totalCells });
   },
 
   showToast: (message) => {
