@@ -40,6 +40,7 @@ class JoinController(
                 troopCap = world.troopCap.copyOf(),
                 holders = world.holders.values.toList(),
                 orders = world.orders.toList(),
+                missiles = (0 until world.n).filter { world.missile[it] },
             )
         }
         messagingTemplate.convertAndSendToUser(principal.name, "/queue/welcome", welcome)

@@ -24,11 +24,20 @@ data class WelcomeMessage(
     val troopCap: IntArray,
     val holders: List<Holder>,
     val orders: List<Order>,
+    val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
 )
 
 // ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
 // 서버가 CONFIG.SORTIE_RATIO로 대체한다(web/src/net/protocol.ts §2.3과 동일 계약).
 data class SortieCommand(val from: Int, val to: Int, val ratio: Double? = null)
+
+// 미사일 발사(C→S, /app/missile). center=[lng,lat], radius=반경(도), hits=원에 겹치는 동
+// admIndex(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를 소모해 적용.
+data class LaunchMissileCommand(
+    val center: List<Double> = emptyList(),
+    val radius: Double = 0.0,
+    val hits: List<Int> = emptyList(),
+)
 
 data class ErrorMessage(val code: String, val message: String, val from: Int, val to: Int)
 
@@ -38,6 +47,8 @@ data class DeltaMessage(
     val cells: List<IntArray>,
     val newOrders: List<Order>,
     val events: List<LogEvent>,
+    val missileAdd: List<Int>, // 이번 구간에 새로 스폰된 미사일 동
+    val missileRemove: List<Int>, // 이번 구간에 사라진 미사일 동(발사 소모)
 )
 
 data class LeaderboardMessage(

@@ -14,6 +14,8 @@ export interface Connection {
   join(nickname: string, token?: string): void;
   // 출정/이동 명령 전송. ratio = 이번 출정에 보낼 병력 비율(0~1, UI 슬라이더). amount는 서버가 계산.
   sendSortie(from: number, to: number, ratio: number): void;
+  // 미사일 발사. center=원 중심[lng,lat], radius=반경(도), hits=원에 겹치는 동 admIndex(클라 계산).
+  sendMissile(center: [number, number], radius: number, hits: number[]): void;
 
   // 서버 → 클라 이벤트 구독. 각 1개 콜백만 등록(단순화).
   onWelcome(cb: (msg: WelcomeMessage) => void): void;

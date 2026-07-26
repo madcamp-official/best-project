@@ -21,10 +21,13 @@ class World(
     val holders: LinkedHashMap<Int, Holder> = LinkedHashMap()
     val orders: MutableList<Order> = mutableListOf() // 이동 중인 유닛(원)
     val dirty: MutableSet<Int> = HashSet()
+    val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)
 
     // 이번 tick 구간에 발생한 것 — DELTA 브로드캐스트 후 비운다(api-spec.md §2.5).
     val pendingNewOrders: MutableList<Order> = mutableListOf()
     val pendingEvents: MutableList<LogEvent> = mutableListOf()
+    val pendingMissileAdd: MutableList<Int> = mutableListOf()
+    val pendingMissileRemove: MutableList<Int> = mutableListOf()
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
     var nextLogId: Int = 1

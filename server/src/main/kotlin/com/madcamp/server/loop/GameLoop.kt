@@ -41,6 +41,8 @@ class GameLoop(
 
     private var lastTickNanos = 0L
     private var tickCount = 0L
+    private val rng = java.util.Random()
+    private var missileAccumSec = 0.0
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
@@ -97,6 +99,14 @@ class GameLoop(
         GameCore.tickOrders(world, config, wallNow)
         EnvAi.maybeAct(world, config, wallNow)
 
+        // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
+        missileAccumSec += dtSec
+        if (missileAccumSec >= config.missileSpawnSec) {
+            missileAccumSec = 0.0
+            val spawned = GameCore.trySpawnMissile(world, config, rng)
+            if (spawned >= 0) world.pendingMissileAdd.add(spawned)
+        }
+
         broadcastDelta(wallNow)
         tickCount++
         if (tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) broadcastLeaderboard()
@@ -111,10 +121,21 @@ class GameLoop(
         // msg.events를 앞에 붙인다 — pendingEvents는 발생 순(오래된 것부터)이라 뒤집어서 보낸다.
         val events = world.pendingEvents.asReversed().toList()
         world.pendingEvents.clear()
-        if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty()) return
+        val missileAdd = world.pendingMissileAdd.toList()
+        world.pendingMissileAdd.clear()
+        val missileRemove = world.pendingMissileRemove.toList()
+        world.pendingMissileRemove.clear()
+        if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
+            missileAdd.isEmpty() && missileRemove.isEmpty()
+        ) {
+            return
+        }
 
         val cells = dirty.map { intArrayOf(it, world.ownerId[it], world.troops[it]) }
-        messagingTemplate.convertAndSend("/topic/world", DeltaMessage(nowMs, cells, newOrders, events))
+        messagingTemplate.convertAndSend(
+            "/topic/world",
+            DeltaMessage(nowMs, cells, newOrders, events, missileAdd, missileRemove),
+        )
     }
 
     private fun broadcastLeaderboard() {

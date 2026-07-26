@@ -37,6 +37,13 @@ data class GameConfig(
     @JsonProperty("ENV_BOUNTY") var envBounty: Int = 10,
     @JsonProperty("ENV_MAX_RATIO") var envMaxRatio: Double = 0.04,
     @JsonProperty("ENV_MIN_PRESENCE") var envMinPresence: Int = 4,
+
+    // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
+    @JsonProperty("MISSILE_SPAWN_SEC") var missileSpawnSec: Double = 10.0,
+    @JsonProperty("MISSILE_MAX_PER_PLAYER") var missileMaxPerPlayer: Int = 5,
+    @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.02,
+    @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.06, // 발사 반경 검증 상한
+    @JsonProperty("MISSILE_HIT_MARGIN_DEG") var missileHitMarginDeg: Double = 0.05, // 타격 centroid 근접 여유
 )
 
 /** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */

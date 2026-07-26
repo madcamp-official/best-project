@@ -2,10 +2,16 @@ import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadDong";
-import { world, drainDirty, pruneArrivedOrders, drainCaptureFlashes } from "../world/worldView";
+import {
+  world,
+  drainDirty,
+  pruneArrivedOrders,
+  drainCaptureFlashes,
+  drainMissilesTouched,
+} from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
-import { PALETTE } from "../config";
+import { CONFIG, PALETTE } from "../config";
 
 interface Props {
   prepared: PreparedMap;
@@ -29,6 +35,12 @@ const NAME_LAYER = "dong-name-layer";
 const UNIT_SOURCE = "units";
 const UNIT_CIRCLE_LAYER = "unit-circle";
 const UNIT_LABEL_LAYER = "unit-label";
+const MISSILE_SOURCE = "missiles";
+const MISSILE_LAYER = "missiles-layer";
+const AIM_CIRCLE_SOURCE = "aim-circle";
+const AIM_CIRCLE_FILL = "aim-circle-fill";
+const AIM_CIRCLE_LINE = "aim-circle-line";
+const AIM_BLINK_LAYER = "dong-aim-blink"; // 조준에 걸린 동의 하얀 반짝 테두리
 
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
@@ -72,6 +84,82 @@ export function MapView({ prepared, connection }: Props) {
     map.on("error", (e) => {
       console.error("[maplibre error]", e.error);
     });
+
+    // ── 미사일 조준 상태(이 이펙트 수명 동안 유지되는 명령형 상태) ──
+    const RADIUS = CONFIG.MISSILE_RADIUS_DEG;
+    let lastMouseLngLat: [number, number] | null = null;
+    let aimDirty = false; // 마우스가 움직였거나 조준을 막 시작 → 다음 프레임에 원/타격 재계산
+    let wasAiming = false;
+    const aimedSet = new Set<number>(); // 지금 원에 걸린 동(하얀 반짝 대상)
+
+    // 미사일이 얹힌 동 centroid에 마커를 다시 그린다.
+    const updateMissileMarkers = (m: MaplibreMap) => {
+      const src = m.getSource(MISSILE_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      const idxs: number[] = [];
+      for (let i = 0; i < world.n; i++) if (world.missiles[i]) idxs.push(i);
+      src.setData({
+        type: "FeatureCollection",
+        features: idxs.map((i) => ({
+          type: "Feature" as const,
+          properties: {},
+          geometry: { type: "Point" as const, coordinates: world.meta[i].centroid },
+        })),
+      });
+    };
+
+    // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 계산해 aimedSet에 담는다.
+    const updateAim = (center: [number, number]) => {
+      const [cx, cy] = center;
+      const cosLat = Math.cos((cy * Math.PI) / 180);
+      const rLng = RADIUS / cosLat; // 경도는 위도에 따라 실제 거리가 달라 보정(원처럼 보이게)
+
+      const ring: [number, number][] = [];
+      for (let i = 0; i <= 48; i++) {
+        const a = (i / 48) * 2 * Math.PI;
+        ring.push([cx + Math.cos(a) * rLng, cy + Math.sin(a) * RADIUS]);
+      }
+      const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
+      circleSrc?.setData({
+        type: "FeatureCollection",
+        features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }],
+      });
+
+      // 원의 경위도 bbox를 화면 좌표로 변환해 후보 동만 질의 → 폴리곤-원 교차로 확정.
+      const sw = map.project([cx - rLng, cy - RADIUS]);
+      const ne = map.project([cx + rLng, cy + RADIUS]);
+      const bbox: [[number, number], [number, number]] = [
+        [Math.min(sw.x, ne.x), Math.min(sw.y, ne.y)],
+        [Math.max(sw.x, ne.x), Math.max(sw.y, ne.y)],
+      ];
+      const feats = map.queryRenderedFeatures(bbox, { layers: [FILL_LAYER] });
+      const hit = new Set<number>();
+      for (const f of feats) {
+        if (f.id === undefined) continue;
+        const id = Number(f.id);
+        if (hit.has(id)) continue;
+        if (circleHitsPoly(cx, cy, RADIUS, cosLat, f.geometry)) hit.add(id);
+      }
+      for (const idx of aimedSet) {
+        if (!hit.has(idx)) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
+      }
+      aimedSet.clear();
+      for (const idx of hit) aimedSet.add(idx);
+    };
+
+    const clearAim = () => {
+      for (const idx of aimedSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
+      aimedSet.clear();
+      const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
+      circleSrc?.setData({ type: "FeatureCollection", features: [] });
+    };
+
+    // 발사: 지금 원에 걸린 동 목록을 서버로 보내고 조준 모드를 끝낸다. 서버가 중립화 후 DELTA.
+    const fireMissile = (center: [number, number]) => {
+      connection.sendMissile(center, RADIUS, Array.from(aimedSet));
+      clearAim();
+      useUIStore.getState().setAiming(false);
+    };
 
     map.on("load", () => {
       // 실제 지도 위에 스테인드글라스를 얹은 느낌: 아래는 실지도, 위는 반투명 색유리 동.
@@ -254,6 +342,57 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
+      // 미사일 마커 — 미사일이 얹힌 동 centroid에 앰버 원.
+      map.addSource(MISSILE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: MISSILE_LAYER,
+        type: "circle",
+        source: MISSILE_SOURCE,
+        paint: {
+          "circle-radius": 5,
+          "circle-color": "#ffcc33",
+          "circle-stroke-color": "#4a2f00",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
+      // 미사일 조준 원(마우스 따라다님) — 반투명 흰 채움 + 흰 점선 테두리.
+      map.addSource(AIM_CIRCLE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: AIM_CIRCLE_FILL,
+        type: "fill",
+        source: AIM_CIRCLE_SOURCE,
+        paint: { "fill-color": "#ffffff", "fill-opacity": 0.08 },
+      });
+      map.addLayer({
+        id: AIM_CIRCLE_LINE,
+        type: "line",
+        source: AIM_CIRCLE_SOURCE,
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 1.5,
+          "line-dasharray": [2, 2],
+          "line-opacity": 0.9,
+        },
+      });
+      // 조준에 걸린 동의 하얀 반짝 테두리 — feature-state "aim"(0~1)을 rAF가 펄스로 흔든다.
+      map.addLayer({
+        id: AIM_BLINK_LAYER,
+        type: "line",
+        source: SOURCE_ID,
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 3,
+          "line-opacity": ["coalesce", ["feature-state", "aim"], 0],
+        },
+      });
+
       for (let i = 0; i < prepared.n; i++) {
         map.setFeatureState(
           { source: SOURCE_ID, id: i },
@@ -264,6 +403,8 @@ export function MapView({ prepared, connection }: Props) {
         setArcState(map, prepared, i);
       }
       updateBadges(map, prepared);
+      updateMissileMarkers(map);
+      drainMissilesTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
 
       let hovered: number | null = null;
@@ -283,8 +424,18 @@ export function MapView({ prepared, connection }: Props) {
         map.getCanvas().style.cursor = "";
       });
 
-      // 좌클릭 = 동 선택(출정 시작점). 빈 곳 좌클릭 = 선택 해제.
+      // 조준용 마우스 추적(맵 전역). 실제 원/타격 계산은 rAF에서 프레임당 1회.
+      map.on("mousemove", (e) => {
+        lastMouseLngLat = [e.lngLat.lng, e.lngLat.lat];
+        if (useUIStore.getState().isAiming) aimDirty = true;
+      });
+
+      // 좌클릭 = 동 선택. 조준 중이면 = 그 위치로 미사일 발사. 빈 곳 = 선택 해제.
       map.on("click", (e) => {
+        if (useUIStore.getState().isAiming) {
+          fireMissile([e.lngLat.lng, e.lngLat.lat]);
+          return;
+        }
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
         if (hit && hit.id !== undefined) handleSelect(Number(hit.id), map);
@@ -294,6 +445,7 @@ export function MapView({ prepared, connection }: Props) {
       // 우클릭 = 선택한 동에서 그 동으로 병력 이동/공격.
       map.getCanvas().addEventListener("contextmenu", (ev) => ev.preventDefault());
       map.on("contextmenu", (e) => {
+        if (useUIStore.getState().isAiming) return; // 조준 중엔 우클릭 출정 비활성
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
         if (hit && hit.id !== undefined) handleAction(Number(hit.id), connection);
@@ -306,6 +458,11 @@ export function MapView({ prepared, connection }: Props) {
     // README.md §4.5 — 물리 키(e.code) 사용, 한글 IME 조합 중에는 무시.
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
+      // Esc = 미사일 조준 취소
+      if (e.code === "Escape" && useUIStore.getState().isAiming) {
+        useUIStore.getState().setAiming(false);
+        return;
+      }
       const step = 60;
       switch (e.code) {
         case "KeyW":
@@ -388,6 +545,26 @@ export function MapView({ prepared, connection }: Props) {
         updateUnits(map, now);
         hadUnits = false;
       }
+
+      // 미사일 마커(스폰/소모 시 갱신)
+      if (drainMissilesTouched()) updateMissileMarkers(map);
+
+      // 미사일 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스
+      const aimingNow = useUIStore.getState().isAiming;
+      if (aimingNow) {
+        if (!wasAiming) aimDirty = true; // 조준 시작 → 즉시 한 번 그린다
+        if (aimDirty && lastMouseLngLat) {
+          updateAim(lastMouseLngLat);
+          aimDirty = false;
+        }
+        const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
+        for (const idx of aimedSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: pulse });
+        map.getCanvas().style.cursor = "crosshair";
+      } else if (wasAiming) {
+        clearAim();
+        map.getCanvas().style.cursor = "";
+      }
+      wasAiming = aimingNow;
 
       if (now - lastSummaryAt > 250) {
         lastSummaryAt = now;
@@ -545,6 +722,68 @@ function myStartCenter(prepared: PreparedMap): [number, number] {
 // holderId → 그 holder의 paletteIdx (색 슬롯). holder 미등록/미상은 중립(0).
 function paletteIdxOf(holderId: number): number {
   return world.holders.get(holderId)?.paletteIdx ?? 0;
+}
+
+// 원(center=[lng,lat], 반경 r; 경도는 cosLat로 스케일)과 폴리곤이 조금이라도 겹치는가.
+// 중심이 폴리곤 안 · 꼭짓점이 원 안 · 변이 원에 근접, 셋 중 하나면 겹침으로 본다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function circleHitsPoly(cx: number, cy: number, r: number, cosLat: number, geom: any): boolean {
+  const polys: number[][][][] =
+    geom?.type === "Polygon" ? [geom.coordinates] : geom?.type === "MultiPolygon" ? geom.coordinates : [];
+  const r2 = r * r;
+  for (const poly of polys) {
+    if (pointInRing(cx, cy, poly[0])) return true;
+    for (const ring of poly) {
+      for (let i = 0; i < ring.length; i++) {
+        const j = (i + 1) % ring.length;
+        if (scaledDist2(cx, cy, ring[i][0], ring[i][1], cosLat) <= r2) return true;
+        if (segDist2(cx, cy, ring[i][0], ring[i][1], ring[j][0], ring[j][1], cosLat) <= r2) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 경도차를 cosLat로 스케일한 제곱거리(작은 원 안에서 원처럼 취급하기 위함).
+function scaledDist2(ax: number, ay: number, bx: number, by: number, cosLat: number): number {
+  const dx = (ax - bx) * cosLat;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+// 점(px,py)에서 선분(a→b)까지의 스케일 제곱거리.
+function segDist2(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cosLat: number
+): number {
+  const ex = (bx - ax) * cosLat;
+  const ey = by - ay;
+  const wx = (px - ax) * cosLat;
+  const wy = py - ay;
+  const len2 = ex * ex + ey * ey;
+  let t = len2 > 0 ? (wx * ex + wy * ey) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const dx = wx - t * ex;
+  const dy = wy - t * ey;
+  return dx * dx + dy * dy;
+}
+
+// 링(ring) 내부에 점(px,py)이 있는가 — 표준 레이캐스트.
+function pointInRing(px: number, py: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 // paletteIdx(keyExpr가 가리키는 값) → PALETTE 색 매칭 expression. 매칭 실패 시 중립색 fallback.

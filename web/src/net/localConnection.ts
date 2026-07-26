@@ -37,6 +37,9 @@ export class LocalConnection implements Connection {
   private lastSentLogId = 0;
   private startIndex: number;
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
+  private missileTimerMs = 0; // 미사일 스폰 주기 누산기
+  private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
+  private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -48,8 +51,13 @@ export class LocalConnection implements Connection {
       prepared.neighborIndex,
       prepared.meta,
       this.startIndex,
-      Date.now()
+      Date.now(),
+      prepared.borderMask // 포위 귀속 판정의 경계 동 마스크
     );
+    // 개발 편의: 포위 귀속 등 시나리오 테스트를 위해 목 서버의 권위 상태를 노출(프로덕션 제외).
+    if (import.meta.env.DEV) {
+      (globalThis as Record<string, unknown>).__mockGs = this.gs;
+    }
     // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
     if (!this.restoreWorld()) {
@@ -96,9 +104,57 @@ export class LocalConnection implements Connection {
     }
   }
 
-  // 플레이어 시작 동에서 BFS로 ~4홉 떨어진 씨앗 + 인접 중립 동으로 E 시작 클러스터를 만든다.
-  // (README §4.6 "외곽 스폰"의 데모 절충 — 중앙 시작이라 근처 링에 둬야 초반에 조우한다.)
+  // ENV_CLUSTER_COUNT개의 야만인 무리를 만든다. 각 무리 = 씨앗 1개 + 인접 중립 동
+  // (무리당 ENV_START_CELLS개). 첫 씨앗은 플레이어 근처(초반 조우), 나머지는 전국에 고루 흩뿌린다.
   private pickEnvCells(): number[] {
+    const seeds = this.pickEnvSeeds(Math.max(1, CONFIG.ENV_CLUSTER_COUNT));
+    const cells = new Set<number>();
+    for (const seed of seeds) {
+      cells.add(seed);
+      let inCluster = 1;
+      for (const nb of this.prepared.neighborIndex[seed]) {
+        if (inCluster >= CONFIG.ENV_START_CELLS) break;
+        if (this.gs.ownerId[nb] === NEUTRAL_HOLDER_ID && !cells.has(nb)) {
+          cells.add(nb);
+          inCluster++;
+        }
+      }
+    }
+    return Array.from(cells);
+  }
+
+  // 무리 씨앗 선정: 1) 플레이어에서 ~4홉 떨어진 첫 씨앗, 2) 나머지는 최원점(farthest-point)
+  // 샘플링으로 이미 고른 씨앗들에서 가장 먼 중립 동을 반복 선택 → 캠프들이 서로·플레이어와 떨어진다.
+  private pickEnvSeeds(count: number): number[] {
+    const { neighborIndex, n } = this.prepared;
+    // 후보 = 인접 있는 중립 동(고립 섬 제외 — 거기 두면 자라지도 싸우지도 못한다).
+    const usable = (i: number) =>
+      this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0;
+
+    const seeds: number[] = [this.pickNearPlayerSeed()];
+    while (seeds.length < count) {
+      let best = -1;
+      let bestMinDist = -1;
+      for (let i = 0; i < n; i++) {
+        if (!usable(i) || seeds.includes(i)) continue;
+        let minDist = Infinity; // 이미 고른 씨앗들과의 최소 제곱거리
+        for (const s of seeds) {
+          const d = this.centroidDistSq(i, s);
+          if (d < minDist) minDist = d;
+        }
+        if (minDist > bestMinDist) {
+          bestMinDist = minDist;
+          best = i;
+        }
+      }
+      if (best < 0) break; // 더 둘 곳이 없음
+      seeds.push(best);
+    }
+    return seeds;
+  }
+
+  // 플레이어 시작 동에서 BFS로 ~4홉 떨어진 중립 씨앗 (중앙 시작이라 근처 링에 둬야 초반에 조우한다).
+  private pickNearPlayerSeed(): number {
     const { neighborIndex, n } = this.prepared;
     const dist = new Int32Array(n).fill(-1);
     const q: number[] = [this.startIndex];
@@ -106,7 +162,7 @@ export class LocalConnection implements Connection {
     let seed = -1;
     for (let h = 0; h < q.length; h++) {
       const cur = q[h];
-      if (seed < 0 && dist[cur] >= 4) seed = cur;
+      if (seed < 0 && dist[cur] >= 4 && this.gs.ownerId[cur] === NEUTRAL_HOLDER_ID) seed = cur;
       for (const nb of neighborIndex[cur]) {
         if (dist[nb] === -1) {
           dist[nb] = dist[cur] + 1;
@@ -114,14 +170,16 @@ export class LocalConnection implements Connection {
         }
       }
     }
-    if (seed < 0) seed = q.length > 1 ? q[q.length - 1] : this.startIndex;
+    return seed >= 0 ? seed : q.length > 1 ? q[q.length - 1] : this.startIndex;
+  }
 
-    const cells = [seed];
-    for (const nb of neighborIndex[seed]) {
-      if (cells.length >= CONFIG.ENV_START_CELLS) break;
-      if (this.gs.ownerId[nb] === NEUTRAL_HOLDER_ID) cells.push(nb);
-    }
-    return cells;
+  // 두 동 라벨 지점 사이 제곱거리(비교 전용이라 sqrt 생략).
+  private centroidDistSq(a: number, b: number): number {
+    const ca = this.prepared.meta[a].centroid;
+    const cb = this.prepared.meta[b].centroid;
+    const dx = ca[0] - cb[0];
+    const dy = ca[1] - cb[1];
+    return dx * dx + dy * dy;
   }
 
   join(nickname: string, token?: string): void {
@@ -152,6 +210,27 @@ export class LocalConnection implements Connection {
     }
   }
 
+  sendMissile(center: [number, number], radius: number, hits: number[]): void {
+    // 실서버와 동일 취지의 검증: 각 hit 동 centroid가 원 중심에서 radius+여유 안인지.
+    const valid = hits.filter((h) => this.withinRadius(h, center, radius));
+    const res = core.launchMissile(this.gs, this.holderId, valid, Date.now());
+    if (!res.ok) {
+      this.errorCb?.({ code: "NO_MISSILE", message: res.reason, from: -1, to: -1 });
+      return;
+    }
+    this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
+  }
+
+  // centroid 근접 검증(여유 큼 — centroid가 폴리곤 밖이어도 가장자리 걸침을 허용).
+  private withinRadius(i: number, center: [number, number], radius: number): boolean {
+    const c = this.gs.meta[i].centroid;
+    const cosLat = Math.cos((center[1] * Math.PI) / 180);
+    const dx = (c[0] - center[0]) * cosLat;
+    const dy = c[1] - center[1];
+    const lim = radius + 0.05;
+    return dx * dx + dy * dy <= lim * lim;
+  }
+
   // core의 검증 순서(소유 → 인접 → 병력)를 그대로 재현해 ERROR code를 도출.
   private errorCode(from: number, to: number): ErrorMessage["code"] {
     if (this.gs.ownerId[from] !== this.holderId) return "NOT_OWNER";
@@ -169,6 +248,7 @@ export class LocalConnection implements Connection {
 
     core.tickProduction(this.gs, dt);
     core.tickOrders(this.gs, now, wall); // 도착 유닛 전투 처리(dirty·log 갱신)
+    core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
     // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
     this.envTimerMs += TICK_MS;
@@ -176,6 +256,14 @@ export class LocalConnection implements Connection {
       this.envTimerMs = 0;
       const envOrder = core.tickEnv(this.gs, now);
       if (envOrder) this.pendingOrders.push(envOrder);
+    }
+
+    // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
+    this.missileTimerMs += TICK_MS;
+    if (this.missileTimerMs >= CONFIG.MISSILE_SPAWN_SEC * 1000) {
+      this.missileTimerMs = 0;
+      const spawned = core.trySpawnMissile(this.gs);
+      if (spawned >= 0) this.pendingMissileAdd.push(spawned);
     }
 
     this.flushDelta(now);
@@ -197,8 +285,21 @@ export class LocalConnection implements Connection {
     const events = this.gs.logEntries.filter((e) => e.id > this.lastSentLogId);
     if (events.length > 0) this.lastSentLogId = events[0].id; // 최신 = 배열 첫 원소
 
-    if (cells.length === 0 && newOrders.length === 0 && events.length === 0) return;
-    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events });
+    const missileAdd = this.pendingMissileAdd;
+    const missileRemove = this.pendingMissileRemove;
+    this.pendingMissileAdd = [];
+    this.pendingMissileRemove = [];
+
+    if (
+      cells.length === 0 &&
+      newOrders.length === 0 &&
+      events.length === 0 &&
+      missileAdd.length === 0 &&
+      missileRemove.length === 0
+    ) {
+      return;
+    }
+    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove });
   }
 
   private flushLeaderboard(): void {
@@ -223,7 +324,14 @@ export class LocalConnection implements Connection {
       troopCap: Array.from(this.gs.troopCap),
       holders: Array.from(this.gs.holders.values()),
       orders: this.gs.orders.slice(),
+      missiles: this.collectMissiles(),
     };
+  }
+
+  private collectMissiles(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.gs.n; i++) if (this.gs.missiles[i]) out.push(i);
+    return out;
   }
 
   onWelcome(cb: (m: WelcomeMessage) => void): void {

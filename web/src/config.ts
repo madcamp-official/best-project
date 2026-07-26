@@ -8,6 +8,7 @@ export const CONFIG = {
   NEUTRAL_TROOPS: 10, // 중립 동 방어 병력 (튜닝, 낮게)
   SORTIE_RATIO: 0.5, // 출정 비율 (절반)
   RESET_OWN_RATIO: 0.5, // 전국 50% 점유 시 시즌 리셋 (목업 제외, 값만 명시)
+  ANNEX_HOLD_SEC: 5, // 포위 귀속: 한 플레이어가 완전히 둘러싼 상태를 이 시간(초) 유지하면 흡수
   // 유닛 이동: 출발지→목적지 원 하나가 이동하는 데 걸리는 시간(거리 기반, 초).
   // 눈으로 이동을 또렷이 볼 수 있게 넉넉히 잡는다.
   UNIT_SPEED_DEG_PER_SEC: 0.02, // 경위도 거리 기준 이동 속도 (느릴수록 오래 보임)
@@ -16,20 +17,26 @@ export const CONFIG = {
 
   // 환경 세력 (E, README §4.6) — 초반 긴장용 조연(문명 야만인). 전부 튜닝값.
   ENV_HOLDER_ID: 255, // E 전용 holderId (예약)
-  ENV_START_CELLS: 3, // 시작 시 E 보유 동 수
+  ENV_CLUSTER_COUNT: 3, // 야만인 무리 수 — 전국에 흩뿌리는 캠프 개수 (1이면 기존처럼 플레이어 근처 한 무리)
+  ENV_START_CELLS: 3, // 무리 1개당 시작 E 보유 동 수
   ENV_PROD_MULT: 1.0, // E 생산 배율 (기본 = 플레이어와 동일, 램프 없음)
   ENV_ACT_INTERVAL_SEC: 6, // E 행동 주기(초)
   ENV_ATTACK_MARGIN: 1.2, // 이길 만할 때만 공격 (자살 방지 계수)
   ENV_BOUNTY: 10, // E 동 함락 시 보너스 병력
-  ENV_MAX_RATIO: 0.04, // E 보유 동 수 하드 상한 (전체 대비 비율)
+  ENV_MAX_RATIO: 0.1, // E 보유 동 수 하드 상한 (전체 대비 비율)
   ENV_MIN_PRESENCE: 4, // 극초반 E 최소 존재감(동 수)
+
+  // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
+  MISSILE_SPAWN_SEC: 10, // 전국에서 무작위 동 1곳에 미사일이 스폰되는 주기(초)
+  MISSILE_MAX_PER_PLAYER: 5, // 개인 보유 상한(내 소유 동에 얹힌 미사일 수)
+  MISSILE_RADIUS_DEG: 0.02, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
 } as const;
 
 // holderId 0 = 중립. 목업은 단일 플레이어이므로 1만 사용.
 export const NEUTRAL_HOLDER_ID = 0;
 export const MY_HOLDER_ID = 1;
 
-// 범위 (README.md §2.3): null = 전국 전체(~3,500동, 데모 기본).
+// 범위 (README.md §2.3): null = 전국 전체(~5,065 법정동, 데모 기본).
 // "11" 처럼 시도 코드를 넣으면 그 시도만 로드 — 전국 렌더 성능이 막힐 때의 폴백.
 export const SCOPE_SIDOCD: string | null = null;
 

@@ -49,3 +49,11 @@ sealed interface SortieResult {
 }
 
 enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL }
+
+/** 미사일 발사 결과. removed = 소모된(미사일이 얹혀 있던) 동, neutralized = 중립화된 동들. */
+data class MissileLaunch(
+    val ok: Boolean,
+    val removed: Int = -1,
+    val neutralized: List<Int> = emptyList(),
+    val reason: String = "",
+)

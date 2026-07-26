@@ -147,6 +147,62 @@ object GameCore {
         return list
     }
 
+    // ── 미사일 (web/src/game/core.ts 대응) ──────────────────────────────
+    // 동에 종속: 미사일은 특정 동 위에 얹혀 있고, 그 동을 소유한 홀더가 발사할 수 있다.
+
+    fun missileCount(world: World, holderId: Int): Int {
+        var c = 0
+        for (i in 0 until world.n) if (world.ownerId[i] == holderId && world.missile[i]) c++
+        return c
+    }
+
+    // 무작위 동 1곳에 미사일 스폰. 이미 있으면 건너뛰고, 소유주가 플레이어이면서 개인
+    // 상한이면 스폰하지 않는다. 반환 = 스폰된 admIndex, 없으면 -1.
+    fun trySpawnMissile(world: World, config: GameConfig, rng: java.util.Random): Int {
+        if (world.n == 0) return -1
+        val start = rng.nextInt(world.n)
+        for (k in 0 until world.n) {
+            val i = (start + k) % world.n
+            if (world.missile[i]) continue
+            val owner = world.ownerId[i]
+            if (owner != HolderIds.NEUTRAL && owner != HolderIds.ENV &&
+                missileCount(world, owner) >= config.missileMaxPerPlayer
+            ) {
+                continue
+            }
+            world.missile[i] = true
+            return i
+        }
+        return -1
+    }
+
+    // 미사일 발사: 내 소유 동에 얹힌 미사일 1개를 소모하고, hits 동을 중립화(병력 0)한다.
+    // hits는 호출자(MissileController)가 반경/근접 검증까지 마친 목록이라고 가정한다.
+    fun launchMissile(world: World, holderId: Int, hits: List<Int>, wallNowMs: Long): MissileLaunch {
+        var src = -1
+        for (i in 0 until world.n) {
+            if (world.ownerId[i] == holderId && world.missile[i]) {
+                src = i
+                break
+            }
+        }
+        if (src < 0) return MissileLaunch(ok = false, reason = "발사할 미사일이 없습니다.")
+
+        world.missile[src] = false // 소모
+
+        val neutralized = ArrayList<Int>()
+        for (h in hits) {
+            if (h < 0 || h >= world.n) continue
+            world.ownerId[h] = HolderIds.NEUTRAL
+            world.troops[h] = 0
+            world.troopAccum[h] = 0.0
+            world.dirty.add(h)
+            neutralized.add(h)
+        }
+        pushLog(world, "미사일 착탄 — ${neutralized.size}개 동 중립화", wallNowMs)
+        return MissileLaunch(ok = true, removed = src, neutralized = neutralized)
+    }
+
     fun pushLog(world: World, message: String, ts: Long) {
         val event = LogEvent(world.nextLogId++, ts, message)
         world.pendingEvents.add(event)

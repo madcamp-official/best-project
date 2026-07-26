@@ -19,6 +19,9 @@ export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0,
   myHolderId: 0,
 });
 
+// 미사일이 얹힌 동 집합이 바뀌면(WELCOME/DELTA) set — 렌더러가 마커를 다시 그린다.
+let missilesTouched = false;
+
 // WELCOME 적용 — 전체 스냅샷을 1회 반영. 이후 변경은 applyDelta로만.
 export function applyWelcome(msg: WelcomeMessage) {
   const n = msg.meta.length;
@@ -31,6 +34,9 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.meta = msg.meta;
   world.holders = new Map(msg.holders.map((h) => [h.id, h]));
   world.orders = msg.orders.slice();
+  world.missiles = new Uint8Array(n);
+  for (const i of msg.missiles) world.missiles[i] = 1;
+  missilesTouched = true;
   world.dirty = new Set<number>();
   for (let i = 0; i < n; i++) world.dirty.add(i); // 최초 1회 전체 리페인트
   world.logEntries = [];
@@ -54,6 +60,11 @@ export function applyDelta(msg: DeltaMessage) {
     // 서버가 최신순으로 보낸다고 가정하고 앞에 붙인다(README §8 append-only 로그).
     world.logEntries = [...msg.events, ...world.logEntries].slice(0, 30);
   }
+  if (msg.missileAdd.length > 0 || msg.missileRemove.length > 0) {
+    for (const i of msg.missileAdd) world.missiles[i] = 1;
+    for (const i of msg.missileRemove) world.missiles[i] = 0;
+    missilesTouched = true;
+  }
 }
 
 export function drainCaptureFlashes(): number[] {
@@ -73,3 +84,13 @@ export const drainDirty = () => core.drainDirty(world);
 export const getLeaderboard = () => core.getLeaderboard(world);
 export const computeRank = (holderId: number) => core.computeRank(world, holderId);
 export const envCellCount = () => core.envCellCount(world);
+
+// 미사일 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
+export function drainMissilesTouched(): boolean {
+  if (!missilesTouched) return false;
+  missilesTouched = false;
+  return true;
+}
+
+// 내가 보유한 미사일 수 = 내 소유 동에 얹힌 미사일 수.
+export const myMissileCount = () => core.missileCount(world, world.myHolderId);

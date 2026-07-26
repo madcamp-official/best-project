@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { world, computeRank } from "../world/worldView";
+import { world, computeRank, myMissileCount } from "../world/worldView";
 import { CONFIG } from "../config";
 import type { LogEntry, Rank } from "../game/types";
 
@@ -36,9 +36,12 @@ interface UIState {
   toast: string | null;
   // 우클릭 1회당 이동할 병력 비율(0~1). 오른쪽 아래 슬라이더로 조절. (CONFIG.SORTIE_RATIO 기본)
   sortieRatio: number;
+  missileCount: number; // 내 보유 미사일 수 (오른쪽 아래 표시)
+  isAiming: boolean; // 미사일 조준 모드(발사 버튼 누른 상태)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
   setSortieRatio: (ratio: number) => void;
+  setAiming: (v: boolean) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
   // 서버 LEADERBOARD 메시지 반영 (rows는 중립·E 제외된 플레이어 순위).
@@ -69,9 +72,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   logEntries: [],
   toast: null,
   sortieRatio: CONFIG.SORTIE_RATIO,
+  missileCount: 0,
+  isAiming: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
+  setAiming: (v) => set({ isAiming: v }),
 
   select: (index) => {
     set({ selectedIndex: index });
@@ -98,6 +104,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       selectedInfo,
       myHolderId: world.myHolderId,
       myRank,
+      missileCount: myMissileCount(),
       logEntries: world.logEntries,
     });
 

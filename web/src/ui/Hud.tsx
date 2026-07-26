@@ -13,6 +13,9 @@ export function Hud() {
   const toast = useUIStore((s) => s.toast);
   const sortieRatio = useUIStore((s) => s.sortieRatio);
   const setSortieRatio = useUIStore((s) => s.setSortieRatio);
+  const missileCount = useUIStore((s) => s.missileCount);
+  const isAiming = useUIStore((s) => s.isAiming);
+  const setAiming = useUIStore((s) => s.setAiming);
   const sortiePct = Math.round(sortieRatio * 100);
 
   if (phase === "loading") {
@@ -95,6 +98,36 @@ export function Hud() {
           aria-label="출정 병력 비율"
         />
         <div className="hud-ratio-hint">우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다</div>
+
+        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+          <div className="hud-ratio-head">
+            <span className="hud-title">미사일</span>
+            <strong className="hud-ratio-value">{missileCount}발</strong>
+          </div>
+          <button
+            type="button"
+            disabled={missileCount === 0 && !isAiming}
+            onClick={() => setAiming(!isAiming)}
+            style={{
+              width: "100%",
+              marginTop: 4,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #ffffff55",
+              background: isAiming ? "#c0392b" : missileCount === 0 ? "#2a3340" : "#3a4a5e",
+              color: "#fff",
+              cursor: missileCount === 0 && !isAiming ? "not-allowed" : "pointer",
+              fontSize: 13,
+            }}
+          >
+            {isAiming ? "조준 중… (Esc 취소)" : "미사일 발사"}
+          </button>
+          <div className="hud-ratio-hint">
+            {isAiming
+              ? "지도에서 범위를 클릭해 발사 — 걸친 동이 중립이 됩니다"
+              : "범위에 걸친 동을 중립으로 만듭니다"}
+          </div>
+        </div>
       </div>
 
       {selectedInfo && (

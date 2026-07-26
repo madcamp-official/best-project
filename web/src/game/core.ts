@@ -21,6 +21,12 @@ export interface GameState {
   holders: Map<number, Holder>;
   dirty: Set<number>; // feature-state 리페인트 대상 admIndex
   orders: Order[]; // 이동 중인 유닛(원) 목록
+  missiles: Uint8Array; // 동별 미사일 보유 여부(0/1). 동에 종속 — 그 동 소유자가 발사 가능.
+  // 포위 귀속(README §포위): 경계 동 마스크(0/1, 정적)와, 각 동이 현재 어느 플레이어에게
+  // 언제부터 포위됐는지(-1=포위 안 됨). ANNEX_HOLD_SEC 유지 판정용.
+  borderMask: Uint8Array;
+  enclosedBy: Int32Array; // 이 동을 현재 포위 중인 holderId (-1 = 없음)
+  enclosedSince: Float64Array; // 연속 포위가 시작된 단조 시각(ms). enclosedBy=-1이면 무의미.
   logEntries: LogEntry[];
   nextLogId: number;
 }
@@ -40,7 +46,8 @@ export function createGameState(
   neighborIndex: number[][],
   meta: DongStaticMeta[],
   startIndex: number,
-  wallNowMs: number
+  wallNowMs: number,
+  borderMask?: Uint8Array // 시뮬레이터(목/서버)만 주입. 클라 사본은 포위 판정을 안 돌리므로 생략.
 ): GameState {
   const ownerId = new Uint8Array(n);
   const troops = new Uint16Array(n).fill(CONFIG.NEUTRAL_TROOPS);
@@ -63,6 +70,10 @@ export function createGameState(
     holders,
     dirty: new Set<number>(),
     orders: [],
+    missiles: new Uint8Array(n),
+    borderMask: borderMask ?? new Uint8Array(n),
+    enclosedBy: new Int32Array(n).fill(-1),
+    enclosedSince: new Float64Array(n),
     logEntries: [],
     nextLogId: 1,
   };
@@ -225,6 +236,74 @@ export function drainDirty(s: GameState): number[] {
   return list;
 }
 
+// ── 미사일 ────────────────────────────────────────────────────────────
+// 동에 종속: 미사일은 특정 동 위에 얹혀 있고, 그 동을 소유한 홀더가 발사할 수 있다.
+// 개인 보유 수 = 내가 소유한 동 중 미사일이 얹힌 동 수.
+
+export function missileCount(s: GameState, holderId: number): number {
+  let c = 0;
+  for (let i = 0; i < s.n; i++) if (s.ownerId[i] === holderId && s.missiles[i]) c++;
+  return c;
+}
+
+// 무작위 동 1곳에 미사일 스폰. 이미 미사일이 있으면 건너뛰고, 소유주가 플레이어이면서
+// 개인 상한에 도달했으면 스폰하지 않는다. 반환 = 스폰된 admIndex, 없으면 -1.
+export function trySpawnMissile(s: GameState): number {
+  if (s.n === 0) return -1;
+  const start = Math.floor(Math.random() * s.n);
+  for (let k = 0; k < s.n; k++) {
+    const i = (start + k) % s.n;
+    if (s.missiles[i]) continue;
+    const owner = s.ownerId[i];
+    if (
+      owner !== NEUTRAL_HOLDER_ID &&
+      owner !== CONFIG.ENV_HOLDER_ID &&
+      missileCount(s, owner) >= CONFIG.MISSILE_MAX_PER_PLAYER
+    ) {
+      continue; // 이 플레이어는 이미 상한
+    }
+    s.missiles[i] = 1;
+    return i;
+  }
+  return -1;
+}
+
+export type MissileResult =
+  | { ok: true; removed: number; neutralized: number[] }
+  | { ok: false; reason: string };
+
+// 미사일 발사: 내 소유 동에 얹힌 미사일 1개를 소모하고, hits 동들을 중립화(병력 0)한다.
+// hits는 호출자(전송 계층)가 반경/근접 검증까지 마친 목록이라고 가정한다.
+export function launchMissile(
+  s: GameState,
+  holderId: number,
+  hits: number[],
+  wallNowMs: number
+): MissileResult {
+  let src = -1;
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] === holderId && s.missiles[i]) {
+      src = i;
+      break;
+    }
+  }
+  if (src < 0) return { ok: false, reason: "발사할 미사일이 없습니다." };
+
+  s.missiles[src] = 0; // 소모
+
+  const neutralized: number[] = [];
+  for (const h of hits) {
+    if (h < 0 || h >= s.n) continue;
+    s.ownerId[h] = NEUTRAL_HOLDER_ID;
+    s.troops[h] = 0;
+    s.troopAccum[h] = 0;
+    s.dirty.add(h);
+    neutralized.push(h);
+  }
+  pushLog(s, `미사일 착탄 — ${neutralized.length}개 동 중립화`, wallNowMs);
+  return { ok: true, removed: src, neutralized };
+}
+
 // ts = 로그 타임스탬프(호출자 주입). 현재 UI에서 표시하진 않으나 타임랩스 확장용으로 보존.
 export function pushLog(s: GameState, message: string, ts: number) {
   s.logEntries = [{ id: s.nextLogId++, ts, message }, ...s.logEntries].slice(0, 30);
@@ -273,6 +352,103 @@ export function computeRank(s: GameState, holderId: number): Rank {
 
 // ── 환경 세력 (E) — README §4.6 ──────────────────────────────────────
 // 문명 야만인형 초반 조연. 상한(하드캡·never-surpass)이 있어 맵을 장악하지 못한다.
+
+// ── 포위 귀속 (Encirclement Capture) ─────────────────────────────────
+// 어떤 플레이어 P가 '자기 동만으로' 완전히 둘러싼 영역이, 전부 단일 실제 플레이어 Q
+// (중립·야만인 제외) 소유이고, 그 상태를 ANNEX_HOLD_SEC초 연속 유지하면 그 영역 전체를
+// P가 흡수한다(병력 0 리셋). 크기 제한 없음(전면 스윙 허용). 시뮬레이터(목/서버)가 매 tick 호출.
+// nowMs=단조 시각(유지 시간 측정), wallNowMs=로그 타임스탬프. 흡수된 admIndex 목록 반환.
+export function tickAnnex(s: GameState, nowMs: number, wallNowMs: number): number[] {
+  const curBy = new Int32Array(s.n).fill(-1); // 이번 프레임에 각 동을 포위 중인 holderId(-1=없음)
+
+  const players = realPlayerIds(s);
+  // 포위하는 쪽(P)과 둘러싸이는 쪽(Q)이 둘 다 실제 플레이어여야 하므로 최소 2명 필요.
+  if (players.length >= 2) {
+    const visited = new Uint8Array(s.n);
+    for (const P of players) {
+      visited.fill(0);
+      for (let start = 0; start < s.n; start++) {
+        if (s.ownerId[start] === P || visited[start]) continue;
+        // P가 아닌 동들의 연결요소를 BFS로 모은다(P 동은 '벽'이라 통과 불가).
+        const comp: number[] = [];
+        const owner0 = s.ownerId[start];
+        let singleOwner = true;
+        let touchesBorder = false;
+        const stack: number[] = [start];
+        visited[start] = 1;
+        while (stack.length > 0) {
+          const c = stack.pop() as number;
+          comp.push(c);
+          if (s.borderMask[c]) touchesBorder = true;
+          if (s.ownerId[c] !== owner0) singleOwner = false;
+          for (const nb of s.neighborIndex[c]) {
+            if (s.ownerId[nb] !== P && visited[nb] === 0) {
+              visited[nb] = 1;
+              stack.push(nb);
+            }
+          }
+        }
+        // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유이면 포위 후보.
+        if (!touchesBorder && singleOwner && isRealPlayer(owner0)) {
+          for (const c of comp) curBy[c] = P;
+        }
+      }
+    }
+  }
+
+  // 유지 타이머 갱신 + ANNEX_HOLD_SEC 유지 시 흡수.
+  const holdMs = CONFIG.ANNEX_HOLD_SEC * 1000;
+  const annexed: number[] = [];
+  const groups = new Map<string, { p: number; q: number; count: number }>();
+  for (let c = 0; c < s.n; c++) {
+    const P = curBy[c];
+    if (P < 0) {
+      // 더는 포위 안 됨(벽이 뚫렸거나 조건 미충족) → 타이머 리셋.
+      s.enclosedBy[c] = -1;
+      s.enclosedSince[c] = 0;
+      continue;
+    }
+    if (s.enclosedBy[c] !== P) {
+      s.enclosedBy[c] = P; // 새로 포위 시작 → 유지 시간 0부터.
+      s.enclosedSince[c] = nowMs;
+    } else if (nowMs - s.enclosedSince[c] >= holdMs) {
+      const q = s.ownerId[c];
+      s.ownerId[c] = P; // 흡수: 소유권 이전, 병력 0부터 다시 시작.
+      s.troops[c] = 0;
+      s.troopAccum[c] = 0;
+      s.enclosedBy[c] = -1;
+      s.enclosedSince[c] = 0;
+      s.dirty.add(c);
+      annexed.push(c);
+      const key = P + ":" + q;
+      const g = groups.get(key);
+      if (g) g.count++;
+      else groups.set(key, { p: P, q, count: 1 });
+    }
+  }
+
+  for (const g of groups.values()) {
+    const pName = s.holders.get(g.p)?.name ?? "?";
+    const qName = s.holders.get(g.q)?.name ?? "?";
+    pushLog(s, `${pName}가 ${qName} 포위 — ${g.count}개 동 흡수`, wallNowMs);
+  }
+  return annexed;
+}
+
+// 실제 플레이어 = 중립(0)·환경 세력(255)이 아닌 holder.
+function isRealPlayer(holderId: number): boolean {
+  return holderId !== NEUTRAL_HOLDER_ID && holderId !== CONFIG.ENV_HOLDER_ID;
+}
+
+// 현재 동을 1개 이상 소유한 실제 플레이어 id 목록.
+function realPlayerIds(s: GameState): number[] {
+  const set = new Set<number>();
+  for (let i = 0; i < s.n; i++) {
+    const o = s.ownerId[i];
+    if (isRealPlayer(o)) set.add(o);
+  }
+  return Array.from(set);
+}
 
 export function envCellCount(s: GameState): number {
   return ownedCount(s, CONFIG.ENV_HOLDER_ID);

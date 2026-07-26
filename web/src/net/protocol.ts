@@ -26,6 +26,15 @@ export interface SortieCommand {
   ratio: number; // 출정 병력 비율 (0~1). 없으면 서버 기본(SORTIE_RATIO)
 }
 
+// 미사일 발사(C→S). center=원 중심 [lng,lat], radius=반경(도), hits=원에 겹치는 동
+// admIndex 목록(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를
+// 소모해 hits를 중립화한다.
+export interface LaunchMissileCommand {
+  center: [number, number];
+  radius: number;
+  hits: number[];
+}
+
 // ── S→C ──────────────────────────────────────────────────────────────
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
@@ -45,11 +54,12 @@ export interface WelcomeMessage {
   troopCap: number[];
   holders: Holder[]; // 중립·환경세력 포함
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
+  missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
 }
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
 export interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE";
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;
@@ -63,6 +73,8 @@ export interface DeltaMessage {
   cells: CellDelta[]; // 변경된 동만
   newOrders: Order[]; // 이번 구간에 새로 발주된 이동 유닛(출발)
   events: LogEntry[]; // 함락/침공/토벌 로그(append-only)
+  missileAdd: number[]; // 이번 구간에 미사일이 새로 스폰된 동
+  missileRemove: number[]; // 이번 구간에 미사일이 사라진 동(발사 소모 등)
 }
 
 // api-spec §2.6 — 순위표 (1Hz). E는 rows에서 제외, envCells는 잔존 표시용

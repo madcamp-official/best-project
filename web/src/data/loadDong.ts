@@ -28,6 +28,8 @@ export interface PreparedMap {
   arcSides: ArcSide[];
   dongArcs: number[][]; // admIndex → 그 동에 접한 아크 인덱스 목록
   isolated: number[]; // 인접 차수 0인 동(섬·월경지) admIndex 목록 (README §2.3)
+  // 지도 바깥(바다·국경)에 직접 닿는 '경계 동' 마스크(0/1). 포위 귀속 판정의 탈출구.
+  borderMask: Uint8Array;
 }
 
 type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
@@ -116,6 +118,13 @@ export async function loadDong(): Promise<PreparedMap> {
   const n = meta.length;
   const { arcGeojson, arcSides, dongArcs } = extractArcs(topo, geomCollection, n);
 
+  // 경계 동 마스크: arcSides[i].b === -1 이면 그 아크는 동 하나(a)만 쓰는 외곽선 →
+  // a는 지도 바깥(바다·국경)에 닿는 경계 동. 포위 귀속에서 '탈출구'로 쓰인다.
+  const borderMask = new Uint8Array(n);
+  for (const { a, b } of arcSides) {
+    if (b === -1 && a >= 0) borderMask[a] = 1;
+  }
+
   // README §2.3 — 인접 차수 0(섬·월경지) 실측. 전국 전환 시 처리 방침 판단 자료.
   const isolated: number[] = [];
   for (let i = 0; i < n; i++) if (neighborIndex[i].length === 0) isolated.push(i);
@@ -127,7 +136,7 @@ export async function loadDong(): Promise<PreparedMap> {
     );
   }
 
-  return { n, geojson, meta, neighborIndex, arcGeojson, arcSides, dongArcs, isolated };
+  return { n, geojson, meta, neighborIndex, arcGeojson, arcSides, dongArcs, isolated, borderMask };
 }
 
 // TopoJSON 아크는 인접한 두 폴리곤이 하나로 공유한다. 각 아크가 어떤 동들에
