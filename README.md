@@ -35,7 +35,7 @@
 | UI 상태 | Zustand | 소량만 (선택 동, HUD) |
 | 게임 상태 | 순수 `Uint8Array` (또는 typed array) | **React 밖**. 라이브러리 없음 |
 | 스타일 | Tailwind 또는 CSS Modules | 자유 |
-| 경계 데이터 | `admdongkor` (npm) | WGS84·UTF-8·토폴로지 검증 완료 |
+| 경계 데이터 | 법정동 GeoJSON (`web/public/beopjeong-emd.geojson`, gisdeveloper SHP를 mapshaper로 변환한 정적 자산) | WGS84·UTF-8. 클라·서버가 이 파일 하나를 공유해 admIndex 정렬을 구조적으로 보장(architecture.md §4) |
 
 **핵심 제약**: 3,500개 동 상태를 React state에 넣지 말 것. 델타마다 전체 재조정이 발생한다.
 MapLibre 인스턴스는 `useRef`에 담아 `useEffect`에서 1회만 생성, 이후 React는 지도를 직접 건드리지 않는다.
@@ -45,12 +45,12 @@ MapLibre 인스턴스는 `useRef`에 담아 `useEffect`에서 1회만 생성, �
 ## 2. 데이터
 
 ### 2.1 경계 데이터
-- `npm install admdongkor` → `get()`으로 단순화된 light GeoJSON 로드 (WGS84/EPSG:4326).
-- 각 feature의 8자리 행정구역코드 `adm_cd` = `[시도 2][시군구 3][읍면동 3]`.
-- MapLibre 소스에 `promoteId: 'adm_cd'` 지정. **`adm_cd`는 정수로 변환**해 feature id 겸 상태 배열 인덱스로 사용 (최대 99,999,999, int32 수용).
+- 소스: gisdeveloper 법정동(읍면동) SHP를 mapshaper로 WGS84 GeoJSON 변환해 `web/public/beopjeong-emd.geojson`로 커밋(대용량 원본 SHP는 미커밋). 클라(`fetch`)와 서버(`readFileSync`)가 **같은 파일**을 같은 필터·순서로 읽어 admIndex를 매긴다 — 정렬이 어긋날 수 없는 구조(architecture.md §4).
+- 각 feature의 8자리 법정동코드 `EMD_CD` = `[시도 2][시군구 3][읍면동 3]`.
+- MapLibre 소스에 `promoteId: 'admIndex'` 지정(로드 시 부여하는 0..N-1 조밀 인덱스, feature id 겸 상태 배열 인덱스로 사용).
 
 ### 2.2 파생 레이어
-- 시군구 집계: `adm_cd.substr(0,5)` 기준 그룹핑. **서버 없이 클라이언트에서 계산**. mapshaper dissolve로 시군구 지오메트리 별도 생성 가능.
+- 시군구 집계: `EMD_CD.slice(0,5)` 기준 그룹핑. **서버 없이 클라이언트에서 계산**. mapshaper dissolve로 시군구 지오메트리 별도 생성 가능.
 - 인접 그래프: **TopoJSON의 위상 정보로 추출** (`topojson.neighbors()`). GeoPandas `touches()` 류의 기하 기반 판정은 부동소수점 슬리버로 틀리므로 쓰지 말 것.
 
 ### 2.3 예외 처리 · 범위
@@ -277,6 +277,6 @@ export const CONFIG = {
 
 ## 부록 A. 확정/미정 상태
 
-**확정**: 지속형 **PvPvE** 개인전 · **전국 ~3,500 행정동 범위** · 소유자+병력(상한) · 절반 출정 · 쿨다운 없음 · 전선 제한 · 3분 충전 · 인구 log 정규화 상한 · 중립 낮은 방어 · **환경 세력(E) = 초반 긴장용 조연(문명 야만인 모델): 단일 AI holder · 플레이어와 동일 규칙 · 외곽 스폰 · 상한으로 소규모 유지(플레이어를 넘어 맵 장악 불가, 램프·전멸 리셋 없음) · 토벌 보너스 · 전부 함락 시 소멸** · 좌클릭 선택/우클릭 출정 · 거리 기반 유닛 이동 · 계급 소유권 파생 · 광역출정(조작편의) · 50% 리셋 · 채움+테두리 색(영토 고정, 겹침 허용) · admdongkor 데이터 · MapLibre feature-state · React 밖 Uint8Array · e.code 입력.
+**확정**: 지속형 **PvPvE** 개인전 · **전국 ~5,065 법정동 범위** · 소유자+병력(상한) · 절반 출정 · 쿨다운 없음 · 전선 제한 · 3분 충전 · 인구 log 정규화 상한 · 중립 낮은 방어 · **환경 세력(E) = 초반 긴장용 조연(문명 야만인 모델): 단일 AI holder · 플레이어와 동일 규칙 · 외곽 스폰 · 상한으로 소규모 유지(플레이어를 넘어 맵 장악 불가, 램프·전멸 리셋 없음) · 토벌 보너스 · 전부 함락 시 소멸** · 좌클릭 선택/우클릭 출정 · 거리 기반 유닛 이동 · 계급 소유권 파생 · 광역출정(조작편의) · 50% 리셋 · 채움+테두리 색(영토 고정, 겹침 허용) · 법정동 정적 GeoJSON 데이터(클라·서버 공유) · MapLibre feature-state · React 밖 Uint8Array · e.code 입력.
 
 **미정(구현 중/전 확정 필요)**: CONFIG 절대값(BASE_CAP, CAP_K, NEUTRAL_TROOPS 등) · **ENV_\* 상수 절대값(생산 배율·행동 주기·보너스·상한 `ENV_MAX_RATIO`·최소 존재감 `ENV_MIN_PRESENCE`)** · 섬·월경지(인접 0) 페리 엣지 vs 제외 · E 시작 위치 선정 규칙 세부 · E 명칭/테마(야만인·도적 등) · 리셋 조기방지 하한 · 12색 팔레트 실제 색값 · 모바일 입력 세부.

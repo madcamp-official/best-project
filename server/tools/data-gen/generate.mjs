@@ -1,15 +1,26 @@
-// 전국 행정동 경계 데이터를 admIndex 기반 meta + 인접그래프 JSON으로 추출해
+// 전국 법정동 경계 데이터를 admIndex 기반 meta + 인접그래프 JSON으로 추출해
 // 서버 리소스(server/src/main/resources/data/nationwide-dong.json)로 저장한다.
 //
-// 로직은 web/src/data/loadSeoulDong.ts, web/src/data/labelPoint.ts 와 동일하게 맞춘다
-// (인접 그래프는 topojson 위상 기반, 라벨 지점은 polylabel) — 단, 시도 필터를 걷어내
-// 전국(README §2.3)을 대상으로 한다. plan.md Day 1 "S: 전국 경계 데이터 서버 로드" 대응.
+// ── 정합성 핵심 ──────────────────────────────────────────────────────
+// 클라이언트(web/src/data/loadDong.ts)와 "같은 법정동 GeoJSON 파일"을
+// "같은 필터(EMD_CD 존재)·같은 순서(파일 배열 순서)"로 읽어 admIndex를 부여한다.
+// → 클라·서버 admIndex가 정확히 일치한다. (클릭 시 클라가 보내는 admIndex와
+//    서버 DELTA의 admIndex가 반드시 같은 동을 가리켜야 하므로 이 정합성이 필수.)
+// centroid(polylabel)·인접그래프(topojson 위상 1e5)도 클라 labelPoint.ts/loadDong.ts와
+// 동일 로직·동일 입력이라 값이 일치한다.
+//
+// 소스: web/public/beopjeong-emd.geojson
+//   (gisdeveloper 읍면동(법정동) SHP → mapshaper로 WGS84 GeoJSON 변환한 정적 자산)
+//   속성: EMD_CD(8자리 법정동코드=[시도2][시군구3][읍면동3]), EMD_KOR_NM, EMD_ENG_NM.
 
-import * as adk from "admdongkor";
 import { topology } from "topojson-server";
 import { neighbors } from "topojson-client";
 import polylabel from "polylabel";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+
+// 클라와 공유하는 정본 법정동 경계 파일 (web/public). 이 한 파일이 클라 렌더 geometry와
+// 서버 meta/neighbors의 공통 소스다 — 둘의 admIndex 정합성이 여기서 보장된다.
+const GEOJSON_PATH = new URL("../../../web/public/beopjeong-emd.geojson", import.meta.url);
 
 function ringArea(ring) {
   let sum = 0;
@@ -38,35 +49,29 @@ function computeLabelPoint(feature) {
   return polylabel(best, 1e-4);
 }
 
-// web/src/data/loadDong.ts의 ADMDONGKOR_VERSION과 반드시 같은 값을 유지한다 — 클라와
-// 서버가 독립적으로 admIndex를 매기므로, 버전이 어긋나면 동 이름/좌표가 서버 판정과 안 맞는다.
-// 버전을 올릴 땐 두 파일을 같이 바꾸고 이 스크립트를 다시 돌려 nationwide-dong.json을 갱신할 것.
-const ADMDONGKOR_VERSION = "20260701";
-
 async function main() {
-  console.log(`사용 버전(고정): ${ADMDONGKOR_VERSION}`);
-
-  console.log("전국 emd(읍면동) GeoJSON 다운로드 중... (수십 MB, 시간이 걸릴 수 있음)");
-  const fc = await adk.get(ADMDONGKOR_VERSION, "emd");
+  console.log(`법정동 경계 GeoJSON 로드: ${GEOJSON_PATH.pathname}`);
+  const fc = JSON.parse(readFileSync(GEOJSON_PATH, "utf8"));
   console.log(`원본 feature 수: ${fc.features.length}`);
 
-  // README §2.3 — 전국 전체(~3,500동). emd8 없는 feature 제외(비정상 데이터).
-  const filtered = fc.features.filter((f) => f.properties.emd8);
-  console.log(`필터 후(emd8 존재): ${filtered.length}`);
+  // 클라 loadDong과 동일한 필터: EMD_CD 존재. (전국 대상 — 시도 필터 없음)
+  const filtered = fc.features.filter((f) => f.properties?.EMD_CD);
+  console.log(`필터 후(EMD_CD 존재): ${filtered.length}`);
 
   const meta = [];
   const preparedFeatures = [];
 
   filtered.forEach((f, admIndex) => {
+    const code = f.properties.EMD_CD; // 법정동코드 8자리
     const centroid = computeLabelPoint(f);
     meta.push({
       admIndex,
-      code: f.properties.emd8,
-      name: f.properties.emdnm,
-      sggcd: f.properties.sggcd ?? "",
-      sggnm: f.properties.sggnm ?? "",
-      sidocd: f.properties.sidocd ?? "",
-      sidonm: f.properties.sidonm,
+      code,
+      name: f.properties.EMD_KOR_NM,
+      sggcd: code.slice(0, 5), // [시도2][시군구3] — 시장 계급 판정용
+      sggnm: "", // 이 파일엔 시군구명이 없다(코드만). 필요 시 sig 데이터로 보강.
+      sidocd: code.slice(0, 2),
+      sidonm: "",
       centroid,
     });
     preparedFeatures.push({
@@ -88,11 +93,16 @@ async function main() {
   const isolated = cells.filter((c) => c.neighbors.length === 0);
   console.log(`인접 차수 0(섬/월경지 후보): ${isolated.length}개`);
   if (isolated.length > 0) {
-    console.log(isolated.slice(0, 20).map((c) => `  - ${c.sidonm} ${c.name}`).join("\n"));
+    console.log(isolated.slice(0, 20).map((c) => `  - ${c.name}`).join("\n"));
     if (isolated.length > 20) console.log(`  ... 외 ${isolated.length - 20}개`);
   }
 
-  const out = { n, generatedAt: new Date().toISOString(), sourceVersion: ADMDONGKOR_VERSION, cells };
+  const out = {
+    n,
+    generatedAt: new Date().toISOString(),
+    sourceVersion: "beopjeong-emd (gisdeveloper 20230729 UMD/법정동)",
+    cells,
+  };
   const outPath = new URL(
     "../../src/main/resources/data/nationwide-dong.json",
     import.meta.url

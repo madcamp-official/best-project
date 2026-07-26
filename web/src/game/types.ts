@@ -25,7 +25,7 @@ export type Rank = "동장" | "시장" | "도지사" | null;
 
 export interface DongStaticMeta {
   admIndex: number;
-  code: string; // emd8
+  code: string; // 법정동코드 8자리 ([시도2][시군구3][읍면동3])
   name: string;
   sggcd: string;
   sggnm: string;

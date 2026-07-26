@@ -36,22 +36,18 @@ src/main/kotlin/com/madcamp/server/
 
 ## 전국 경계 데이터
 
-`resources/data/nationwide-dong.json`(약 800KB)은 `tools/data-gen/generate.mjs`(Node)가 admdongkor + topojson으로 미리 뽑아둔 산출물이다. `web/src/data/loadDong.ts`와 같은 방식(위상 기반 인접 그래프, polylabel 라벨 좌표)을 전국(3,558동)에 적용했다.
+`resources/data/nationwide-dong.json`(약 1MB)은 `tools/data-gen/generate.mjs`(Node)가 `web/public/beopjeong-emd.geojson`(gisdeveloper 법정동 SHP를 mapshaper로 변환한 정적 자산, 5,065개)을 읽어 topojson 위상으로 인접 그래프까지 뽑아낸 산출물이다.
 
-**admdongkor 버전은 클라·서버 양쪽에 `"20260701"`로 고정**되어 있다(`generate.mjs`의 `ADMDONGKOR_VERSION`, `loadDong.ts`의 동일 상수). 클라와 서버가 각자 admdongkor에서 독립적으로 admIndex를 매기므로, `"latest"`를 그때그때 풀면 admdongkor에 새 버전이 배포되는 순간 둘의 admIndex 순서가 어긋난다(동 이름·좌표가 서버 판정과 안 맞게 됨) — `tools/data-gen/verify-admindex.mjs`로 두 시퀀스가 실제로 동일함을 확인했다.
+**클라·서버가 정확히 같은 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터(`EMD_CD` 존재)·같은 순회 순서로 읽는다** — `web/src/data/loadDong.ts`는 fetch로, `generate.mjs`는 `readFileSync`로. admdongkor 같은 외부 API를 거치지 않고 정적 파일 하나를 공유하므로, admIndex 정렬이 어긋날 여지가 구조적으로 없다(예전엔 admdongkor 버전 드리프트를 걱정해야 했는데, 이 방식으로 그 문제 자체가 사라졌다).
 
-데이터를 다시 뽑거나(admdongkor 버전을 의도적으로 올릴 때) 정합성을 재확인하려면:
+데이터를 다시 뽑으려면(원본 SHP가 갱신됐을 때 등):
 
 ```bash
 cd tools/data-gen
-npm install
-node generate.mjs          # resources/data/nationwide-dong.json 갱신 (ADMDONGKOR_VERSION 고정값 사용)
-node verify-admindex.mjs   # web/의 loadDong.ts와 admIndex 시퀀스가 같은지 검증
+node generate.mjs   # resources/data/nationwide-dong.json 갱신
 ```
 
-> 버전을 올릴 땐 `generate.mjs`와 `web/src/data/loadDong.ts` 두 곳의 `ADMDONGKOR_VERSION`을 **같이** 바꾸고 위 두 명령을 다시 돌릴 것.
-
-실행 결과 인접 차수 0(섬·월경지)인 동이 54개 있다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).
+실행 결과 인접 차수 0(섬·월경지)인 동이 62개 있다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).
 
 ## 배포 (plan.md Day 5 — 단일 origin 서빙)
 
@@ -99,7 +95,7 @@ node load-test.mjs 25 8         # N명 동시 접속(기본 25) × 초(기본 8)
 - 함락 로그에 토벌 보너스 표기(`"... (+10 토벌)"`) — `core.ts resolveArrival`과 문구 통일
 - `DELTA.events`를 최신순(newest-first)으로 전송 — `worldView.ts applyDelta`의 prepend 가정과 일치
 - **시간 동기화**(api-spec.md §3): `StompConnection`이 WELCOME의 `serverTimeMs`로 offset을 1회 계산해, 서버가 보낸 `Order.departTick/arriveTick`(epoch ms)을 클라 rAF 시간축(`performance.now()`)으로 변환한다 — `worldView`/`MapView`는 이 차이를 몰라도 되게 경계(Connection)에서만 처리
-- **admIndex 정렬**: 클라·서버가 admdongkor에서 독립적으로 admIndex를 매기므로 버전을 `"20260701"`로 고정하고 실제로 시퀀스가 동일함을 스크립트로 검증(위 "전국 경계 데이터" 참조)
+- **admIndex 정렬**: 클라·서버가 같은 정적 GeoJSON 파일(`web/public/beopjeong-emd.geojson`)을 같은 순서로 읽어 admIndex를 매기므로 구조적으로 일치한다(위 "전국 경계 데이터" 참조)
 
 **실제 브라우저(Playwright, Chrome)로 검증**: `npm run dev`(5173) + `./gradlew bootRun`(8080) 조합, 그리고 `deployJar`로 만든 단일 jar(8080, 같은 origin) 둘 다에서 접속→JOIN→WELCOME 반영→지도 렌더→좌클릭 선택까지 콘솔 에러 없이 동작 확인.
 

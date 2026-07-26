@@ -1,4 +1,3 @@
-import * as adk from "admdongkor";
 import type {
   Feature,
   FeatureCollection,
@@ -33,46 +32,44 @@ export interface PreparedMap {
 
 type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 
-// README.md §2 데이터 절 — admdongkor light emd 로드 → (SCOPE_SIDOCD 필터) →
-// TopoJSON 위상으로 인접 그래프 + 아크(공유 경계선) 추출 → polylabel 라벨 지점 계산.
-// SCOPE_SIDOCD = null 이면 전국 전체(~3,500동), 시도 코드면 해당 시도만(성능 폴백).
-// admIndex는 이 fetch 결과의 배열 순서로 정해지는데, 서버(server/tools/data-gen/generate.mjs)도
-// 같은 admdongkor 데이터로 독립적으로 admIndex를 만든다. "latest"를 그때그때 풀면 admdongkor에
-// 새 버전이 배포되는 순간 둘의 순서가 어긋날 수 있어(동 이름·좌표가 서버 판정과 안 맞음),
-// 버전을 고정한다. 버전을 올릴 땐 반드시 서버 쪽 ADMDONGKOR_VERSION도 같이 바꾸고
-// generate.mjs를 다시 돌려 nationwide-dong.json을 갱신할 것.
-const ADMDONGKOR_VERSION = "20260701";
+// 법정동 경계 GeoJSON (web/public). gisdeveloper 읍면동(법정동) SHP를 mapshaper로
+// WGS84 변환한 정적 자산. 속성: EMD_CD(8자리 법정동코드=[시도2][시군구3][읍면동3]),
+// EMD_KOR_NM(한글명), EMD_ENG_NM(영문명).
+// 로드 후 TopoJSON 위상으로 인접 그래프 + 아크(공유 경계선) 추출 → polylabel 라벨 지점 계산.
+// SCOPE_SIDOCD = null 이면 전국 전체(~5,065 법정동), 시도 코드면 해당 시도만(성능 폴백).
+const DONG_GEOJSON_URL = `${import.meta.env.BASE_URL}beopjeong-emd.geojson`;
+
+interface EmdProps {
+  EMD_CD: string;
+  EMD_KOR_NM: string;
+  EMD_ENG_NM?: string;
+}
 
 export async function loadDong(): Promise<PreparedMap> {
-  const fc = (await adk.get(ADMDONGKOR_VERSION, "emd")) as unknown as FeatureCollection<
-    Polygon | MultiPolygon,
-    {
-      emd8: string | null;
-      emdnm: string;
-      sggcd: string | null;
-      sggnm: string | null;
-      sidocd: string | null;
-      sidonm: string;
-    }
-  >;
+  const res = await fetch(DONG_GEOJSON_URL);
+  if (!res.ok) throw new Error(`법정동 경계 로드 실패 (${res.status}) — ${DONG_GEOJSON_URL}`);
+  const fc = (await res.json()) as FeatureCollection<Polygon | MultiPolygon, EmdProps>;
 
   const filtered = fc.features.filter(
-    (f) => f.properties.emd8 && (SCOPE_SIDOCD === null || f.properties.sidocd === SCOPE_SIDOCD)
+    (f) =>
+      f.properties?.EMD_CD &&
+      (SCOPE_SIDOCD === null || f.properties.EMD_CD.slice(0, 2) === SCOPE_SIDOCD)
   );
 
   const meta: DongStaticMeta[] = [];
   const preparedFeatures: DongFeature[] = [];
 
   filtered.forEach((f, admIndex) => {
+    const code = f.properties.EMD_CD; // 법정동코드 8자리
     const centroid = computeLabelPoint(f as Feature<Polygon | MultiPolygon>);
     meta.push({
       admIndex,
-      code: f.properties.emd8 as string,
-      name: f.properties.emdnm,
-      sggcd: f.properties.sggcd ?? "",
-      sggnm: f.properties.sggnm ?? "",
-      sidocd: f.properties.sidocd ?? "",
-      sidonm: f.properties.sidonm,
+      code,
+      name: f.properties.EMD_KOR_NM,
+      sggcd: code.slice(0, 5), // [시도2][시군구3] — core.computeRank 시장 판정용
+      sggnm: "", // 이 파일엔 시군구명이 없다(코드만). 필요 시 sig 데이터로 보강.
+      sidocd: code.slice(0, 2),
+      sidonm: "",
       centroid,
     });
     preparedFeatures.push({

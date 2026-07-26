@@ -41,7 +41,7 @@ web/src/
 ├─ world/
 │  └─ worldView.ts # 상태 반영 계층 — WELCOME/DELTA를 적용해 두는 "서버 상태 사본" (게임 로직 안 돌림)
 ├─ data/
-│  ├─ loadDong.ts  # admdongkor 로드 + topojson 인접 그래프 추출 (README §2), 전국/시도 필터
+│  ├─ loadDong.ts  # 정적 법정동 GeoJSON(public/beopjeong-emd.geojson) 로드 + topojson 인접 그래프 추출 (README §2), 전국/시도 필터
 │  └─ labelPoint.ts     # polylabel 기반 라벨 좌표 계산
 ├─ map/
 │  └─ MapView.tsx  # MapLibre 인스턴스 (useRef 1회 생성). world를 읽어 렌더, 입력은 connection으로 전송
@@ -69,7 +69,7 @@ web/src/
 - 입력은 `connection.sendSortie` 로 전송, 결과는 DELTA/ERROR로 비동기 수신 (클라 예측 없음).
 - **실서버 전환(완료)**: `web/src/net/stompConnection.ts`가 실제 STOMP 구현체다. `App.tsx`가 기본으로 이걸 쓰고(`VITE_USE_LOCAL_MOCK=1`이면 여전히 `localConnection`으로 전환 가능), `Connection` 인터페이스·`worldView`·`MapView`는 실제로 손대지 않았다.
 - 유닛 이동 보간은 그대로. 실서버는 `Order.departTick/arriveTick`이 서버 시각(epoch ms) 기준이므로, `StompConnection`이 WELCOME의 `serverTimeMs`로 `offset`을 1회 계산해 Order들을 클라 rAF 시간축(`performance.now()`)으로 변환한 뒤 콜백에 넘긴다(api-spec.md §3) — `worldView`/`MapView`는 이 차이를 모른다. 목 서버는 애초에 `performance.now()`를 써서 offset이 필요 없었다.
-- 클라·서버가 admdongkor에서 각자 admIndex를 매기므로(§4), 버전을 `"20260701"`로 고정하고 두 시퀀스가 동일함을 스크립트(`server/tools/data-gen/verify-admindex.mjs`)로 검증했다.
+- 클라·서버가 정적 GeoJSON 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터·순서로 읽어 admIndex를 매기므로(§4) 구조적으로 정렬이 일치한다 — admdongkor 같은 외부 API 버전 드리프트 걱정이 아예 없다.
 
 ---
 
@@ -113,20 +113,29 @@ server/src/main/kotlin/com/madcamp/server/
 
 ## 4. 데이터 파이프라인
 
+원본 소스가 admdongkor(npm, 행정동)에서 **gisdeveloper 법정동 SHP**로 바뀌었다 — 클라·서버가 각자 외부 API(admdongkor)를 호출해 독립적으로 admIndex를 매기던 방식은 API가 버전을 올리는 순간 둘의 정렬이 어긋날 수 있어서, 변환 결과를 **정적 파일 하나로 고정해 양쪽이 그 파일만 읽게** 바꿨다.
+
 ```
-admdongkor(npm, WGS84 GeoJSON)
-   │
-   ├─ topojson-server: TopoJSON 변환 (위상 보존)
-   ├─ topojson-client neighbors(): 인접 그래프 추출 — 기하 기반 touches() 금지(부동소수점 슬리버, README §2.2)
-   ├─ mapshaper dissolve: 시군구 집계 지오메트리 (줌 낮을 때 렌더용, README §7.2)
-   └─ polylabel: 각 동 라벨/배지 좌표 (centroid 아님)
-   │
-   ▼
-클라: MapLibre 소스(promoteId: adm_cd 정수화) ── 목업 단계, 시도 필터로 서울/전국 전환
-서버: 위 산출물을 JSON 리소스로 포함, WELCOME의 meta/neighborIndex로 1회 전송 ── 온라인 전환 후
+gisdeveloper 읍면동(법정동) SHP  ── 1회, 오프라인 ──▶  mapshaper (WGS84 변환)
+                                                          │
+                                                          ▼
+                              web/public/beopjeong-emd.geojson (git 커밋, 클라·서버 공통 소스)
+                                                          │
+                        ┌─────────────────────────────────┴─────────────────────────────────┐
+                        ▼                                                                     ▼
+        클라: web/src/data/loadDong.ts (fetch)                         서버: server/tools/data-gen/generate.mjs (readFileSync)
+        - 같은 필터(EMD_CD 존재) · 같은 순회 순서로 admIndex 부여
+        - topojson-server/-client: TopoJSON 위상으로 인접 그래프 추출 — 기하 기반 touches() 금지(부동소수점 슬리버, README §2.2)
+        - polylabel: 각 동 라벨/배지 좌표(centroid 아님)
+                        │                                                                     │
+                        ▼                                                                     ▼
+        MapLibre 소스(promoteId: admIndex)로 렌더                    resources/data/nationwide-dong.json으로 미리 구워 서버 리소스에 포함,
+                                                                       WELCOME의 meta/neighborIndex로 1회 전송
 ```
 
-인덱스 체계: `adm_cd`(8자리, `[시도2][시군구3][읍면동3]`) → 조밀 정수 `admIndex`(0..N-1)로 매핑해 모든 배열/메시지에서 사용(README §2.1, api-spec.md §1).
+같은 파일·같은 로직을 양쪽이 각자 실행하므로 결과물(centroid·인접 그래프)도 동일하게 나온다 — 서버가 클라에 파일을 내려주는 게 아니라, 빌드 시점에 각자 계산한다는 점에 주의(런타임에 서버가 지오메트리를 보내지는 않는다. 클라 렌더용 폴리곤은 클라가 직접 fetch).
+
+인덱스 체계: `EMD_CD`(법정동코드 8자리, `[시도2][시군구3][읍면동3]`) → 조밀 정수 `admIndex`(0..N-1)로 매핑해 모든 배열/메시지에서 사용(README §2.1, api-spec.md §1).
 
 ---
 
