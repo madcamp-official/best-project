@@ -42,8 +42,7 @@ data class GameConfig(
 
     // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
     @JsonProperty("MISSILE_SPAWN_SEC") var missileSpawnSec: Double = 10.0,
-    @JsonProperty("MISSILE_MAX_TOTAL") var missileMaxTotal: Int = 30, // 맵 전체 동시 존재 상한
-    @JsonProperty("MISSILE_MAX_PER_PLAYER") var missileMaxPerPlayer: Int = 5,
+    @JsonProperty("MISSILE_MAX_TOTAL") var missileMaxTotal: Int = 60, // 맵 전체 동시 존재 상한(개인 한도 없음)
     @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.02,
     @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.06, // 발사 반경 검증 상한
     @JsonProperty("MISSILE_HIT_MARGIN_DEG") var missileHitMarginDeg: Double = 0.05, // 타격 centroid 근접 여유

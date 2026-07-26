@@ -262,8 +262,8 @@ object GameCore {
         return c
     }
 
-    // 무작위 동 1곳에 미사일 스폰. 맵 전체 총량이 상한이면 스폰하지 않고, 이미 있으면 건너뛰고,
-    // 소유주가 플레이어이면서 개인 상한이면 스폰하지 않는다. 반환 = 스폰된 admIndex, 없으면 -1.
+    // 무작위 동 1곳에 미사일 스폰. 맵 전체 총량이 상한이면 스폰하지 않고, 이미 있는 동은
+    // 건너뛴다(개인 보유 한도 없음 — 맵 총량만으로 제한). 반환 = 스폰된 admIndex, 없으면 -1.
     fun trySpawnMissile(world: World, config: GameConfig, rng: java.util.Random): Int {
         if (world.n == 0) return -1
         if (totalMissileCount(world) >= config.missileMaxTotal) return -1 // 맵 전체 상한
@@ -271,12 +271,6 @@ object GameCore {
         for (k in 0 until world.n) {
             val i = (start + k) % world.n
             if (world.missile[i]) continue
-            val owner = world.ownerId[i]
-            if (owner != HolderIds.NEUTRAL && owner != HolderIds.ENV &&
-                missileCount(world, owner) >= config.missileMaxPerPlayer
-            ) {
-                continue
-            }
             world.missile[i] = true
             return i
         }
