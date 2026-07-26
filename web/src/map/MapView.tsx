@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
+import { AttributionControl, Map as MaplibreMap, type GeoJSONSource, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadDong";
 import {
@@ -54,6 +54,10 @@ const EXPLOSION_SOURCE = "explosions";
 const EXPLOSION_FILL = "explosions-fill";
 const EXPLOSION_RING = "explosions-ring";
 const EXPLOSION_MS = 650; // 폭발 충격파 지속(ms)
+const AIRDROP_UNIT_SOURCE = "airdrop-units"; // 공수부대 삼각형 유닛(일반 원 유닛과 구분)
+const AIRDROP_UNIT_LAYER = "airdrop-unit-icon";
+const AIRDROP_UNIT_LABEL = "airdrop-unit-label";
+const TRIANGLE_IMAGE_ID = "airdrop-triangle";
 
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
@@ -105,6 +109,12 @@ export function MapView({ prepared, connection }: Props) {
     let wasAiming = false;
     const aimedSet = new Set<number>(); // 지금 원에 걸린 동(하얀 반짝 대상)
     const explosions: { cx: number; cy: number; r: number; start: number }[] = []; // 진행 중 폭발
+    // 공수부대(B3) 조준 상태 — source 단계는 원으로 내 동 선택, dest 단계는 목적지 선택(2클릭).
+    let airdropPhase: "source" | "dest" = "source";
+    let airdropSources: number[] = [];
+    let destHover = -1; // dest 단계에서 커서 아래 동(하이라이트 대상)
+    let wasTransporting = false;
+    const airdropSet = new Set<number>(); // source 단계에서 원에 걸린 내 동
 
     // 미사일이 얹힌 동 centroid에 마커를 다시 그린다.
     const updateMissileMarkers = (m: MaplibreMap) => {
@@ -140,8 +150,9 @@ export function MapView({ prepared, connection }: Props) {
       src.setData({ type: "FeatureCollection", features });
     };
 
-    // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 계산해 aimedSet에 담는다.
-    const updateAim = (center: [number, number]) => {
+    // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
+    // ownedOnly=true면 내 소유 동만(공수 source 단계), false면 모든 동(미사일 조준).
+    const updateAim = (center: [number, number], targetSet: Set<number>, ownedOnly: boolean) => {
       const [cx, cy] = center;
       const cosLat = Math.cos((cy * Math.PI) / 180);
       const rLng = RADIUS / cosLat; // 경도는 위도에 따라 실제 거리가 달라 보정(원처럼 보이게)
@@ -170,18 +181,19 @@ export function MapView({ prepared, connection }: Props) {
         if (f.id === undefined) continue;
         const id = Number(f.id);
         if (hit.has(id)) continue;
+        if (ownedOnly && world.ownerId[id] !== world.myHolderId) continue; // 공수 source는 내 동만
         if (circleHitsPoly(cx, cy, RADIUS, cosLat, f.geometry)) hit.add(id);
       }
-      for (const idx of aimedSet) {
+      for (const idx of targetSet) {
         if (!hit.has(idx)) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
       }
-      aimedSet.clear();
-      for (const idx of hit) aimedSet.add(idx);
+      targetSet.clear();
+      for (const idx of hit) targetSet.add(idx);
     };
 
-    const clearAim = () => {
-      for (const idx of aimedSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
-      aimedSet.clear();
+    const clearAim = (targetSet: Set<number>) => {
+      for (const idx of targetSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
+      targetSet.clear();
       const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
       circleSrc?.setData({ type: "FeatureCollection", features: [] });
     };
@@ -189,8 +201,48 @@ export function MapView({ prepared, connection }: Props) {
     // 발사: 지금 원에 걸린 동 목록을 서버로 보내고 조준 모드를 끝낸다. 서버가 중립화 후 DELTA.
     const fireMissile = (center: [number, number]) => {
       connection.sendMissile(center, RADIUS, Array.from(aimedSet));
-      clearAim();
+      clearAim(aimedSet);
       useUIStore.getState().setAiming(false);
+    };
+
+    // 공수 조준 종료 — 소스/목적지 하이라이트·원을 비우고 단계를 리셋한다.
+    const clearAirdrop = () => {
+      for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
+      airdropSet.clear();
+      if (destHover >= 0) {
+        map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: 0 });
+        destHover = -1;
+      }
+      airdropSources = [];
+      airdropPhase = "source";
+      const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
+      circleSrc?.setData({ type: "FeatureCollection", features: [] });
+    };
+
+    // 공수 클릭: source 단계면 원 안 내 동을 출발지로 확정(→dest 단계), dest 단계면 목적지로 발송.
+    const handleAirdropClick = (e: MapMouseEvent) => {
+      const st = useUIStore.getState();
+      if (airdropPhase === "source") {
+        if (airdropSet.size === 0) {
+          st.showToast("원 안에 내 동이 없습니다.");
+          return;
+        }
+        airdropSources = Array.from(airdropSet);
+        airdropPhase = "dest";
+        (map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined)?.setData({
+          type: "FeatureCollection",
+          features: [],
+        });
+        st.showToast(`출발 ${airdropSources.length}개 동 — 목적지를 클릭하세요`);
+      } else {
+        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+        const dest = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+        if (dest < 0) return;
+        connection.sendAirdrop(airdropSources, dest);
+        st.startAirdropCooldown(CONFIG.AIRDROP_COOLDOWN_SEC * 1000);
+        clearAirdrop();
+        st.setTransporting(false);
+      }
     };
 
     map.on("load", () => {
@@ -374,6 +426,60 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
+      // 공수부대(B3) 삼각형 유닛 — 흰 삼각형 아이콘 + 병력 수. (일반 원 유닛과 구분되게 삼각형.)
+      map.addSource(AIRDROP_UNIT_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      const triangleIcon = makeTriangleIcon(22);
+      if (triangleIcon) {
+        if (!map.hasImage(TRIANGLE_IMAGE_ID)) {
+          map.addImage(TRIANGLE_IMAGE_ID, triangleIcon.data, { pixelRatio: triangleIcon.pixelRatio });
+        }
+        map.addLayer({
+          id: AIRDROP_UNIT_LAYER,
+          type: "symbol",
+          source: AIRDROP_UNIT_SOURCE,
+          layout: {
+            "icon-image": TRIANGLE_IMAGE_ID,
+            "icon-size": 1,
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
+        });
+      } else {
+        // 캔버스 렌더 실패 시 폴백: 노란 원.
+        map.addLayer({
+          id: AIRDROP_UNIT_LAYER,
+          type: "circle",
+          source: AIRDROP_UNIT_SOURCE,
+          paint: {
+            "circle-radius": 8,
+            "circle-color": "#ffd24a",
+            "circle-stroke-color": "#1b2430",
+            "circle-stroke-width": 2,
+          },
+        });
+      }
+      map.addLayer({
+        id: AIRDROP_UNIT_LABEL,
+        type: "symbol",
+        source: AIRDROP_UNIT_SOURCE,
+        layout: {
+          "text-field": ["get", "amount"],
+          "text-size": 13,
+          "text-offset": [0, 1.2], // 삼각형 아래에 병력 수
+          "text-anchor": "top",
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1.4,
+        },
+      });
+
       // 미사일 마커 — 미사일이 얹힌 동 centroid에 🚀 이모지 아이콘.
       // (스타일에 glyphs 서버가 없어 text-field로는 컬러 이모지를 못 그리므로, 이모지를
       //  캔버스에 렌더해 래스터 아이콘으로 addImage 후 symbol 레이어로 얹는다.)
@@ -544,13 +650,19 @@ export function MapView({ prepared, connection }: Props) {
       // 조준용 마우스 추적(맵 전역). 실제 원/타격 계산은 rAF에서 프레임당 1회.
       map.on("mousemove", (e) => {
         lastMouseLngLat = [e.lngLat.lng, e.lngLat.lat];
-        if (useUIStore.getState().isAiming) aimDirty = true;
+        const st = useUIStore.getState();
+        if (st.isAiming) aimDirty = true;
+        if (st.isTransporting && airdropPhase === "source") aimDirty = true;
       });
 
       // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 집결지 지정 중이면 = 집결지 설정/해제.
       map.on("click", (e) => {
         if (useUIStore.getState().isAiming) {
           fireMissile([e.lngLat.lng, e.lngLat.lat]);
+          return;
+        }
+        if (useUIStore.getState().isTransporting) {
+          handleAirdropClick(e);
           return;
         }
         if (useUIStore.getState().isSettingRally) {
@@ -568,7 +680,12 @@ export function MapView({ prepared, connection }: Props) {
       // 우클릭 = 선택한 동에서 그 동으로 병력 이동/공격.
       map.getCanvas().addEventListener("contextmenu", (ev) => ev.preventDefault());
       map.on("contextmenu", (e) => {
-        if (useUIStore.getState().isAiming) return; // 조준 중엔 우클릭 출정 비활성
+        const st = useUIStore.getState();
+        if (st.isTransporting) {
+          st.setTransporting(false); // 우클릭 = 공수 취소
+          return;
+        }
+        if (st.isAiming) return; // 조준 중엔 우클릭 출정 비활성
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
         if (hit && hit.id !== undefined) handleAction(Number(hit.id), connection);
@@ -586,6 +703,10 @@ export function MapView({ prepared, connection }: Props) {
         const st = useUIStore.getState();
         if (st.isAiming) {
           st.setAiming(false);
+          return;
+        }
+        if (st.isTransporting) {
+          st.setTransporting(false);
           return;
         }
         if (st.isSettingRally) {
@@ -697,17 +818,49 @@ export function MapView({ prepared, connection }: Props) {
       if (aimingNow) {
         if (!wasAiming) aimDirty = true; // 조준 시작 → 즉시 한 번 그린다
         if (aimDirty && lastMouseLngLat) {
-          updateAim(lastMouseLngLat);
+          updateAim(lastMouseLngLat, aimedSet, false);
           aimDirty = false;
         }
         const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
         for (const idx of aimedSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: pulse });
         map.getCanvas().style.cursor = "crosshair";
       } else if (wasAiming) {
-        clearAim();
+        clearAim(aimedSet);
         map.getCanvas().style.cursor = "";
       }
       wasAiming = aimingNow;
+
+      // 공수(병력 수송) 조준: source 단계는 원으로 내 동 선택, dest 단계는 커서 아래 목적지 하이라이트.
+      const transportingNow = useUIStore.getState().isTransporting;
+      if (transportingNow) {
+        if (!wasTransporting) aimDirty = true; // 진입 즉시 한 번 그린다
+        if (airdropPhase === "source") {
+          if (aimDirty && lastMouseLngLat) {
+            updateAim(lastMouseLngLat, airdropSet, true);
+            aimDirty = false;
+          }
+        } else if (lastMouseLngLat) {
+          const p = map.project(lastMouseLngLat);
+          const feats = map.queryRenderedFeatures(p, { layers: [FILL_LAYER] });
+          const id = feats.length > 0 && feats[0].id !== undefined ? Number(feats[0].id) : -1;
+          if (id !== destHover) {
+            if (destHover >= 0 && !airdropSet.has(destHover)) {
+              map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: 0 });
+            }
+            destHover = id;
+          }
+        }
+        const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
+        for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: pulse });
+        if (airdropPhase === "dest" && destHover >= 0) {
+          map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: pulse });
+        }
+        map.getCanvas().style.cursor = "crosshair";
+      } else if (wasTransporting) {
+        clearAirdrop();
+        map.getCanvas().style.cursor = "";
+      }
+      wasTransporting = transportingNow;
 
       // 미사일 폭발 충격파 — 중립화된 동(=착탄)에서 터뜨린다. 전원 공통(DELTA 기반).
       const impacts = drainMissileImpacts();
@@ -886,6 +1039,29 @@ function makeEmojiIcon(
   return { data: ctx.getImageData(0, 0, px, px), pixelRatio: ratio };
 }
 
+// 공수부대 삼각형 유닛 아이콘 — 흰 삼각형 + 어두운 외곽선을 캔버스에 그려 addImage용 픽셀 데이터로.
+// (원 유닛과 한눈에 구분되게 위를 향한 삼각형. glyphs 없이 쓰려고 이미지로 얹는다.)
+function makeTriangleIcon(sizePx: number): { data: ImageData; pixelRatio: number } | null {
+  const ratio = Math.max(1, Math.min(4, Math.round(window.devicePixelRatio || 1)));
+  const px = sizePx * ratio;
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.beginPath();
+  ctx.moveTo(px / 2, px * 0.14);
+  ctx.lineTo(px * 0.9, px * 0.86);
+  ctx.lineTo(px * 0.1, px * 0.86);
+  ctx.closePath();
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, px * 0.07);
+  ctx.strokeStyle = "#1b2430";
+  ctx.stroke();
+  return { data: ctx.getImageData(0, 0, px, px), pixelRatio: ratio };
+}
+
 function selectDong(map: MaplibreMap, idx: number | null, select: (i: number | null) => void) {
   const prev = useUIStore.getState().selectedIndex;
   if (prev !== null) {
@@ -910,11 +1086,13 @@ function updateBadges(map: MaplibreMap, prepared: PreparedMap) {
   });
 }
 
-// 이동 중인 유닛 원을 출발지→목적지 사이 보간 위치에 그린다 (원 하나 + 옆에 병력 수).
+// 이동 중인 유닛을 출발지→목적지 사이 보간 위치에 그린다. 일반 출정/보급은 원(UNIT_SOURCE),
+// 공수부대(order.airdrop)는 삼각형(AIRDROP_UNIT_SOURCE)으로 나눠 그린다. 둘 다 옆/아래에 병력 수.
 function updateUnits(map: MaplibreMap, now: number) {
   const src = map.getSource(UNIT_SOURCE) as GeoJSONSource | undefined;
   if (!src) return;
-  const features = world.orders.map((o) => {
+  const triSrc = map.getSource(AIRDROP_UNIT_SOURCE) as GeoJSONSource | undefined;
+  const toFeature = (o: (typeof world.orders)[number]) => {
     const span = o.arriveTick - o.departTick;
     const t = span > 0 ? Math.min(1, Math.max(0, (now - o.departTick) / span)) : 1;
     const a = world.meta[o.from].centroid;
@@ -927,8 +1105,15 @@ function updateUnits(map: MaplibreMap, now: number) {
         coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
       },
     };
+  };
+  src.setData({
+    type: "FeatureCollection",
+    features: world.orders.filter((o) => !o.airdrop).map(toFeature),
   });
-  src.setData({ type: "FeatureCollection", features });
+  triSrc?.setData({
+    type: "FeatureCollection",
+    features: world.orders.filter((o) => o.airdrop).map(toFeature),
+  });
 }
 
 function averageCenter(prepared: PreparedMap): [number, number] {

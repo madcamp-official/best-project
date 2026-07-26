@@ -20,6 +20,10 @@ export function Hud() {
   const rallyIndex = useUIStore((s) => s.rallyIndex);
   const isSettingRally = useUIStore((s) => s.isSettingRally);
   const setSettingRally = useUIStore((s) => s.setSettingRally);
+  const isTransporting = useUIStore((s) => s.isTransporting);
+  const setTransporting = useUIStore((s) => s.setTransporting);
+  const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
+  const airdropCoolSec = Math.ceil(airdropCooldownLeft / 1000);
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
@@ -166,6 +170,42 @@ export function Hud() {
             {isSettingRally
               ? "내 동 클릭 = 집결지 지정 · 현재 집결지 클릭 = 해제"
               : "후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다"}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+          <div className="hud-ratio-head">
+            <span className="hud-title">공수부대 (병력 수송)</span>
+            <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
+              {airdropCooldownLeft > 0 ? `${airdropCoolSec}초` : "준비"}
+            </strong>
+          </div>
+          <button
+            type="button"
+            disabled={airdropCooldownLeft > 0 && !isTransporting}
+            onClick={() => setTransporting(!isTransporting)}
+            style={{
+              width: "100%",
+              marginTop: 4,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #ffffff55",
+              background: isTransporting ? "#b8860b" : airdropCooldownLeft > 0 ? "#2a3340" : "#3a4a5e",
+              color: "#fff",
+              cursor: airdropCooldownLeft > 0 && !isTransporting ? "not-allowed" : "pointer",
+              fontSize: 13,
+            }}
+          >
+            {isTransporting
+              ? "수송 중… (Esc 취소)"
+              : airdropCooldownLeft > 0
+                ? `재사용 대기 ${airdropCoolSec}초`
+                : "병력 수송"}
+          </button>
+          <div className="hud-ratio-hint">
+            {isTransporting
+              ? "① 원으로 내 동 선택(클릭) → ② 목적지 클릭 (섬도 가능)"
+              : "원으로 고른 내 동 병력을 목적지에 투하 — 넘치면 주변으로 점령"}
           </div>
         </div>
       </div>

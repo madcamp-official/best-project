@@ -25,6 +25,8 @@ export interface GameState {
   // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 후방 병력이 이 동을 향해 자동 전진한다.
   // 크기 256 = holderId 예약 범위(0 중립 … 255 E). 시뮬레이터(목/서버)만 채우고 클라 사본은 -1.
   rally: Int32Array;
+  // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
+  airdropReadyAt: Float64Array;
   // 포위 귀속(README §포위): 경계 동 마스크(0/1, 정적)와, 각 동이 현재 어느 플레이어에게
   // 언제부터 포위됐는지(-1=포위 안 됨). ANNEX_HOLD_SEC 유지 판정용.
   borderMask: Uint8Array;
@@ -75,6 +77,7 @@ export function createGameState(
     orders: [],
     missiles: new Uint8Array(n),
     rally: new Int32Array(256).fill(-1),
+    airdropReadyAt: new Float64Array(256),
     borderMask: borderMask ?? new Uint8Array(n),
     enclosedBy: new Int32Array(n).fill(-1),
     enclosedSince: new Float64Array(n),
@@ -273,6 +276,12 @@ export function tickOrders(s: GameState, nowMs: number, wallNowMs: number): Orde
 // 릴레이 컬럼(경로 자동 출정)이면 다음-홉 order를 반환, 아니면 null.
 function resolveArrival(s: GameState, order: Order, nowMs: number, wallNowMs: number): Order | null {
   const { from, to, amount, holderId, path } = order;
+
+  // 공수부대(B3): 도착 시 목적지에 투하하고 상한 초과분을 인접 flood로 점령/증원한다(릴레이 아님).
+  if (order.airdrop) {
+    resolveAirdrop(s, to, amount, holderId, wallNowMs);
+    return null;
+  }
 
   // 경로 자동 출정: 남은 경로가 있고 이 동과 다음 홉이 모두 내 소유면 '통과'만 하고 다음 홉으로 이어간다.
   // (경로가 끊겼으면 — to를 잃었거나 다음 홉을 잃었으면 — 아래 일반 로직으로 여기서 정착한다.)
@@ -502,6 +511,125 @@ function supplyToward(
     s.orders.push(order);
     out.push(order);
   }
+}
+
+// ── 공수부대 (B3) ──────────────────────────────────────────────────────
+// 원으로 고른 내 동들(sources)의 병력 전부를 모아 삼각형 유닛으로 dest에 투하한다. 도착 시
+// resolveAirdrop이 목적지→인접 BFS로 순차 flood한다(적/중립은 전투로 점령, 내 동은 상한까지 증원).
+
+export type AirdropResult =
+  | { ok: true }
+  | { ok: false; reason: string; code: "AIRDROP_COOLDOWN" | "NO_TROOPS" };
+
+// 공수 발주. sources는 호출자(전송 계층)가 내 소유로 걸러 보낸 목록이라고 가정하되 여기서도 재확인한다.
+// 쿨타임이 남아 있으면 거부. 성공 시 sources 병력 전부를 빼고 삼각형 order 1개를 띄운다.
+export function tryAirdrop(
+  s: GameState,
+  sources: number[],
+  dest: number,
+  holderId: number,
+  nowMs: number
+): AirdropResult {
+  if (nowMs < s.airdropReadyAt[holderId]) {
+    const left = Math.ceil((s.airdropReadyAt[holderId] - nowMs) / 1000);
+    return { ok: false, reason: `공수 재사용까지 ${left}초 남았습니다.`, code: "AIRDROP_COOLDOWN" };
+  }
+  if (dest < 0 || dest >= s.n) return { ok: false, reason: "투하 목적지가 올바르지 않습니다.", code: "NO_TROOPS" };
+
+  const valid: number[] = [];
+  let total = 0;
+  for (const i of sources) {
+    if (i < 0 || i >= s.n || s.ownerId[i] !== holderId) continue;
+    valid.push(i);
+    total += s.troops[i];
+  }
+  if (total <= 0) return { ok: false, reason: "수송할 병력이 없습니다.", code: "NO_TROOPS" };
+
+  const origin = nearestSourceToCentroid(s, valid, holderId); // 삼각형 유닛 출발 위치(원 중심 근사)
+  for (const i of valid) {
+    if (s.troops[i] > 0) {
+      s.troops[i] = 0; // 전부(100%) 실어 보낸다
+      s.dirty.add(i);
+    }
+  }
+  s.airdropReadyAt[holderId] = nowMs + CONFIG.AIRDROP_COOLDOWN_SEC * 1000;
+
+  const order = makeOrder(s, origin, dest, total, holderId, nowMs);
+  order.airdrop = true;
+  s.orders.push(order);
+  return { ok: true };
+}
+
+// 선택 동들의 무게중심에 가장 가까운 소유 동 — 삼각형 유닛의 출발 위치(원 중심 근사)로 쓴다.
+function nearestSourceToCentroid(s: GameState, sources: number[], holderId: number): number {
+  let sx = 0;
+  let sy = 0;
+  let cnt = 0;
+  for (const i of sources) {
+    if (i < 0 || i >= s.n || s.ownerId[i] !== holderId) continue;
+    sx += s.meta[i].centroid[0];
+    sy += s.meta[i].centroid[1];
+    cnt++;
+  }
+  if (cnt === 0) return sources[0] ?? 0;
+  const cx = sx / cnt;
+  const cy = sy / cnt;
+  let best = sources[0];
+  let bestD = Infinity;
+  for (const i of sources) {
+    if (i < 0 || i >= s.n || s.ownerId[i] !== holderId) continue;
+    const c = s.meta[i].centroid;
+    const d = (c[0] - cx) * (c[0] - cx) + (c[1] - cy) * (c[1] - cy);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// 공수 착륙: dest에 투하하고 상한 초과분을 목적지→인접 BFS로 순차 flood한다. 단일 스트림(remaining)이
+// BFS 순서로 각 동을 처리 — 내 동이면 상한까지 증원, 적/중립이면 전투(투하량>방어면 점령 후 상한까지
+// 주둔). 남은 병력 ≤ 방어면 그 동 방어를 깎고 소진·종료. 병력 소진 또는 더 퍼질 동이 없으면 끝.
+function resolveAirdrop(s: GameState, dest: number, amount: number, holderId: number, wallNowMs: number) {
+  let remaining = amount;
+  const visited = new Uint8Array(s.n);
+  const queue = [dest];
+  visited[dest] = 1;
+  let captured = 0;
+  let reinforced = 0;
+
+  for (let qi = 0; qi < queue.length && remaining > 0; qi++) {
+    const d = queue[qi];
+    if (s.ownerId[d] === holderId) {
+      const space = Math.max(0, s.troopCap[d] - s.troops[d]);
+      const add = Math.min(remaining, space);
+      if (add > 0) {
+        s.troops[d] += add;
+        remaining -= add;
+        s.dirty.add(d);
+        reinforced++;
+      }
+      for (const nb of s.neighborIndex[d]) if (!visited[nb]) { visited[nb] = 1; queue.push(nb); }
+    } else {
+      const defenders = s.troops[d];
+      if (remaining > defenders) {
+        s.ownerId[d] = holderId;
+        remaining -= defenders;
+        const garrison = Math.min(s.troopCap[d], remaining);
+        s.troops[d] = garrison;
+        remaining -= garrison;
+        s.dirty.add(d);
+        captured++;
+        for (const nb of s.neighborIndex[d]) if (!visited[nb]) { visited[nb] = 1; queue.push(nb); }
+      } else {
+        s.troops[d] = defenders - remaining; // 점령 실패 — 방어 병력만 깎고 스트림 소진
+        remaining = 0;
+        s.dirty.add(d);
+      }
+    }
+  }
+  pushLog(s, `공수 착륙 — ${captured}개 동 점령, ${reinforced}개 동 증원`, wallNowMs);
 }
 
 // ts = 로그 타임스탬프(호출자 주입). 현재 UI에서 표시하진 않으나 타임랩스 확장용으로 보존.

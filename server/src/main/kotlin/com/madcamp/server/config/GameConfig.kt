@@ -54,6 +54,9 @@ data class GameConfig(
     @JsonProperty("SUPPLY_INTERVAL_SEC") var supplyIntervalSec: Double = 1.5,
     @JsonProperty("SUPPLY_RATIO") var supplyRatio: Double = 0.34,
     @JsonProperty("SUPPLY_MIN_TROOPS") var supplyMinTroops: Int = 5,
+
+    // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
+    @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 5.0, // 플레이어당 재사용 대기(초)
 )
 
 /** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */

@@ -16,6 +16,9 @@ export interface Order {
   // 경로 자동 출정(B1): to 도착 후 이어서 방문할 남은 홉(최종 목적지가 마지막). 비면 to가 최종.
   // 릴레이 컬럼은 to를 '통과'만 하고 다음 홉으로 이어지며, 병력은 최종 목적지에서만 정착한다.
   path?: number[];
+  // 공수부대(B3): true면 도착 시 목적지에 투하 후 상한 초과분을 인접 flood로 점령/증원한다.
+  // 렌더러는 이 플래그로 원 대신 삼각형 유닛을 그린다.
+  airdrop?: boolean;
 }
 
 export interface LogEntry {

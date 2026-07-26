@@ -47,6 +47,10 @@ data class LaunchMissileCommand(
 // B2 집결지 지정/해제(C→S, /app/rally). index = 내 소유 admIndex, -1이면 해제.
 data class SetRallyCommand(val index: Int = -1)
 
+// 공수부대(병력 수송, C→S, /app/airdrop). sources=원 안 내 소유 동 목록(클라 계산),
+// dest=투하 목적지. 서버가 소유·쿨타임을 검증하고 sources 병력 전부를 dest에 투하한다.
+data class AirdropCommand(val sources: List<Int> = emptyList(), val dest: Int = -1)
+
 data class ErrorMessage(val code: String, val message: String, val from: Int, val to: Int)
 
 /** cells: [admIndex, ownerId, troops] 튜플 (api-spec.md §2.5). */

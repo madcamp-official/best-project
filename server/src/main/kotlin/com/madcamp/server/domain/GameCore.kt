@@ -186,6 +186,12 @@ object GameCore {
         val amount = order.amount
         val holderId = order.holderId
 
+        // 공수부대(B3): 도착 시 목적지에 투하하고 상한 초과분을 인접 flood로 점령/증원한다(릴레이 아님).
+        if (order.airdrop) {
+            resolveAirdrop(world, to, amount, holderId, nowMs)
+            return null
+        }
+
         // 경로 자동 출정: 남은 경로가 있고 이 동과 다음 홉이 모두 내 소유면 '통과'만 하고 다음 홉으로 이어간다.
         val path = order.path
         if (path.isNotEmpty() && world.ownerId[to] == holderId && world.ownerId[path[0]] == holderId) {
@@ -313,6 +319,120 @@ object GameCore {
         }
         pushLog(world, "미사일 착탄 — ${neutralized.size}개 동 중립화", wallNowMs)
         return MissileLaunch(ok = true, removed = src, neutralized = neutralized)
+    }
+
+    // ── 공수부대 (B3, web/src/game/core.ts tryAirdrop/resolveAirdrop 대응) ──
+    // 원으로 고른 내 동들(sources)의 병력 전부를 모아 삼각형 유닛으로 dest에 투하한다. 도착 시
+    // resolveAirdrop이 목적지→인접 BFS로 순차 flood한다(적/중립은 전투로 점령, 내 동은 상한까지 증원).
+
+    fun tryAirdrop(
+        world: World,
+        config: GameConfig,
+        sources: List<Int>,
+        dest: Int,
+        holderId: Int,
+        nowMs: Long,
+    ): SortieResult {
+        if (nowMs < world.airdropReadyAt[holderId]) {
+            val left = (world.airdropReadyAt[holderId] - nowMs + 999) / 1000
+            return SortieResult.Err(SortieErrorCode.AIRDROP_COOLDOWN, "공수 재사용까지 ${left}초 남았습니다.")
+        }
+        if (dest < 0 || dest >= world.n) {
+            return SortieResult.Err(SortieErrorCode.NO_TROOPS, "투하 목적지가 올바르지 않습니다.")
+        }
+        val valid = ArrayList<Int>()
+        var total = 0
+        for (i in sources) {
+            if (i < 0 || i >= world.n || world.ownerId[i] != holderId) continue
+            valid.add(i)
+            total += world.troops[i]
+        }
+        if (total <= 0) return SortieResult.Err(SortieErrorCode.NO_TROOPS, "수송할 병력이 없습니다.")
+
+        val origin = nearestSourceToCentroid(world, valid, holderId) // 삼각형 유닛 출발 위치(원 중심 근사)
+        for (i in valid) if (world.troops[i] > 0) {
+            world.troops[i] = 0 // 전부(100%) 실어 보낸다
+            world.dirty.add(i)
+        }
+        world.airdropReadyAt[holderId] = nowMs + (config.airdropCooldownSec * 1000).toLong()
+
+        val order = makeOrder(world, config, origin, dest, total, holderId, nowMs).copy(airdrop = true)
+        world.orders.add(order)
+        world.pendingNewOrders.add(order)
+        return SortieResult.Ok
+    }
+
+    // 선택 동들의 무게중심에 가장 가까운 소유 동 — 삼각형 유닛의 출발 위치(원 중심 근사)로 쓴다.
+    private fun nearestSourceToCentroid(world: World, sources: List<Int>, holderId: Int): Int {
+        var sx = 0.0
+        var sy = 0.0
+        var cnt = 0
+        for (i in sources) {
+            if (i < 0 || i >= world.n || world.ownerId[i] != holderId) continue
+            sx += world.meta[i].centroid[0]
+            sy += world.meta[i].centroid[1]
+            cnt++
+        }
+        if (cnt == 0) return sources.firstOrNull() ?: 0
+        val cx = sx / cnt
+        val cy = sy / cnt
+        var best = sources[0]
+        var bestD = Double.MAX_VALUE
+        for (i in sources) {
+            if (i < 0 || i >= world.n || world.ownerId[i] != holderId) continue
+            val c = world.meta[i].centroid
+            val d = (c[0] - cx) * (c[0] - cx) + (c[1] - cy) * (c[1] - cy)
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+        }
+        return best
+    }
+
+    // 공수 착륙: dest에 투하하고 상한 초과분을 목적지→인접 BFS로 순차 flood한다. 단일 스트림(remaining)이
+    // BFS 순서로 각 동을 처리 — 내 동이면 상한까지 증원, 적/중립이면 전투(투하량>방어면 점령 후 상한까지
+    // 주둔). 남은 병력 ≤ 방어면 그 동 방어를 깎고 소진·종료. 병력 소진 또는 더 퍼질 동이 없으면 끝.
+    private fun resolveAirdrop(world: World, dest: Int, amount: Int, holderId: Int, wallNowMs: Long) {
+        var remaining = amount
+        val visited = BooleanArray(world.n)
+        val queue = ArrayList<Int>()
+        queue.add(dest)
+        visited[dest] = true
+        var captured = 0
+        var reinforced = 0
+        var qi = 0
+        while (qi < queue.size && remaining > 0) {
+            val d = queue[qi]; qi++
+            if (world.ownerId[d] == holderId) {
+                val space = (world.troopCap[d] - world.troops[d]).coerceAtLeast(0)
+                val add = min(remaining, space)
+                if (add > 0) {
+                    world.troops[d] += add
+                    remaining -= add
+                    world.dirty.add(d)
+                    reinforced++
+                }
+                for (nb in world.neighborIndex[d]) if (!visited[nb]) { visited[nb] = true; queue.add(nb) }
+            } else {
+                val defenders = world.troops[d]
+                if (remaining > defenders) {
+                    world.ownerId[d] = holderId
+                    remaining -= defenders
+                    val garrison = min(world.troopCap[d], remaining)
+                    world.troops[d] = garrison
+                    remaining -= garrison
+                    world.dirty.add(d)
+                    captured++
+                    for (nb in world.neighborIndex[d]) if (!visited[nb]) { visited[nb] = true; queue.add(nb) }
+                } else {
+                    world.troops[d] = defenders - remaining // 점령 실패 — 방어 병력만 깎고 스트림 소진
+                    remaining = 0
+                    world.dirty.add(d)
+                }
+            }
+        }
+        pushLog(world, "공수 착륙 — ${captured}개 동 점령, ${reinforced}개 동 증원", wallNowMs)
     }
 
     // ── 보급선 (B2, web/src/game/core.ts setRally/tickSupply 대응) ────────

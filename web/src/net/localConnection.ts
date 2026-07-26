@@ -240,6 +240,20 @@ export class LocalConnection implements Connection {
     core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
   }
 
+  sendAirdrop(sources: number[], dest: number): void {
+    const now = performance.now();
+    const before = this.gs.orders.length;
+    const res = core.tryAirdrop(this.gs, sources, dest, this.holderId, now);
+    if (!res.ok) {
+      this.errorCb?.({ code: res.code, message: res.reason, from: -1, to: dest });
+      return;
+    }
+    // 성공 시 방금 push된 삼각형 order를 다음 DELTA에 실어 보낸다(도착 시 flood 처리).
+    if (this.gs.orders.length > before) {
+      this.pendingOrders.push(this.gs.orders[this.gs.orders.length - 1]);
+    }
+  }
+
   // centroid 근접 검증(여유 큼 — centroid가 폴리곤 밖이어도 가장자리 걸침을 허용).
   private withinRadius(i: number, center: [number, number], radius: number): boolean {
     const c = this.gs.meta[i].centroid;

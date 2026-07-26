@@ -28,6 +28,10 @@ class World(
     // web/src/game/core.ts GameState.rally 대응.
     val rally: IntArray = IntArray(256) { -1 }
 
+    // 공수부대(B3): holderId → 재사용 가능해지는 벽시계 시각(ms). 0=쿨타임 없음. 크기 256.
+    // web/src/game/core.ts GameState.airdropReadyAt 대응.
+    val airdropReadyAt: LongArray = LongArray(256)
+
     // 시도(sido)별 admIndex 목록 — 미사일 스폰을 지역 균등(시도 먼저 균등 추첨)으로 뽑을 때 쓴다.
     // 동 개수가 시도별로 크게 달라서(서울·부산은 동이 촘촘히 쪼개져 있음) 동 단위로 그냥
     // 균등 추첨하면 그쪽에 쏠린다(GameCore.trySpawnMissile 참조). World 생성 시 1회 계산.

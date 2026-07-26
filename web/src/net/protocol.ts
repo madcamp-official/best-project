@@ -49,6 +49,14 @@ export interface SetRallyCommand {
   index: number;
 }
 
+// 공수부대(병력 수송, C→S). sources = 원 안에 든 내 소유 동 admIndex 목록(클라 계산),
+// dest = 투하 목적지 admIndex(인접 아니어도 됨). 서버가 소유·쿨타임을 검증하고 sources 병력
+// 전부를 dest에 투하, 상한 초과분은 인접 flood로 점령/증원한다.
+export interface AirdropCommand {
+  sources: number[];
+  dest: number;
+}
+
 // ── S→C ──────────────────────────────────────────────────────────────
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
@@ -74,7 +82,7 @@ export interface WelcomeMessage {
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
 export interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE" | "NO_PATH";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE" | "NO_PATH" | "AIRDROP_COOLDOWN";
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;

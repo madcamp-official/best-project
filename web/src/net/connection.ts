@@ -20,6 +20,8 @@ export interface Connection {
   sendMissile(center: [number, number], radius: number, hits: number[]): void;
   // B2 집결지 지정/해제. index = 내 소유 admIndex, -1이면 해제. 이후 후방 병력이 이 동으로 자동 전진.
   sendRally(index: number): void;
+  // B3 공수부대(병력 수송). sources = 원 안 내 소유 동 admIndex(클라 계산), dest = 투하 목적지(인접 불필요).
+  sendAirdrop(sources: number[], dest: number): void;
 
   // 서버 → 클라 이벤트 구독. 각 1개 콜백만 등록(단순화).
   onWelcome(cb: (msg: WelcomeMessage) => void): void;

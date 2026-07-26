@@ -38,6 +38,10 @@ export const CONFIG = {
   SUPPLY_INTERVAL_SEC: 1.5, // 보급 흐름 tick 주기(초)
   SUPPLY_RATIO: 0.34, // 보급 tick당 후방 동에서 집결지 쪽 이웃으로 흘려보내는 병력 비율
   SUPPLY_MIN_TROOPS: 5, // 이 수 이하 병력은 보급으로 옮기지 않음(잔챙이 이동·과도한 DELTA 방지)
+
+  // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 삼각형 유닛으로 목적지에 투하.
+  // 상한 초과분은 목적지에서 인접 BFS로 순차 flood(적/중립은 전투로 점령). 사거리 무제한.
+  AIRDROP_COOLDOWN_SEC: 5, // 플레이어당 재사용 대기(초). 출발지 선택 원 반경은 미사일과 동일(MISSILE_RADIUS_DEG).
 } as const;
 
 // holderId 0 = 중립. 목업은 단일 플레이어이므로 1만 사용.
