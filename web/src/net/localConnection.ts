@@ -37,8 +37,10 @@ export class LocalConnection implements Connection {
   private lastSentLogId = 0;
   private startIndex: number;
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
+  private prepared: PreparedMap;
 
-  constructor(private prepared: PreparedMap) {
+  constructor(prepared: PreparedMap) {
+    this.prepared = prepared;
     // core가 유일한 진실. 시작 동 배정 = 데이터 무게중심 근처(목업).
     this.startIndex = core.pickStartIndex(prepared.meta);
     this.gs = core.createGameState(
