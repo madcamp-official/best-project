@@ -246,10 +246,18 @@ export function missileCount(s: GameState, holderId: number): number {
   return c;
 }
 
-// 무작위 동 1곳에 미사일 스폰. 이미 미사일이 있으면 건너뛰고, 소유주가 플레이어이면서
-// 개인 상한에 도달했으면 스폰하지 않는다. 반환 = 스폰된 admIndex, 없으면 -1.
+// 맵 전체에 존재하는 미사일 총 수(소유·중립 무관).
+export function totalMissileCount(s: GameState): number {
+  let c = 0;
+  for (let i = 0; i < s.n; i++) if (s.missiles[i]) c++;
+  return c;
+}
+
+// 무작위 동 1곳에 미사일 스폰. 맵 전체 총량이 상한이면 스폰하지 않고, 이미 미사일이 있으면
+// 건너뛰고, 소유주가 플레이어이면서 개인 상한이면 스폰하지 않는다. 반환 = 스폰된 admIndex, 없으면 -1.
 export function trySpawnMissile(s: GameState): number {
   if (s.n === 0) return -1;
+  if (totalMissileCount(s) >= CONFIG.MISSILE_MAX_TOTAL) return -1; // 맵 전체 상한
   const start = Math.floor(Math.random() * s.n);
   for (let k = 0; k < s.n; k++) {
     const i = (start + k) % s.n;

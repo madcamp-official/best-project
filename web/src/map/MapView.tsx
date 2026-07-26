@@ -8,6 +8,7 @@ import {
   pruneArrivedOrders,
   drainCaptureFlashes,
   drainMissilesTouched,
+  drainMissileImpacts,
 } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
@@ -41,6 +42,10 @@ const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
 const AIM_BLINK_LAYER = "dong-aim-blink"; // 조준에 걸린 동의 하얀 반짝 테두리
+const EXPLOSION_SOURCE = "explosions";
+const EXPLOSION_FILL = "explosions-fill";
+const EXPLOSION_RING = "explosions-ring";
+const EXPLOSION_MS = 650; // 폭발 충격파 지속(ms)
 
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
@@ -91,6 +96,7 @@ export function MapView({ prepared, connection }: Props) {
     let aimDirty = false; // 마우스가 움직였거나 조준을 막 시작 → 다음 프레임에 원/타격 재계산
     let wasAiming = false;
     const aimedSet = new Set<number>(); // 지금 원에 걸린 동(하얀 반짝 대상)
+    const explosions: { cx: number; cy: number; r: number; start: number }[] = []; // 진행 중 폭발
 
     // 미사일이 얹힌 동 centroid에 마커를 다시 그린다.
     const updateMissileMarkers = (m: MaplibreMap) => {
@@ -393,6 +399,32 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
+      // 미사일 폭발 충격파 — 주황 플래시(fill) + 확장하는 밝은 링(line). 값은 feature 속성으로 구동.
+      map.addSource(EXPLOSION_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: EXPLOSION_FILL,
+        type: "fill",
+        source: EXPLOSION_SOURCE,
+        paint: {
+          "fill-color": "#ff7a1a",
+          "fill-opacity": ["coalesce", ["get", "fillOpacity"], 0],
+        },
+      });
+      map.addLayer({
+        id: EXPLOSION_RING,
+        type: "line",
+        source: EXPLOSION_SOURCE,
+        paint: {
+          "line-color": "#fff3c4",
+          "line-width": 3,
+          "line-blur": 1,
+          "line-opacity": ["coalesce", ["get", "opacity"], 0],
+        },
+      });
+
       for (let i = 0; i < prepared.n; i++) {
         map.setFeatureState(
           { source: SOURCE_ID, id: i },
@@ -565,6 +597,45 @@ export function MapView({ prepared, connection }: Props) {
         map.getCanvas().style.cursor = "";
       }
       wasAiming = aimingNow;
+
+      // 미사일 폭발 충격파 — 중립화된 동(=착탄)에서 터뜨린다. 전원 공통(DELTA 기반).
+      const impacts = drainMissileImpacts();
+      if (impacts.length > 0) {
+        let sx = 0;
+        let sy = 0;
+        for (const idx of impacts) {
+          sx += world.meta[idx].centroid[0];
+          sy += world.meta[idx].centroid[1];
+        }
+        const cx = sx / impacts.length;
+        const cy = sy / impacts.length;
+        let maxd = 0;
+        for (const idx of impacts) {
+          const c = world.meta[idx].centroid;
+          const d = Math.hypot(c[0] - cx, c[1] - cy);
+          if (d > maxd) maxd = d;
+        }
+        explosions.push({ cx, cy, r: Math.max(maxd + RADIUS * 0.5, RADIUS), start: now });
+      }
+      if (explosions.length > 0) {
+        const active = explosions.filter((ex) => now - ex.start < EXPLOSION_MS);
+        explosions.length = 0;
+        explosions.push(...active);
+        const feats = active.map((ex) => {
+          const t = (now - ex.start) / EXPLOSION_MS;
+          const cosLat = Math.cos((ex.cy * Math.PI) / 180);
+          const rr = ex.r * (0.3 + t * 1.1); // 안에서 밖으로 퍼진다
+          return {
+            type: "Feature" as const,
+            properties: { opacity: 1 - t, fillOpacity: Math.max(0, 0.5 * (1 - t * 2)) },
+            geometry: { type: "Polygon" as const, coordinates: [ringCoords(ex.cx, ex.cy, rr, cosLat, 40)] },
+          };
+        });
+        (map.getSource(EXPLOSION_SOURCE) as GeoJSONSource | undefined)?.setData({
+          type: "FeatureCollection",
+          features: feats,
+        });
+      }
 
       if (now - lastSummaryAt > 250) {
         lastSummaryAt = now;
@@ -771,6 +842,17 @@ function segDist2(
   const dx = wx - t * ex;
   const dy = wy - t * ey;
   return dx * dx + dy * dy;
+}
+
+// 원 링 폴리곤 좌표(경도는 cosLat 보정). 폭발 충격파 그리기에 사용.
+function ringCoords(cx: number, cy: number, r: number, cosLat: number, steps: number): [number, number][] {
+  const out: [number, number][] = [];
+  const rLng = r / cosLat;
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * 2 * Math.PI;
+    out.push([cx + Math.cos(a) * rLng, cy + Math.sin(a) * r]);
+  }
+  return out;
 }
 
 // 링(ring) 내부에 점(px,py)이 있는가 — 표준 레이캐스트.

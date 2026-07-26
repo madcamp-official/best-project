@@ -28,6 +28,7 @@ export const CONFIG = {
 
   // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
   MISSILE_SPAWN_SEC: 10, // 전국에서 무작위 동 1곳에 미사일이 스폰되는 주기(초)
+  MISSILE_MAX_TOTAL: 30, // 맵 전체 동시 존재 미사일 총 상한(소유·중립 무관). 도달 시 스폰 중단.
   MISSILE_MAX_PER_PLAYER: 5, // 개인 보유 상한(내 소유 동에 얹힌 미사일 수)
   MISSILE_RADIUS_DEG: 0.02, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
 } as const;
