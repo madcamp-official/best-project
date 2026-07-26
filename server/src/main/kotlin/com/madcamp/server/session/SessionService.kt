@@ -1,16 +1,13 @@
 package com.madcamp.server.session
 
 import com.madcamp.server.config.HolderIds
+import com.madcamp.server.config.Palette
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.Holder
 import com.madcamp.server.domain.World
 import org.springframework.stereotype.Service
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-
-/** README §7.1 — 언젠가 12색 팔레트가 목표. 클라 PALETTE(현재 web/src/config.ts)가 이보다
- * 작으면 클라 쪽에서 마저 채워야 한다(README 부록A "12색 팔레트 실제 색값" 미정 항목). */
-private const val PALETTE_SIZE = 12
 
 data class PlayerSession(val holderId: Int, var nickname: String)
 
@@ -30,7 +27,9 @@ class SessionService {
         val newToken = UUID.randomUUID().toString()
         val holderId = allocateHolderId(world)
         val name = nickname?.trim().takeUnless { it.isNullOrEmpty() }?.take(12) ?: "player$holderId"
-        val paletteIdx = (holderId - 1).mod(PALETTE_SIZE)
+        // web/src/config.ts PLAYER_PALETTE_IDXS(현재 5슬롯)와 동일 규칙으로 순환 배정.
+        // 5명을 넘으면 색이 겹칠 수 있음 — 데모 규모에서는 허용(같은 comment가 클라 쪽에도 있음).
+        val paletteIdx = Palette.PLAYER_IDXS[(holderId - 1).mod(Palette.PLAYER_IDXS.size)]
 
         world.holders[holderId] = Holder(holderId, name, paletteIdx)
         val startIndex = StartCellAssigner.pick(world)

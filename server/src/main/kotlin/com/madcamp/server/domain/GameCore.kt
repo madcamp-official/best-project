@@ -38,14 +38,24 @@ object GameCore {
 
     // README §4.2, §4.4 — 출정. 병력은 출발과 동시에 출발지를 떠나고, 전투/증원은
     // 유닛이 도착(arriveTick)할 때 resolveArrival에서 처리한다.
-    fun trySortie(world: World, config: GameConfig, from: Int, to: Int, holderId: Int, nowMs: Long): SortieResult {
+    // ratio: web/src/game/core.ts trySortie와 동일하게 신뢰된 값으로 받는다 — 클라 입력
+    // 클램프는 여기(순수 코어)가 아니라 호출자(SortieController)의 책임이다.
+    fun trySortie(
+        world: World,
+        config: GameConfig,
+        from: Int,
+        to: Int,
+        holderId: Int,
+        nowMs: Long,
+        ratio: Double = config.sortieRatio,
+    ): SortieResult {
         if (world.ownerId[from] != holderId) {
             return SortieResult.Err(SortieErrorCode.NOT_OWNER, "본인 소유 동이 아닙니다.")
         }
         if (to !in world.neighborIndex[from]) {
             return SortieResult.Err(SortieErrorCode.NOT_ADJACENT, "인접한 동이 아닙니다.")
         }
-        val amount = floor(world.troops[from] * config.sortieRatio).toInt()
+        val amount = floor(world.troops[from] * ratio).toInt()
         if (amount <= 0) {
             return SortieResult.Err(SortieErrorCode.NO_TROOPS, "출정 가능한 병력이 없습니다.")
         }
@@ -96,11 +106,16 @@ object GameCore {
                 val nextHolder = world.holders[holderId]
                 world.ownerId[to] = holderId
                 var settled = -remaining
-                if (prevOwner == HolderIds.ENV && holderId != HolderIds.ENV) {
-                    settled = min(world.troopCap[to], settled + config.envBounty)
-                }
+                // README §4.6 토벌 보상 — web/src/game/core.ts resolveArrival과 동일 조건/문구.
+                val playerBeatEnv = prevOwner == HolderIds.ENV && holderId != HolderIds.ENV && holderId != HolderIds.NEUTRAL
+                if (playerBeatEnv) settled = min(world.troopCap[to], settled + config.envBounty)
                 world.troops[to] = settled
-                pushLog(world, "${world.meta[to].name} 함락 — ${prevHolder?.name ?: "?"} → ${nextHolder?.name ?: "?"}", wallNowMs)
+                val bountySuffix = if (playerBeatEnv) " (+${config.envBounty} 토벌)" else ""
+                pushLog(
+                    world,
+                    "${world.meta[to].name} 함락 — ${prevHolder?.name ?: "?"} → ${nextHolder?.name ?: "?"}$bountySuffix",
+                    wallNowMs,
+                )
             } else {
                 world.troops[to] = remaining
             }

@@ -68,8 +68,22 @@ node smoke.mjs
 | 5 | 배포(정적 서빙 이미 설정, 클라우드/교내 서버 배포는 미착수), 스냅샷 저장/복구 | 스냅샷 완료, 배포 미착수 |
 | 6 | 프리즈, 리허설 | 미착수 |
 
-**아직 안 한 것 / 다음에 할 것**:
-- 클라(`web/`)가 아직 전국 데이터 + 온라인 프로토콜로 전환되지 않음 — 클라 담당과 WELCOME/DELTA 필드 실제 연동 확인 필요
+## 클라(web/) 프로토콜 정합성
+
+클라 담당이 `web/src/net/`(`protocol.ts`·`connection.ts`·`localConnection.ts`)에 STOMP 실서버와 같은 인터페이스로 동작하는 **브라우저 내 목 서버**를 이미 구현해뒀다. 이게 사실상 "실서버가 어떻게 동작해야 하는가"의 참조 구현이라, 이 서버를 그 계약에 맞춰 검증·조정했다:
+
+- `SortieCommand.ratio`(출정 비율 슬라이더) 반영 — 서버가 `[0.05, 1]`로 클램프, 비정상값은 `CONFIG.SORTIE_RATIO`로 대체(`localConnection.ts sendSortie`와 동일 규칙)
+- `WELCOME.config`에 `ENV_HOLDER_ID` 포함 — 클라 `CONFIG` 객체 그대로 매칭(`@JsonProperty`로 SCREAMING_SNAKE_CASE 유지)
+- 환경 세력(E) holder 이름 `"야만인"`, `paletteIdx = 6`(클라 `ENV_PALETTE_IDX`) — 렌더링 시 클라 팔레트와 어긋나지 않게
+- 플레이어 `paletteIdx`는 클라 `PLAYER_PALETTE_IDXS = [1,2,3,4,5]`와 동일한 5슬롯 순환
+- 함락 로그 메시지에 토벌 보너스 표기(`"... (+10 토벌)"`) — `core.ts resolveArrival`과 문구 통일
+- `DELTA.events`를 최신순(newest-first)으로 전송 — `worldView.ts applyDelta`가 그 순서를 가정하고 그대로 prepend함
+
+남은 정합성 이슈는 없는지 실제 `StompConnection` 붙일 때 다시 한번 라운드트립 확인 필요.
+
+## 아직 안 한 것 / 다음에 할 것
+
+- 클라의 `localConnection`을 실제 `StompConnection`으로 교체하는 작업(클라 담당 몫) — `Connection` 인터페이스는 이미 있으므로 구현체만 추가하면 됨
 - 계급(Rank) 계산은 구현했지만 어떤 메시지로도 아직 안 내려줌(api-spec.md에 계급 필드 없음 — 필요해지면 LEADERBOARD나 별도 메시지에 추가)
 - 클라 정적 빌드를 `src/main/resources/static/`에 넣는 실제 빌드 파이프라인(Day 5) 미구성
 - 다인 동시 접속 부하/경합 실측(Day 4) 안 해봄 — 지금까지는 단일 클라이언트 스모크 테스트만

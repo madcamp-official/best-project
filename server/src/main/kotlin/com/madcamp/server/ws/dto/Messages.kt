@@ -26,7 +26,9 @@ data class WelcomeMessage(
     val orders: List<Order>,
 )
 
-data class SortieCommand(val from: Int, val to: Int)
+// ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
+// 서버가 CONFIG.SORTIE_RATIO로 대체한다(web/src/net/protocol.ts §2.3과 동일 계약).
+data class SortieCommand(val from: Int, val to: Int, val ratio: Double? = null)
 
 data class ErrorMessage(val code: String, val message: String, val from: Int, val to: Int)
 

@@ -3,13 +3,13 @@ package com.madcamp.server.config
 import com.fasterxml.jackson.annotation.JsonProperty
 
 /**
- * README.md §5 CONFIG — 모든 밸런스 값은 이 객체 한 곳에.
- * var 필드로 둔 이유: [com.madcamp.server.admin.AdminController]의 `/admin/config`가
+ * web/src/config.ts CONFIG 1:1 대응 — 필드 이름·기본값 모두 그 파일이 원본이다.
+ * var로 둔 이유: [com.madcamp.server.admin.AdminController]의 `/admin/config`가
  * 서버 재시작 없이 런타임 리로드할 수 있어야 한다(plan.md §6 리스크 대응).
  *
- * @JsonProperty로 web/src/config.ts의 CONFIG 키(SCREAMING_SNAKE_CASE)와 와이어 포맷을
- * 맞춘다 — Kotlin 쪽은 관례대로 camelCase를 쓰되, WELCOME.config로 나가는 JSON은
- * 클라가 이미 알고 있는 키 이름 그대로다(api-spec.md §2.2, plan.md §4 "CONFIG는 서버가 원본").
+ * @JsonProperty로 클라 CONFIG 키(SCREAMING_SNAKE_CASE)와 와이어 포맷을 맞춘다 — Kotlin
+ * 쪽은 관례대로 camelCase를 쓰되, WELCOME.config로 나가는 JSON은 클라가 이미 로컬
+ * localConnection에서 쓰던 CONFIG 그대로다(api-spec.md §2.2, plan.md §4 "CONFIG는 서버가 원본").
  */
 data class GameConfig(
     @JsonProperty("FILL_TO_CAP_SEC") var fillToCapSec: Double = 180.0,
@@ -27,7 +27,9 @@ data class GameConfig(
     @JsonProperty("UNIT_TRAVEL_MAX_SEC") var unitTravelMaxSec: Double = 2.2,
 
     // 환경 세력(E, README §4.6) — 초반 긴장용 조연(문명 야만인 모델).
-    // 클라 config.ts에는 아직 이 키들이 없다(E 미구현) — README §5 표기를 그대로 따른다.
+    // ENV_HOLDER_ID는 클라 CONFIG 안에도 들어있는 값이라(web/src/config.ts) 여기 포함한다 —
+    // HolderIds.ENV(구조 상수)와 항상 같은 값을 유지해야 한다.
+    @JsonProperty("ENV_HOLDER_ID") var envHolderId: Int = HolderIds.ENV,
     @JsonProperty("ENV_START_CELLS") var envStartCells: Int = 3,
     @JsonProperty("ENV_PROD_MULT") var envProdMult: Double = 1.0,
     @JsonProperty("ENV_ACT_INTERVAL_SEC") var envActIntervalSec: Double = 6.0,
@@ -37,8 +39,18 @@ data class GameConfig(
     @JsonProperty("ENV_MIN_PRESENCE") var envMinPresence: Int = 4,
 )
 
-/** holderId 예약값(README §3.2). 튜닝 대상이 아니므로 GameConfig와 분리한 구조 상수. */
+/** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */
 object HolderIds {
     const val NEUTRAL: Int = 0
     const val ENV: Int = 255
+}
+
+/**
+ * web/src/config.ts의 PALETTE/ENV_PALETTE_IDX/PLAYER_PALETTE_IDXS와 맞춘 서버 쪽 배정표.
+ * 팔레트 색상 자체는 순수 렌더링 관심사라 클라 소유지만, "어느 holder가 어느 슬롯을
+ * 받는지"는 서버가 결정해서 내려줘야 하므로 인덱스 배정 규칙만 여기 둔다.
+ */
+object Palette {
+    const val ENV_IDX: Int = 6
+    val PLAYER_IDXS: IntArray = intArrayOf(1, 2, 3, 4, 5)
 }

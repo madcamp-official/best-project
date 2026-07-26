@@ -2,6 +2,7 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import com.madcamp.server.config.Palette
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -16,7 +17,8 @@ object EnvAi {
 
     /** 서버 기동 시 1회 — 외곽 동 중 ENV_START_CELLS개를 E에 배정(README §4.6 "시작"). */
     fun spawn(world: World, config: GameConfig) {
-        world.holders[HolderIds.ENV] = Holder(HolderIds.ENV, "환경 세력", -1)
+        // 이름·팔레트는 web/src/config.ts(ENV_PALETTE_IDX)·core.ts(envSpawn "야만인")와 맞춘다.
+        world.holders[HolderIds.ENV] = Holder(HolderIds.ENV, "야만인", Palette.ENV_IDX)
 
         var cx = 0.0
         var cy = 0.0

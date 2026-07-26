@@ -46,11 +46,14 @@ client.onConnect = () => {
     const notNeighbor = welcome.ownerId.findIndex((_, i) => i !== myCell && !welcome.neighborIndex[myCell].includes(i));
     client.publish({ destination: "/app/sortie", body: JSON.stringify({ from: myCell, to: notNeighbor }) });
 
-    // 2) 실제 인접 동으로 출정 → DELTA(내 동 troops 감소) 기대
+    // 2) 실제 인접 동으로 ratio=0.9 출정 → DELTA(내 동 troops가 90% 감소) 기대
     setTimeout(() => {
       const neighbor = welcome.neighborIndex[myCell][0];
-      console.log("sortie to real neighbor:", neighbor);
-      client.publish({ destination: "/app/sortie", body: JSON.stringify({ from: myCell, to: neighbor }) });
+      console.log("sortie(ratio=0.9) to real neighbor:", neighbor);
+      client.publish({
+        destination: "/app/sortie",
+        body: JSON.stringify({ from: myCell, to: neighbor, ratio: 0.9 }),
+      });
     }, 500);
 
     setTimeout(() => {

@@ -56,7 +56,7 @@ interface WelcomeMessage {
   token: string;             // 재접속용 토큰. 클라는 localStorage에 저장
   paletteIdx: number;        // web/src/config.ts PALETTE 인덱스 (fill+stroke 한 쌍, README §7.1)
 
-  config: typeof CONFIG;     // 서버가 원본. plan.md §4 "CONFIG 값은 서버가 원본"
+  config: typeof CONFIG;     // 서버가 원본. plan.md §4 "CONFIG 값은 서버가 원본". ENV_HOLDER_ID 포함(web/src/config.ts)
   serverTimeMs: number;      // 시간 동기화용 서버 시각(§3 참조)
 
   // 정적 메타 — 게임 중 불변, 1회만 전송
@@ -92,12 +92,14 @@ interface DongStaticMeta {
 
 ```ts
 interface SortieCommand {
-  from: number; // 내 소유 admIndex
-  to: number;   // from에 인접한 admIndex (전선 제한, README §4.2)
+  from: number;   // 내 소유 admIndex
+  to: number;     // from에 인접한 admIndex (전선 제한, README §4.2)
+  ratio?: number; // 이번 출정에 보낼 병력 비율(0~1). UI 슬라이더 값. 생략 시 서버 기본값
 }
 ```
 
-- `amount`는 클라가 정하지 않는다. 서버가 `floor(troops[from] * CONFIG.SORTIE_RATIO)`로 계산(README §4.2, §5 `SORTIE_RATIO`)
+- `amount`는 클라가 정하지 않는다. 서버가 `floor(troops[from] * ratio)`로 계산한다
+- `ratio`는 신뢰하지 않는다 — 서버가 `[0.05, 1]`로 클램프하고, 비정상값(누락·NaN 등)이면 `CONFIG.SORTIE_RATIO`로 대체한다(README §4.2, §5 `SORTIE_RATIO`)
 - 쿨다운 없음 — 병력 > 0이면 언제든 재전송 가능
 
 ### 2.4 ERROR (S→C, `/user/queue/error`)
@@ -128,7 +130,7 @@ interface DeltaMessage {
   serverTimeMs: number;
   cells: [admIndex: number, ownerId: number, troops: number][]; // 변경된 동만
   newOrders: Order[];    // 이번 델타 구간에 새로 발주된 이동 유닛
-  events: LogEvent[];    // 함락/침공/토벌 등 로그(append-only, README §8)
+  events: LogEvent[];    // 함락/침공/토벌 등 로그. **최신순**(newest-first) — 클라는 그대로 로그 앞에 붙인다
 }
 
 interface Order {
@@ -189,5 +191,8 @@ interface LeaderboardMessage {
 | `GameState`(서버 내부 상태) | [web/src/game/core.ts](../web/src/game/core.ts) — 서버 이식 시 1:1 대조 자료(plan.md §4) |
 | `Order`, `Holder`, `DongStaticMeta`, `LogEntry` | [web/src/game/types.ts](../web/src/game/types.ts) |
 | `CONFIG` 필드/기본값 | [web/src/config.ts](../web/src/config.ts), README §5 |
+| 이 문서의 메시지 타입 그 자체 | [web/src/net/protocol.ts](../web/src/net/protocol.ts) — 클라가 실제로 쓰는 TS 선언 |
+| "실서버가 어떻게 동작해야 하는가"의 참조 구현 | [web/src/net/localConnection.ts](../web/src/net/localConnection.ts) — 브라우저 내 목 서버. core.ts를 감싸 WELCOME/DELTA/ERROR/LEADERBOARD를 그대로 발신한다. 클램프 범위(SORTIE ratio 0.05~1) 등 이 문서에 없는 세부는 여기 기준 |
+| 서버 실제 구현 | [server/](../server/) (Spring Boot/Kotlin) — `GameCore.kt`가 core.ts 1:1 이식, `README.md`에 진행 상황 |
 
-> 목업 TS 코드가 사양의 1차 출처다. 이 문서와 코드가 어긋나면 **plan.md §6 "로직 이식 불일치" 리스크**에 해당하므로 코드를 기준으로 이 문서를 갱신한다.
+> 목업 TS 코드(및 그 목 서버 `localConnection.ts`)가 사양의 1차 출처다. 이 문서와 코드가 어긋나면 **plan.md §6 "로직 이식 불일치" 리스크**에 해당하므로 코드를 기준으로 이 문서를 갱신한다.

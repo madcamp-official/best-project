@@ -107,7 +107,9 @@ class GameLoop(
         val dirty = GameCore.drainDirty(world)
         val newOrders = world.pendingNewOrders.toList()
         world.pendingNewOrders.clear()
-        val events = world.pendingEvents.toList()
+        // web/src/world/worldView.ts applyDelta가 "서버는 최신순으로 보낸다"고 가정하고
+        // msg.events를 앞에 붙인다 — pendingEvents는 발생 순(오래된 것부터)이라 뒤집어서 보낸다.
+        val events = world.pendingEvents.asReversed().toList()
         world.pendingEvents.clear()
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty()) return
 
