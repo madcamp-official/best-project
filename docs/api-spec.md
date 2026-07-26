@@ -222,9 +222,8 @@ interface LeaderboardMessage {
 
 > 목업 TS 코드(및 그 목 서버 `localConnection.ts`)가 사양의 1차 출처다. 이 문서와 코드가 어긋나면 **plan.md §6 "로직 이식 불일치" 리스크**에 해당하므로 코드를 기준으로 이 문서를 갱신한다.
 
-## 6. 알려진 격차 — 목 서버(`localConnection.ts`)엔 있지만 실서버엔 아직 없음
+## 6. 포위 귀속(encirclement capture) — 프로토콜 추가 없음
 
-아래는 목 서버가 이미 구현했지만 실서버(Kotlin)엔 포팅되지 않은 기능이다. `StompConnection`으로 실서버에 붙어 플레이하면 이 동작은 일어나지 않는다 — 별도 프로토콜 추가 없이(둘 다 기존 DELTA `cells`/로그 경로를 그대로 씀) core.ts 함수만 이식하면 되지만, 아직 안 함:
+`GameCore.kt tickAnnex`(core.ts 1:1 이식, 목 서버가 먼저 구현했던 것을 실서버에도 포팅 완료). 한 플레이어 P가 다른 실제 플레이어 Q의 영역을 **자기 동만으로 완전히 둘러싼 채**(지도 바깥에 닿는 경로 없음) `ANNEX_HOLD_SEC`초(기본 5초) 연속 유지하면 그 영역 전체를 P가 흡수한다(병력 0으로 리셋). 별도 메시지 타입은 없다 — 기존 DELTA `cells`(소유권 변경)와 `events`(로그, `"{P}가 {Q} 포위 — N개 동 흡수"`) 경로를 그대로 쓴다. `GameLoop`이 매 tick(5Hz) 전체 플레이어에 대해 BFS로 판정하며, 25명 동시 접속 부하에서도 성능 문제 없음을 확인했다(`server/tools/smoke-test/annex-chaos-test.mjs`로 실제 발생까지 라이브 검증).
 
-- **포위 귀속(encirclement capture)**: `core.ts tickAnnex` — 한 플레이어가 다른 플레이어 영역을 완전히 둘러싼 채 `ANNEX_HOLD_SEC`초 유지하면 흡수. `borderMask`(경계 동 판정)까지 필요해 이식 범위가 좀 있다.
-- **환경 세력(E) 다중 클러스터**: `CONFIG.ENV_CLUSTER_COUNT` — 야만인 무리를 전국에 여러 개 흩뿌리는 것. 현재 실서버 `EnvAi.kt`는 단일 클러스터(중심에서 먼 순)만 지원.
+경계 동(borderMask, "동이 지도 바깥에 닿는지") 판정은 클라와 서버가 각자 `web/public/beopjeong-emd.geojson`에서 독립 계산하지만, 같은 파일·같은 topojson 위상 로직이라 결과가 일치한다(§4 데이터 파이프라인과 동일 원리).

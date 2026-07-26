@@ -26,7 +26,7 @@ src/main/kotlin/com/madcamp/server/
 ├─ domain/      World(core.ts GameState 대응) · GameCore(순수 로직 이식) · EnvAi(§4.6) · Types
 ├─ data/        BoundaryDataLoader — resources/data/nationwide-dong.json 로드
 ├─ session/     SessionService — 게스트 토큰/재접속/시작 동 배정
-├─ ws/          WebSocketConfig(STOMP) · JoinController · SortieController · ConnectionRegistry
+├─ ws/          WebSocketConfig(STOMP) · JoinController · SortieController · MissileController · ConnectionRegistry
 ├─ loop/        GameLoop — 단일 스레드 tick(5Hz) + DELTA/LEADERBOARD 브로드캐스트
 ├─ persistence/ SnapshotService — 월드 저장/복구(data/world-snapshot.json, .gitignore 처리됨)
 └─ admin/       AdminController — /healthz, /admin/config
@@ -36,7 +36,7 @@ src/main/kotlin/com/madcamp/server/
 
 ## 전국 경계 데이터
 
-`resources/data/nationwide-dong.json`(약 1MB)은 `tools/data-gen/generate.mjs`(Node)가 `web/public/beopjeong-emd.geojson`(gisdeveloper 법정동 SHP를 mapshaper로 변환한 정적 자산, 5,065개)을 읽어 topojson 위상으로 인접 그래프까지 뽑아낸 산출물이다.
+`resources/data/nationwide-dong.json`(약 1MB)은 `tools/data-gen/generate.mjs`(Node)가 `web/public/beopjeong-emd.geojson`(gisdeveloper 법정동 SHP를 mapshaper로 변환한 정적 자산, 5,065개)을 읽어 topojson 위상으로 인접 그래프·`border`(지도 바깥에 닿는 동인지, 포위 귀속 판정용)까지 뽑아낸 산출물이다.
 
 **클라·서버가 정확히 같은 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터(`EMD_CD` 존재)·같은 순회 순서로 읽는다** — `web/src/data/loadDong.ts`는 fetch로, `generate.mjs`는 `readFileSync`로. admdongkor 같은 외부 API를 거치지 않고 정적 파일 하나를 공유하므로, admIndex 정렬이 어긋날 여지가 구조적으로 없다(예전엔 admdongkor 버전 드리프트를 걱정해야 했는데, 이 방식으로 그 문제 자체가 사라졌다).
 
@@ -72,9 +72,13 @@ node smoke.mjs                  # 기본 라운드트립: JOIN→WELCOME, 잘못
 node reconnect-test.mjs         # 같은 토큰 재접속=holderId·영토 유지 / 가짜 토큰=신규 참가자 처리
 node auto-reconnect-test.mjs    # stompjs 자동 재연결(reconnectDelay)까지 포함해 holderId 유지되는지 검증
 node load-test.mjs 25 8         # N명 동시 접속(기본 25) × 초(기본 8) 동안 SORTIE 난사 → 서버 생존·월드 상태 불변식 확인
+node missile-test.mjs           # 미사일: 미보유 발사 거부(NO_MISSILE), 스폰 브로드캐스트 확인
+node missile-launch-forced.mjs  # /admin/config로 생산 속도를 잠깐 올려 발사→중립화까지 결정적으로 재현
+node env-cluster-check.mjs      # E 다중 클러스터가 실제로 여러 곳에 흩어져 스폰되는지 확인
+node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀속(흡수)이 실제로 발생하는지 관찰
 ```
 
-`load-test.mjs`는 25명·8초·약 2,300건 SORTIE 기준으로 healthz 정상, 클라이언트측 WS/STOMP 오류 0건, 월드 상태 불변식(모든 동의 ownerId가 0~255 유효 범위) 위반 0건을 확인했다(Day 4 "동시성 검증"에 대응).
+`load-test.mjs`는 25명·8초·약 2,300건 SORTIE 기준으로 healthz 정상, 클라이언트측 WS/STOMP 오류 0건, 월드 상태 불변식(모든 동의 ownerId가 0~255 유효 범위) 위반 0건을 확인했다(Day 4 "동시성 검증"에 대응). `annex-chaos-test.mjs`는 8명이 45초 동시 확장하는 시나리오에서 포위 흡수 264건이 실제로 발생함을 확인했다 — 매 tick 전체 플레이어에 대해 BFS 판정이 도는데도 성능 문제 없음.
 
 ## plan.md 대비 진행 상황
 
@@ -101,6 +105,16 @@ node load-test.mjs 25 8         # N명 동시 접속(기본 25) × 초(기본 8)
 - **admIndex 정렬**: 클라·서버가 같은 정적 GeoJSON 파일(`web/public/beopjeong-emd.geojson`)을 같은 순서로 읽어 admIndex를 매기므로 구조적으로 일치한다(위 "전국 경계 데이터" 참조)
 
 **실제 브라우저(Playwright, Chrome)로 검증**: `npm run dev`(5173) + `./gradlew bootRun`(8080) 조합, 그리고 `deployJar`로 만든 단일 jar(8080, 같은 origin) 둘 다에서 접속→JOIN→WELCOME 반영→지도 렌더→좌클릭 선택까지 콘솔 에러 없이 동작 확인.
+
+## 클라 추가 기능 3종 — 미사일 / 포위 귀속 / E 다중 클러스터
+
+클라가 이후 추가한 기능들을 서버에도 이식·검증했다(둘 다 core.ts와 1:1):
+
+- **미사일**: 전국 무작위 동에 스폰(`MISSILE_SPAWN_SEC` 주기, 맵 전체 상한 `MISSILE_MAX_TOTAL`·개인 상한 `MISSILE_MAX_PER_PLAYER`) → 그 동을 소유한 플레이어가 즉발로 발사 → 지정 원(중심+반경)에 겹치는 동 전부 중립화. `MissileController.kt`가 클라가 계산해 보낸 반경·타격 목록을 신뢰하지 않고 서버가 다시 검증(centroid 근접 근사, 폴리곤은 서버에 없음).
+- **포위 귀속(encirclement)**: 위 §6(api-spec.md) 참조. `GameCore.kt tickAnnex` — 서버가 직접 이식. 별도 프로토콜 없이 기존 DELTA 경로 재사용.
+- **E 다중 클러스터**: `EnvAi.kt spawn`을 최원점(farthest-point) 샘플링으로 다시 짜서 `ENV_CLUSTER_COUNT`(기본 3)개 무리를 전국에 흩뿌린다. 실측: 강화도·울릉도·제주 3곳에 분산 스폰 확인(`env-cluster-check.mjs`). 클라의 "플레이어 근처 첫 씨앗" 로직은 뺐다 — 서버는 아무도 접속하기 전에 스폰하므로 기준 삼을 플레이어가 없다(README §4.6 "외곽 스폰"에 맞춰 첫 씨앗도 outer-score 최고점).
+
+이 세 기능 모두 25명 동시 부하(`load-test.mjs`)·45초 8명 동시 확장(`annex-chaos-test.mjs`)에서 서버가 죽거나 느려지지 않는 것까지 확인됐다.
 
 ## 아직 안 한 것 / 다음에 할 것
 

@@ -20,6 +20,7 @@ data class GameConfig(
     @JsonProperty("NEUTRAL_TROOPS") var neutralTroops: Int = 10,
     @JsonProperty("SORTIE_RATIO") var sortieRatio: Double = 0.5,
     @JsonProperty("RESET_OWN_RATIO") var resetOwnRatio: Double = 0.5,
+    @JsonProperty("ANNEX_HOLD_SEC") var annexHoldSec: Double = 5.0, // 포위 귀속: 완전 포위 유지 시간(초)
 
     // 유닛 이동(README §4.4, 거리 기반 arriveTick)
     @JsonProperty("UNIT_SPEED_DEG_PER_SEC") var unitSpeedDegPerSec: Double = 0.02,
@@ -30,7 +31,8 @@ data class GameConfig(
     // ENV_HOLDER_ID는 클라 CONFIG 안에도 들어있는 값이라(web/src/config.ts) 여기 포함한다 —
     // HolderIds.ENV(구조 상수)와 항상 같은 값을 유지해야 한다.
     @JsonProperty("ENV_HOLDER_ID") var envHolderId: Int = HolderIds.ENV,
-    @JsonProperty("ENV_START_CELLS") var envStartCells: Int = 3,
+    @JsonProperty("ENV_CLUSTER_COUNT") var envClusterCount: Int = 3, // 야만인 무리 수(전국에 흩뿌리는 캠프 개수)
+    @JsonProperty("ENV_START_CELLS") var envStartCells: Int = 3, // 무리 1개당 시작 보유 동 수
     @JsonProperty("ENV_PROD_MULT") var envProdMult: Double = 1.0,
     @JsonProperty("ENV_ACT_INTERVAL_SEC") var envActIntervalSec: Double = 6.0,
     @JsonProperty("ENV_ATTACK_MARGIN") var envAttackMargin: Double = 1.2,

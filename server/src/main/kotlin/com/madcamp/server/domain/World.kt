@@ -17,11 +17,17 @@ class World(
     val troopCap: IntArray,
     val neighborIndex: Array<IntArray>,
     val meta: Array<DongStaticMeta>,
+    val borderMask: BooleanArray, // 지도 바깥에 닿는 동(0/1, 정적) — 포위 귀속 판정용
 ) {
     val holders: LinkedHashMap<Int, Holder> = LinkedHashMap()
     val orders: MutableList<Order> = mutableListOf() // 이동 중인 유닛(원)
     val dirty: MutableSet<Int> = HashSet()
     val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)
+
+    // 포위 귀속(GameCore.tickAnnex): 이 동을 현재 포위 중인 holderId(-1=없음)와, 그 연속 포위가
+    // 시작된 시각(ms). ANNEX_HOLD_SEC 유지 판정용 — web/src/game/core.ts enclosedBy/enclosedSince 대응.
+    val enclosedBy: IntArray = IntArray(n) { -1 }
+    val enclosedSince: LongArray = LongArray(n)
 
     // 이번 tick 구간에 발생한 것 — DELTA 브로드캐스트 후 비운다(api-spec.md §2.5).
     val pendingNewOrders: MutableList<Order> = mutableListOf()
@@ -46,7 +52,8 @@ class World(
                 val c = cells[it]
                 DongStaticMeta(c.admIndex, c.code, c.name, c.sggcd, c.sggnm, c.sidocd, c.sidonm, c.centroid)
             }
-            val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta)
+            val borderMask = BooleanArray(n) { cells[it].border }
+            val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta, borderMask)
             world.holders[HolderIds.NEUTRAL] = Holder(HolderIds.NEUTRAL, "중립", 0)
             return world
         }

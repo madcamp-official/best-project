@@ -35,6 +35,40 @@ function ringArea(ring) {
   return Math.abs(sum / 2);
 }
 
+// web/src/data/loadDong.ts의 borderMask와 동일 로직: 아크(공유 경계선)를 정확히 1개 동만
+// 쓰면 그 아크는 지도 바깥(바다·국경)에 닿는 외곽선 → 그 동은 "경계 동". 포위 귀속(§tickAnnex)
+// 판정에서 P가 완전히 둘러쌌는지 확인할 때 "바깥으로 새는 구멍이 없는지"의 기준이 된다.
+function computeBorderMask(topo, geomCollection, n) {
+  const arcCount = topo.arcs.length;
+  const arcUsers = Array.from({ length: arcCount }, () => []);
+
+  const geometries = geomCollection.geometries;
+  for (const g of geometries) {
+    const admIndex = g.properties.admIndex;
+    const seen = new Set();
+    const visit = (node) => {
+      if (typeof node[0] === "number") {
+        for (const raw of node) {
+          const idx = raw < 0 ? ~raw : raw;
+          if (!seen.has(idx)) {
+            seen.add(idx);
+            arcUsers[idx].push(admIndex);
+          }
+        }
+      } else {
+        for (const child of node) visit(child);
+      }
+    };
+    if (g.arcs) visit(g.arcs);
+  }
+
+  const border = new Array(n).fill(false);
+  for (const users of arcUsers) {
+    if (users.length === 1) border[users[0]] = true;
+  }
+  return border;
+}
+
 function computeLabelPoint(feature) {
   const geom = feature.geometry;
   if (geom.type === "Polygon") {
@@ -91,9 +125,10 @@ async function main() {
   const topo = topology({ dong: inputFc }, 1e5);
   const geomCollection = topo.objects.dong;
   const neighborIndex = neighbors(geomCollection.geometries);
+  const border = computeBorderMask(topo, geomCollection, meta.length);
 
   const n = meta.length;
-  const cells = meta.map((m, i) => ({ ...m, neighbors: neighborIndex[i] ?? [] }));
+  const cells = meta.map((m, i) => ({ ...m, neighbors: neighborIndex[i] ?? [], border: border[i] }));
 
   const missingNames = cells.filter((c) => !c.sggnm || !c.sidonm);
   if (missingNames.length > 0) {

@@ -263,4 +263,96 @@ object GameCore {
             else -> Rank.SIJANG
         }
     }
+
+    // ── 포위 귀속 (Encirclement Capture, web/src/game/core.ts tickAnnex 1:1) ────────────
+    // 어떤 플레이어 P가 '자기 동만으로' 완전히 둘러싼 영역이, 전부 단일 실제 플레이어 Q
+    // (중립·야만인 제외) 소유이고, 그 상태를 ANNEX_HOLD_SEC초 연속 유지하면 그 영역 전체를
+    // P가 흡수한다(병력 0 리셋). 크기 제한 없음. GameLoop이 매 tick 호출.
+    // nowMs=wallNowMs 둘 다 서버 벽시계(GameLoop이 이미 그렇게 호출 — tickOrders와 동일 관례).
+    fun tickAnnex(world: World, config: GameConfig, nowMs: Long, wallNowMs: Long) {
+        val curBy = IntArray(world.n) { -1 } // 이번 tick에 각 동을 포위 중인 holderId(-1=없음)
+
+        val players = realPlayerIds(world)
+        // 포위하는 쪽(P)과 둘러싸이는 쪽(Q)이 둘 다 실제 플레이어여야 하므로 최소 2명 필요.
+        if (players.size >= 2) {
+            val visited = BooleanArray(world.n)
+            for (p in players) {
+                visited.fill(false)
+                for (start in 0 until world.n) {
+                    if (world.ownerId[start] == p || visited[start]) continue
+                    // P가 아닌 동들의 연결요소를 DFS로 모은다(P 동은 '벽'이라 통과 불가).
+                    val comp = ArrayList<Int>()
+                    val owner0 = world.ownerId[start]
+                    var singleOwner = true
+                    var touchesBorder = false
+                    val stack = ArrayDeque<Int>()
+                    stack.addLast(start)
+                    visited[start] = true
+                    while (stack.isNotEmpty()) {
+                        val c = stack.removeLast()
+                        comp.add(c)
+                        if (world.borderMask[c]) touchesBorder = true
+                        if (world.ownerId[c] != owner0) singleOwner = false
+                        for (nb in world.neighborIndex[c]) {
+                            if (world.ownerId[nb] != p && !visited[nb]) {
+                                visited[nb] = true
+                                stack.addLast(nb)
+                            }
+                        }
+                    }
+                    // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유이면 포위 후보.
+                    if (!touchesBorder && singleOwner && isRealPlayer(owner0)) {
+                        for (c in comp) curBy[c] = p
+                    }
+                }
+            }
+        }
+
+        // 유지 타이머 갱신 + ANNEX_HOLD_SEC 유지 시 흡수.
+        val holdMs = (config.annexHoldSec * 1000).toLong()
+        data class Group(val p: Int, val q: Int, var count: Int)
+        val groups = LinkedHashMap<String, Group>()
+        for (c in 0 until world.n) {
+            val p = curBy[c]
+            if (p < 0) {
+                // 더는 포위 안 됨(벽이 뚫렸거나 조건 미충족) → 타이머 리셋.
+                world.enclosedBy[c] = -1
+                world.enclosedSince[c] = 0
+                continue
+            }
+            if (world.enclosedBy[c] != p) {
+                world.enclosedBy[c] = p // 새로 포위 시작 → 유지 시간 0부터.
+                world.enclosedSince[c] = nowMs
+            } else if (nowMs - world.enclosedSince[c] >= holdMs) {
+                val q = world.ownerId[c]
+                world.ownerId[c] = p // 흡수: 소유권 이전, 병력 0부터 다시 시작.
+                world.troops[c] = 0
+                world.troopAccum[c] = 0.0
+                world.enclosedBy[c] = -1
+                world.enclosedSince[c] = 0
+                world.dirty.add(c)
+                val key = "$p:$q"
+                groups.getOrPut(key) { Group(p, q, 0) }.count++
+            }
+        }
+
+        for (g in groups.values) {
+            val pName = world.holders[g.p]?.name ?: "?"
+            val qName = world.holders[g.q]?.name ?: "?"
+            pushLog(world, "${pName}가 ${qName} 포위 — ${g.count}개 동 흡수", wallNowMs)
+        }
+    }
+
+    // 실제 플레이어 = 중립(0)·환경 세력(255)이 아닌 holder.
+    private fun isRealPlayer(holderId: Int): Boolean = holderId != HolderIds.NEUTRAL && holderId != HolderIds.ENV
+
+    // 현재 동을 1개 이상 소유한 실제 플레이어 id 목록.
+    private fun realPlayerIds(world: World): List<Int> {
+        val set = LinkedHashSet<Int>()
+        for (i in 0 until world.n) {
+            val o = world.ownerId[i]
+            if (isRealPlayer(o)) set.add(o)
+        }
+        return set.toList()
+    }
 }

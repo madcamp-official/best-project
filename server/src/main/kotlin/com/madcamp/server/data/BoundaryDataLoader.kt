@@ -19,6 +19,7 @@ data class BoundaryCell(
     val sidonm: String,
     val centroid: DoubleArray,
     val neighbors: List<Int>,
+    val border: Boolean, // 지도 바깥(바다·국경)에 닿는 동인지 — 포위 귀속 판정용(GameCore.tickAnnex)
 )
 
 private data class BoundaryFile(

@@ -97,6 +97,7 @@ class GameLoop(
 
         GameCore.tickProduction(world, config, dtSec)
         GameCore.tickOrders(world, config, wallNow)
+        GameCore.tickAnnex(world, config, wallNow, wallNow)
         EnvAi.maybeAct(world, config, wallNow)
 
         // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
