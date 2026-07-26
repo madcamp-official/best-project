@@ -1,4 +1,5 @@
 import { useUIStore } from "../store/uiStore";
+import { world } from "../world/worldView";
 import { ENV_PALETTE_IDX, PALETTE } from "../config";
 
 export function Hud() {
@@ -16,7 +17,11 @@ export function Hud() {
   const missileCount = useUIStore((s) => s.missileCount);
   const isAiming = useUIStore((s) => s.isAiming);
   const setAiming = useUIStore((s) => s.setAiming);
+  const rallyIndex = useUIStore((s) => s.rallyIndex);
+  const isSettingRally = useUIStore((s) => s.isSettingRally);
+  const setSettingRally = useUIStore((s) => s.setSettingRally);
   const sortiePct = Math.round(sortieRatio * 100);
+  const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
   if (phase === "loading") {
     return (
@@ -126,6 +131,37 @@ export function Hud() {
             {isAiming
               ? "지도에서 범위를 클릭해 발사 — 걸친 동이 중립이 됩니다"
               : "범위에 걸친 동을 중립으로 만듭니다"}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+          <div className="hud-ratio-head">
+            <span className="hud-title">집결지 (보급)</span>
+            <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
+              {rallyName ?? "없음"}
+            </strong>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSettingRally(!isSettingRally)}
+            style={{
+              width: "100%",
+              marginTop: 4,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #ffffff55",
+              background: isSettingRally ? "#1f7a4d" : "#3a4a5e",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            {isSettingRally ? "지정 중… (Esc 취소)" : rallyName ? "집결지 변경" : "집결지 지정"}
+          </button>
+          <div className="hud-ratio-hint">
+            {isSettingRally
+              ? "내 동 클릭 = 집결지 지정 · 현재 집결지 클릭 = 해제"
+              : "후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다"}
           </div>
         </div>
       </div>

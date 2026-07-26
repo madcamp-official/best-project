@@ -43,6 +43,12 @@ export interface LaunchMissileCommand {
   hits: number[];
 }
 
+// B2 집결지 지정/해제(C→S). index = 내 소유 admIndex(집결지), -1이면 해제. 서버가 소유를 검증하고
+// 이후 매 주기 후방 병력을 이 동을 향해 자동 전진시킨다.
+export interface SetRallyCommand {
+  index: number;
+}
+
 // ── S→C ──────────────────────────────────────────────────────────────
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
@@ -63,6 +69,7 @@ export interface WelcomeMessage {
   holders: Holder[]; // 중립·환경세력 포함
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
+  rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
 }
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만

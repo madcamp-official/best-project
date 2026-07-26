@@ -38,6 +38,7 @@ export class LocalConnection implements Connection {
   private startIndex: number;
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
+  private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private prepared: PreparedMap;
@@ -235,6 +236,10 @@ export class LocalConnection implements Connection {
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
   }
 
+  sendRally(index: number): void {
+    core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
+  }
+
   // centroid 근접 검증(여유 큼 — centroid가 폴리곤 밖이어도 가장자리 걸침을 허용).
   private withinRadius(i: number, center: [number, number], radius: number): boolean {
     const c = this.gs.meta[i].centroid;
@@ -281,6 +286,13 @@ export class LocalConnection implements Connection {
       this.missileTimerMs = 0;
       const spawned = core.trySpawnMissile(this.gs);
       if (spawned >= 0) this.pendingMissileAdd.push(spawned);
+    }
+
+    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 전진(B2)
+    this.supplyTimerMs += TICK_MS;
+    if (this.supplyTimerMs >= CONFIG.SUPPLY_INTERVAL_SEC * 1000) {
+      this.supplyTimerMs = 0;
+      core.tickSupply(this.gs);
     }
 
     this.flushDelta(now);
@@ -342,6 +354,7 @@ export class LocalConnection implements Connection {
       holders: Array.from(this.gs.holders.values()),
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
+      rally: this.gs.rally[this.holderId],
     };
   }
 

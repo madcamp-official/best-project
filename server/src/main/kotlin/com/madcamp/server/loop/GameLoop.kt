@@ -43,6 +43,7 @@ class GameLoop(
     private var tickCount = 0L
     private val rng = java.util.Random()
     private var missileAccumSec = 0.0
+    private var supplyAccumSec = 0.0
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
@@ -107,6 +108,13 @@ class GameLoop(
             missileAccumSec = 0.0
             val spawned = GameCore.trySpawnMissile(world, config, rng)
             if (spawned >= 0) world.pendingMissileAdd.add(spawned)
+        }
+
+        // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 전진(B2)
+        supplyAccumSec += dtSec
+        if (supplyAccumSec >= config.supplyIntervalSec) {
+            supplyAccumSec = 0.0
+            GameCore.tickSupply(world, config)
         }
 
         broadcastDelta(wallNow)

@@ -91,6 +91,10 @@ export class StompConnection implements Connection {
     this.client.publish({ destination: "/app/missile", body: JSON.stringify({ center, radius, hits }) });
   }
 
+  sendRally(index: number): void {
+    this.client.publish({ destination: "/app/rally", body: JSON.stringify({ index }) });
+  }
+
   private handleWelcome(raw: WelcomeMessage): void {
     this.token = raw.token; // 재접속(자동 재연결 포함) 시 서버가 발급한 최신 토큰을 계속 사용
     this.offsetMs = raw.serverTimeMs - performance.now();

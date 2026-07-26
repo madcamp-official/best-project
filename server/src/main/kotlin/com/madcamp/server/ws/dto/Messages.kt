@@ -25,6 +25,7 @@ data class WelcomeMessage(
     val holders: List<Holder>,
     val orders: List<Order>,
     val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
+    val rally: Int, // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 복구용.
 )
 
 // ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
@@ -42,6 +43,9 @@ data class LaunchMissileCommand(
     val radius: Double = 0.0,
     val hits: List<Int> = emptyList(),
 )
+
+// B2 집결지 지정/해제(C→S, /app/rally). index = 내 소유 admIndex, -1이면 해제.
+data class SetRallyCommand(val index: Int = -1)
 
 data class ErrorMessage(val code: String, val message: String, val from: Int, val to: Int)
 

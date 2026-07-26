@@ -38,10 +38,13 @@ interface UIState {
   sortieRatio: number;
   missileCount: number; // 내 보유 미사일 수 (오른쪽 아래 표시)
   isAiming: boolean; // 미사일 조준 모드(발사 버튼 누른 상태)
+  rallyIndex: number; // B2 — 내 집결지 admIndex(-1=없음)
+  isSettingRally: boolean; // B2 — 집결지 지정 모드(지도 클릭으로 집결지 선택)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
   setSortieRatio: (ratio: number) => void;
   setAiming: (v: boolean) => void;
+  setSettingRally: (v: boolean) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
   // 서버 LEADERBOARD 메시지 반영 (rows는 중립·E 제외된 플레이어 순위).
@@ -74,10 +77,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   sortieRatio: CONFIG.SORTIE_RATIO,
   missileCount: 0,
   isAiming: false,
+  rallyIndex: -1,
+  isSettingRally: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
   setAiming: (v) => set({ isAiming: v }),
+  setSettingRally: (v) => set({ isSettingRally: v }),
 
   select: (index) => {
     set({ selectedIndex: index });
@@ -105,6 +111,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       myHolderId: world.myHolderId,
       myRank,
       missileCount: myMissileCount(),
+      rallyIndex: world.myRally,
       logEntries: world.logEntries,
     });
 

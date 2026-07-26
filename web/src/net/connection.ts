@@ -18,6 +18,8 @@ export interface Connection {
   sendMarch(from: number, to: number, ratio: number): void;
   // 미사일 발사. center=원 중심[lng,lat], radius=반경(도), hits=원에 겹치는 동 admIndex(클라 계산).
   sendMissile(center: [number, number], radius: number, hits: number[]): void;
+  // B2 집결지 지정/해제. index = 내 소유 admIndex, -1이면 해제. 이후 후방 병력이 이 동으로 자동 전진.
+  sendRally(index: number): void;
 
   // 서버 → 클라 이벤트 구독. 각 1개 콜백만 등록(단순화).
   onWelcome(cb: (msg: WelcomeMessage) => void): void;

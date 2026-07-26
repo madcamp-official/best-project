@@ -310,6 +310,67 @@ object GameCore {
         return MissileLaunch(ok = true, removed = src, neutralized = neutralized)
     }
 
+    // ── 보급선 (B2, web/src/game/core.ts setRally/tickSupply 대응) ────────
+    // 집결지를 향해 후방 병력을 매 주기 한 홉씩 자동 전진시킨다(내 소유 동 사이 흐름, 전투 없음).
+
+    fun setRally(world: World, holderId: Int, index: Int) {
+        if (index < 0) {
+            world.rally[holderId] = -1
+            return
+        }
+        if (index >= world.n || world.ownerId[index] != holderId) return
+        world.rally[holderId] = index
+    }
+
+    // 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진(GameLoop이 supplyIntervalSec 주기로 호출).
+    fun tickSupply(world: World, config: GameConfig) {
+        for (h in world.rally.indices) {
+            val rallyIdx = world.rally[h]
+            if (rallyIdx < 0) continue
+            if (world.ownerId[rallyIdx] != h) {
+                world.rally[h] = -1 // 집결지를 잃으면 자동 해제
+                continue
+            }
+            supplyToward(world, config, h, rallyIdx)
+        }
+    }
+
+    // 집결지에서 BFS로 홉 거리를 구하고, 가까운 동부터 '집결지에 한 칸 더 가까운' 이웃으로 병력 일부를
+    // 넘긴다. 가까운 것부터 처리해야 tick당 정확히 한 홉씩만 전진한다(먼 동이 준 병력은 다음 tick에 전진).
+    private fun supplyToward(world: World, config: GameConfig, holderId: Int, rallyIdx: Int) {
+        val dist = IntArray(world.n) { -1 }
+        dist[rallyIdx] = 0
+        val q = ArrayList<Int>()
+        q.add(rallyIdx)
+        var k = 0
+        while (k < q.size) {
+            val cur = q[k]; k++
+            for (nb in world.neighborIndex[cur]) {
+                if (dist[nb] != -1 || world.ownerId[nb] != holderId) continue
+                dist[nb] = dist[cur] + 1
+                q.add(nb)
+            }
+        }
+        for (idx in 1 until q.size) {
+            val i = q[idx]
+            if (world.troops[i] <= config.supplyMinTroops) continue
+            var j = -1 // 집결지에 한 칸 더 가까운 이웃
+            for (nb in world.neighborIndex[i]) {
+                if (dist[nb] == dist[i] - 1) { j = nb; break }
+            }
+            if (j < 0) continue
+            val space = world.troopCap[j] - world.troops[j]
+            if (space <= 0) continue // 앞이 가득 차면 밀지 않고 쌓아둔다(손실 없음)
+            var amt = floor(world.troops[i] * config.supplyRatio).toInt()
+            if (amt < 1) continue
+            if (amt > space) amt = space
+            world.troops[i] -= amt
+            world.troops[j] += amt
+            world.dirty.add(i)
+            world.dirty.add(j)
+        }
+    }
+
     fun pushLog(world: World, message: String, ts: Long) {
         val event = LogEvent(world.nextLogId++, ts, message)
         world.pendingEvents.add(event)

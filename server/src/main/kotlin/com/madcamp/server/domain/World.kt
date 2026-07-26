@@ -24,6 +24,10 @@ class World(
     val dirty: MutableSet<Int> = HashSet()
     val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)
 
+    // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 크기 256 = holderId 예약 범위(0 중립 … 255 E).
+    // web/src/game/core.ts GameState.rally 대응.
+    val rally: IntArray = IntArray(256) { -1 }
+
     // 포위 귀속(GameCore.tickAnnex): 이 동을 현재 포위 중인 holderId(-1=없음)와, 그 연속 포위가
     // 시작된 시각(ms). ANNEX_HOLD_SEC 유지 판정용 — web/src/game/core.ts enclosedBy/enclosedSince 대응.
     val enclosedBy: IntArray = IntArray(n) { -1 }

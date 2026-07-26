@@ -50,6 +50,11 @@ data class GameConfig(
 
     // 경로 자동 출정(B1) — 멀리 있는 내 동으로 내 영토를 따라 최단 경로 연쇄 출정.
     @JsonProperty("MARCH_MAX_HOPS") var marchMaxHops: Int = 60, // 자동 경로 최대 홉
+
+    // 보급선(B2) — 집결지를 향해 후방 병력을 매 주기 한 홉씩 자동 전진(내 영토 경사 흐름).
+    @JsonProperty("SUPPLY_INTERVAL_SEC") var supplyIntervalSec: Double = 1.5,
+    @JsonProperty("SUPPLY_RATIO") var supplyRatio: Double = 0.34,
+    @JsonProperty("SUPPLY_MIN_TROOPS") var supplyMinTroops: Int = 5,
 )
 
 /** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */

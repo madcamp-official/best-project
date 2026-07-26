@@ -41,6 +41,7 @@ class JoinController(
                 holders = world.holders.values.toList(),
                 orders = world.orders.toList(),
                 missiles = (0 until world.n).filter { world.missile[it] },
+                rally = world.rally[session.holderId],
             )
         }
         messagingTemplate.convertAndSendToUser(principal.name, "/queue/welcome", welcome)

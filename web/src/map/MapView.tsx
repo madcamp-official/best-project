@@ -9,6 +9,8 @@ import {
   drainCaptureFlashes,
   drainMissilesTouched,
   drainMissileImpacts,
+  drainRallyTouched,
+  setMyRally,
 } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
@@ -40,6 +42,10 @@ const MISSILE_SOURCE = "missiles";
 const MISSILE_LAYER = "missiles-layer";
 const MISSILE_IMAGE_ID = "missile-icon"; // addImage로 얹는 🚀 아이콘 이름
 const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 미사일 이모지가 없어 로켓 사용)
+const RALLY_SOURCE = "rally"; // B2 집결지 깃발 마커
+const RALLY_LAYER = "rally-layer";
+const RALLY_IMAGE_ID = "rally-icon"; // addImage로 얹는 🚩 아이콘 이름
+const RALLY_EMOJI = "🚩";
 const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
@@ -114,6 +120,24 @@ export function MapView({ prepared, connection }: Props) {
           geometry: { type: "Point" as const, coordinates: world.meta[i].centroid },
         })),
       });
+    };
+
+    // 내 집결지(B2)에 깃발 마커를 그린다. 없으면(myRally<0) 비운다.
+    const updateRallyMarker = (m: MaplibreMap) => {
+      const src = m.getSource(RALLY_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      const idx = world.myRally;
+      const features =
+        idx >= 0 && idx < world.n
+          ? [
+              {
+                type: "Feature" as const,
+                properties: {},
+                geometry: { type: "Point" as const, coordinates: world.meta[idx].centroid },
+              },
+            ]
+          : [];
+      src.setData({ type: "FeatureCollection", features });
     };
 
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 계산해 aimedSet에 담는다.
@@ -388,6 +412,42 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
+      // B2 집결지 깃발 마커 — 내 집결지 centroid에 🚩. (미사일 마커와 같은 이모지-아이콘 방식.)
+      map.addSource(RALLY_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      const rallyIcon = makeEmojiIcon(RALLY_EMOJI, 30);
+      if (rallyIcon) {
+        if (!map.hasImage(RALLY_IMAGE_ID)) {
+          map.addImage(RALLY_IMAGE_ID, rallyIcon.data, { pixelRatio: rallyIcon.pixelRatio });
+        }
+        map.addLayer({
+          id: RALLY_LAYER,
+          type: "symbol",
+          source: RALLY_SOURCE,
+          layout: {
+            "icon-image": RALLY_IMAGE_ID,
+            "icon-size": 1,
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+            "icon-anchor": "bottom", // 깃발 밑동이 동을 가리키게
+          },
+        });
+      } else {
+        map.addLayer({
+          id: RALLY_LAYER,
+          type: "circle",
+          source: RALLY_SOURCE,
+          paint: {
+            "circle-radius": 6,
+            "circle-color": "#2ecc71",
+            "circle-stroke-color": "#0b3d1f",
+            "circle-stroke-width": 2,
+          },
+        });
+      }
+
       // 미사일 조준 원(마우스 따라다님) — 반투명 흰 채움 + 흰 점선 테두리.
       map.addSource(AIM_CIRCLE_SOURCE, {
         type: "geojson",
@@ -460,6 +520,8 @@ export function MapView({ prepared, connection }: Props) {
       updateBadges(map, prepared);
       updateMissileMarkers(map);
       drainMissilesTouched();
+      updateRallyMarker(map);
+      drainRallyTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
 
       let hovered: number | null = null;
@@ -485,11 +547,17 @@ export function MapView({ prepared, connection }: Props) {
         if (useUIStore.getState().isAiming) aimDirty = true;
       });
 
-      // 좌클릭 = 동 선택. 조준 중이면 = 그 위치로 미사일 발사. 빈 곳 = 선택 해제.
+      // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 집결지 지정 중이면 = 집결지 설정/해제.
       map.on("click", (e) => {
         if (useUIStore.getState().isAiming) {
           fireMissile([e.lngLat.lng, e.lngLat.lat]);
           return;
+        }
+        if (useUIStore.getState().isSettingRally) {
+          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+          const hit = hits[0];
+          if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
+          return; // 지정 모드에선 일반 선택을 하지 않는다
         }
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
@@ -513,10 +581,17 @@ export function MapView({ prepared, connection }: Props) {
     // README.md §4.5 — 물리 키(e.code) 사용, 한글 IME 조합 중에는 무시.
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
-      // Esc = 미사일 조준 취소
-      if (e.code === "Escape" && useUIStore.getState().isAiming) {
-        useUIStore.getState().setAiming(false);
-        return;
+      // Esc = 미사일 조준 / 집결지 지정 모드 취소
+      if (e.code === "Escape") {
+        const st = useUIStore.getState();
+        if (st.isAiming) {
+          st.setAiming(false);
+          return;
+        }
+        if (st.isSettingRally) {
+          st.setSettingRally(false);
+          return;
+        }
       }
       const step = 60;
       switch (e.code) {
@@ -601,8 +676,12 @@ export function MapView({ prepared, connection }: Props) {
         hadUnits = false;
       }
 
+      // 집결지를 잃으면(적에게 함락/미사일 등) 로컬 마커·상태도 정리한다(서버도 보급을 자동 해제).
+      if (world.myRally >= 0 && world.ownerId[world.myRally] !== world.myHolderId) setMyRally(-1);
       // 미사일 마커(스폰/소모 시 갱신)
       if (drainMissilesTouched()) updateMissileMarkers(map);
+      // 집결지 깃발(지정/해제 시 갱신)
+      if (drainRallyTouched()) updateRallyMarker(map);
 
       // 미사일 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스
       const aimingNow = useUIStore.getState().isAiming;
@@ -755,6 +834,26 @@ function handleAction(idx: number, connection: Connection) {
 
   // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
   connection.sendSortie(selectedIndex, idx, sortieRatio);
+}
+
+// 좌클릭(집결지 지정 모드): 내 동을 집결지로 설정, 현재 집결지를 다시 클릭하면 해제한다(B2).
+// 마커·요약은 낙관적으로 즉시 반영(setMyRally)하고, 서버는 sendRally로 검증·저장한다.
+function handleSetRally(idx: number, connection: Connection) {
+  const { showToast, setSettingRally, rallyIndex } = useUIStore.getState();
+  if (world.ownerId[idx] !== world.myHolderId) {
+    showToast("내 동만 집결지로 지정할 수 있습니다.");
+    return;
+  }
+  if (rallyIndex === idx) {
+    connection.sendRally(-1);
+    setMyRally(-1);
+    showToast("집결지를 해제했습니다.");
+  } else {
+    connection.sendRally(idx);
+    setMyRally(idx);
+    showToast(`집결지: ${world.meta[idx].name}`);
+  }
+  setSettingRally(false); // 한 번 지정하면 모드 종료
 }
 
 // 이모지를 캔버스에 렌더해 지도 아이콘(addImage)용 픽셀 데이터로 만든다. glyphs 서버가 없어
