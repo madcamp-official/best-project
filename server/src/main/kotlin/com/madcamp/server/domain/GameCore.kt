@@ -55,6 +55,10 @@ object GameCore {
         if (to !in world.neighborIndex[from]) {
             return SortieResult.Err(SortieErrorCode.NOT_ADJACENT, "인접한 동이 아닙니다.")
         }
+        // 목적지가 내 동이고 이미 병력 상한이면 증원분이 상한에 막혀 통째로 소멸 → 출정 자체를 막는다.
+        if (world.ownerId[to] == holderId && world.troops[to] >= world.troopCap[to]) {
+            return SortieResult.Err(SortieErrorCode.ALREADY_FULL, "이미 병력이 가득 찬 동입니다.")
+        }
         val amount = floor(world.troops[from] * ratio).toInt()
         if (amount <= 0) {
             return SortieResult.Err(SortieErrorCode.NO_TROOPS, "출정 가능한 병력이 없습니다.")

@@ -48,4 +48,4 @@ sealed interface SortieResult {
     data class Err(val code: SortieErrorCode, val message: String) : SortieResult
 }
 
-enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS }
+enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL }

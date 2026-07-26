@@ -156,6 +156,8 @@ export class LocalConnection implements Connection {
   private errorCode(from: number, to: number): ErrorMessage["code"] {
     if (this.gs.ownerId[from] !== this.holderId) return "NOT_OWNER";
     if (!this.gs.neighborIndex[from]?.includes(to)) return "NOT_ADJACENT";
+    if (this.gs.ownerId[to] === this.holderId && this.gs.troops[to] >= this.gs.troopCap[to])
+      return "ALREADY_FULL";
     return "NO_TROOPS";
   }
 

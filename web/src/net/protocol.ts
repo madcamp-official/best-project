@@ -49,7 +49,7 @@ export interface WelcomeMessage {
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
 export interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL";
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;

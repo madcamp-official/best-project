@@ -132,6 +132,9 @@ export function trySortie(
 ): SortieResult {
   if (s.ownerId[from] !== holderId) return { ok: false, reason: "본인 소유 동이 아닙니다." };
   if (!s.neighborIndex[from]?.includes(to)) return { ok: false, reason: "인접한 동이 아닙니다." };
+  // 목적지가 내 동이고 이미 병력 상한이면 증원분이 상한에 막혀 통째로 소멸 → 출정 자체를 막는다.
+  if (s.ownerId[to] === holderId && s.troops[to] >= s.troopCap[to])
+    return { ok: false, reason: "이미 병력이 가득 찬 동입니다." };
 
   const amount = Math.floor(s.troops[from] * ratio);
   if (amount <= 0) return { ok: false, reason: "출정 가능한 병력이 없습니다." };

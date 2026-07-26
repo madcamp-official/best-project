@@ -468,6 +468,12 @@ function handleAction(idx: number, connection: Connection) {
     return;
   }
 
+  // 목적지가 이미 병력 상한인 내 동이면 보내도 상한에 막혀 소멸 → 왕복 전에 막는다(서버도 거부).
+  if (world.ownerId[idx] === world.myHolderId && world.troops[idx] >= world.troopCap[idx]) {
+    showToast("이미 병력이 가득 찬 동입니다.");
+    return;
+  }
+
   // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
   connection.sendSortie(selectedIndex, idx, sortieRatio);
 }
