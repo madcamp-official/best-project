@@ -14,6 +14,7 @@ import {
   getLeaderboard,
   envCellCount,
   drainRespawnEvents,
+  drainDefeat,
   world,
 } from "./world/worldView";
 import { useUIStore } from "./store/uiStore";
@@ -51,11 +52,9 @@ function App() {
         });
         connection.onDelta((msg) => {
           applyDelta(msg);
-          // 미사일 등으로 내 동이 전부 사라졌다가 서버가 새 동을 배정해주면(궤멸 아님, 재시작)
-          // 알아차리기 어려우니 명시적으로 알려준다.
-          if (drainRespawnEvents().length > 0) {
-            useUIStore.getState().showToast("영토를 전부 잃었지만 새 지역에서 재시작합니다");
-          }
+          drainRespawnEvents(); // 큐 소진(누수 방지) — 안내는 아래 패배 오버레이가 대신한다
+          // 내 영토가 이번 delta에 전부 사라지면(미사일·점령) 패배 오버레이를 띄운다.
+          if (drainDefeat()) useUIStore.getState().setDefeated(true);
         });
         connection.onError((msg) => useUIStore.getState().showToast(msg.message));
         connection.onLeaderboard((msg) =>

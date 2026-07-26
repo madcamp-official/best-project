@@ -22,6 +22,9 @@ export function Hud() {
   const setTransporting = useUIStore((s) => s.setTransporting);
   const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
   const airdropCoolSec = Math.ceil(airdropCooldownLeft / 1000);
+  const defeated = useUIStore((s) => s.defeated);
+  const setDefeated = useUIStore((s) => s.setDefeated);
+  const setPhase = useUIStore((s) => s.setPhase);
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
@@ -205,6 +208,76 @@ export function Hud() {
       )}
 
       {toast && <div className="hud-toast">{toast}</div>}
+
+      {defeated && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(6,10,20,0.72)",
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
+        >
+          <div
+            style={{
+              background: "#141b28",
+              border: "1px solid #ffffff22",
+              borderRadius: 14,
+              padding: "28px 34px",
+              textAlign: "center",
+              boxShadow: "0 12px 44px rgba(0,0,0,0.55)",
+              minWidth: 280,
+            }}
+          >
+            <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: 6, color: "#ff5a5a" }}>
+              패배
+            </div>
+            <p style={{ margin: "12px 0 22px", color: "#cdd6e4", fontSize: 14 }}>
+              영토를 모두 잃었습니다.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setDefeated(false);
+                  setPhase("join");
+                }}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 8,
+                  border: "1px solid #ffffff33",
+                  background: "#3a4a5e",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 14,
+                }}
+              >
+                메인 화면
+              </button>
+              <button
+                type="button"
+                onClick={() => setDefeated(false)}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 8,
+                  border: "1px solid #ffffff33",
+                  background: "#c0392b",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              >
+                재시작
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
