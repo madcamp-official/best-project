@@ -21,7 +21,8 @@
 | C→S | `/app/join` | JOIN | 접속 시 1회 |
 | S→C | `/user/queue/welcome` | WELCOME | JOIN 응답 1회 |
 | C→S | `/app/sortie` | SORTIE | 사용자 입력마다 |
-| S→C | `/user/queue/error` | ERROR | SORTIE 거부 시 |
+| C→S | `/app/missile` | LAUNCH_MISSILE | 발사 버튼 클릭 시 |
+| S→C | `/user/queue/error` | ERROR | SORTIE/LAUNCH_MISSILE 거부 시 |
 | S→C | `/topic/world` | DELTA | 5Hz |
 | S→C | `/topic/leaderboard` | LEADERBOARD | 1Hz |
 
@@ -69,6 +70,7 @@ interface WelcomeMessage {
   troopCap: Uint16Array | number[]; // admIndex별 병력 상한
   holders: Holder[];                // 현재 존재하는 모든 holder(중립·환경세력 포함)
   orders: Order[];                  // 진행 중인 이동 유닛(재접속 시 화면에 이어서 보간)
+  missiles: number[];               // 미사일이 얹혀 있는 동 admIndex 목록 (§2.3b 참조)
 }
 ```
 
@@ -102,13 +104,29 @@ interface SortieCommand {
 - `ratio`는 신뢰하지 않는다 — 서버가 `[0.05, 1]`로 클램프하고, 비정상값(누락·NaN 등)이면 `CONFIG.SORTIE_RATIO`로 대체한다(README §4.2, §5 `SORTIE_RATIO`)
 - 쿨다운 없음 — 병력 > 0이면 언제든 재전송 가능
 
+### 2.3b LAUNCH_MISSILE (C→S, `/app/missile`)
+
+동에 종속된 미사일 — 무작위 동에 스폰되고(`MISSILE_SPAWN_SEC` 주기), 그 동을 소유한 플레이어가 즉발로 발사한다. 발사하면 지정 원(중심+반경)에 조금이라도 겹치는 동이 모두 **중립화**(`ownerId=0`, `troops=0`)된다.
+
+```ts
+interface LaunchMissileCommand {
+  center: [number, number]; // 조준 원 중심 [lng, lat]
+  radius: number;           // 조준 원 반경(경위도 도 단위) — 폴리곤을 가진 클라가 계산
+  hits: number[];           // center/radius 원에 겹치는 동 admIndex 목록 — 클라가 미리 계산해 보낸다
+}
+```
+
+- `hits`는 클라가 폴리곤 기하로 계산해 보내지만 **신뢰하지 않는다**. 서버는 `radius`를 `MISSILE_MAX_RADIUS_DEG`로 클램프하고, 각 `hits[i]`의 centroid가 `center`에서 `radius + MISSILE_HIT_MARGIN_DEG` 이내인지 근사 검증한 것만 실제로 적용한다(서버엔 폴리곤이 없어 centroid 근접으로 근사)
+- 발사에는 발사자가 소유한 동 중 미사일이 얹힌 동이 최소 1개 필요 — 어느 동의 미사일이 소모되는지는 클라가 지정하지 않는다(서버가 발사자 소유 미사일 동 중 아무거나 1개 선택)
+- 개인 보유 상한 `MISSILE_MAX_PER_PLAYER`(기본 5) — 이미 상한이면 그 플레이어 동엔 새 미사일이 스폰되지 않는다(스폰 자체가 회피, 발사 시점 검증 아님)
+
 ### 2.4 ERROR (S→C, `/user/queue/error`)
 
-SORTIE가 검증 실패로 거부됐을 때만 요청자에게 전송. 월드 상태는 변하지 않으므로 DELTA는 오지 않는다.
+SORTIE/LAUNCH_MISSILE이 검증 실패로 거부됐을 때만 요청자에게 전송. 월드 상태는 변하지 않으므로 DELTA는 오지 않는다.
 
 ```ts
 interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE";
   message: string; // 사용자 표시용 (아래 표의 한국어 문구)
   from: number;
   to: number;
@@ -121,8 +139,10 @@ interface ErrorMessage {
 | `NOT_ADJACENT` | `to`가 `neighborIndex[from]`에 없음 | 인접한 동이 아닙니다. |
 | `NO_TROOPS` | `floor(troops[from] * ratio) <= 0` | 출정 가능한 병력이 없습니다. |
 | `ALREADY_FULL` | `to`가 내 동이고 `troopCap[to] - troops[to] <= 0`(이미 상한) | 이미 병력이 가득 찬 동입니다. |
+| `NO_MISSILE` | 발사자 소유 동 중 미사일이 얹힌 동이 없음 | 발사할 미사일이 없습니다. |
 
 - `to`가 내 동(증원)인데 상한 여유가 있지만 `amount`보다 적으면 거부하지 않는다 — 서버가 `amount`를 여유분(`troopCap[to] - troops[to]`)으로 **클램프해서 보낸다**(넘치는 병력이 출발조차 안 함, 초과분 소멸 방지).
+- `NO_MISSILE`는 `from`/`to`가 의미 없어 둘 다 `-1`로 온다.
 
 ### 2.5 DELTA (S→C, `/topic/world`, 5Hz)
 
@@ -134,6 +154,8 @@ interface DeltaMessage {
   cells: [admIndex: number, ownerId: number, troops: number][]; // 변경된 동만
   newOrders: Order[];    // 이번 델타 구간에 새로 발주된 이동 유닛
   events: LogEvent[];    // 함락/침공/토벌 등 로그. **최신순**(newest-first) — 클라는 그대로 로그 앞에 붙인다
+  missileAdd: number[];  // 이번 구간에 새로 스폰된 미사일 동
+  missileRemove: number[]; // 이번 구간에 사라진 미사일 동(발사로 소모)
 }
 
 interface Order {
@@ -199,3 +221,10 @@ interface LeaderboardMessage {
 | 서버 실제 구현 | [server/](../server/) (Spring Boot/Kotlin) — `GameCore.kt`가 core.ts 1:1 이식, `README.md`에 진행 상황 |
 
 > 목업 TS 코드(및 그 목 서버 `localConnection.ts`)가 사양의 1차 출처다. 이 문서와 코드가 어긋나면 **plan.md §6 "로직 이식 불일치" 리스크**에 해당하므로 코드를 기준으로 이 문서를 갱신한다.
+
+## 6. 알려진 격차 — 목 서버(`localConnection.ts`)엔 있지만 실서버엔 아직 없음
+
+아래는 목 서버가 이미 구현했지만 실서버(Kotlin)엔 포팅되지 않은 기능이다. `StompConnection`으로 실서버에 붙어 플레이하면 이 동작은 일어나지 않는다 — 별도 프로토콜 추가 없이(둘 다 기존 DELTA `cells`/로그 경로를 그대로 씀) core.ts 함수만 이식하면 되지만, 아직 안 함:
+
+- **포위 귀속(encirclement capture)**: `core.ts tickAnnex` — 한 플레이어가 다른 플레이어 영역을 완전히 둘러싼 채 `ANNEX_HOLD_SEC`초 유지하면 흡수. `borderMask`(경계 동 판정)까지 필요해 이식 범위가 좀 있다.
+- **환경 세력(E) 다중 클러스터**: `CONFIG.ENV_CLUSTER_COUNT` — 야만인 무리를 전국에 여러 개 흩뿌리는 것. 현재 실서버 `EnvAi.kt`는 단일 클러스터(중심에서 먼 순)만 지원.

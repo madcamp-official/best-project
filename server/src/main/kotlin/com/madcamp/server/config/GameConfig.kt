@@ -35,7 +35,7 @@ data class GameConfig(
     @JsonProperty("ENV_ACT_INTERVAL_SEC") var envActIntervalSec: Double = 6.0,
     @JsonProperty("ENV_ATTACK_MARGIN") var envAttackMargin: Double = 1.2,
     @JsonProperty("ENV_BOUNTY") var envBounty: Int = 10,
-    @JsonProperty("ENV_MAX_RATIO") var envMaxRatio: Double = 0.04,
+    @JsonProperty("ENV_MAX_RATIO") var envMaxRatio: Double = 0.1,
     @JsonProperty("ENV_MIN_PRESENCE") var envMinPresence: Int = 4,
 
     // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
