@@ -110,7 +110,7 @@ node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀
 
 클라가 이후 추가한 기능들을 서버에도 이식·검증했다(둘 다 core.ts와 1:1):
 
-- **미사일**: 전국 무작위 동에 스폰(`MISSILE_SPAWN_SEC` 주기, 맵 전체 상한 `MISSILE_MAX_TOTAL`·개인 상한 `MISSILE_MAX_PER_PLAYER`) → 그 동을 소유한 플레이어가 즉발로 발사 → 지정 원(중심+반경)에 겹치는 동 전부 중립화. `MissileController.kt`가 클라가 계산해 보낸 반경·타격 목록을 신뢰하지 않고 서버가 다시 검증(centroid 근접 근사, 폴리곤은 서버에 없음).
+- **미사일**: 전국 무작위 동에 스폰(`MISSILE_SPAWN_SEC` 주기, 맵 전체 상한 `MISSILE_MAX_TOTAL`만 적용 — 개인 보유 한도 없음) → 그 동을 소유한 플레이어가 즉발로 발사 → 지정 원(중심+반경)에 겹치는 동 전부 중립화. `MissileController.kt`가 클라가 계산해 보낸 반경·타격 목록을 신뢰하지 않고 서버가 다시 검증(centroid 근접 근사, 폴리곤은 서버에 없음).
 - **포위 귀속(encirclement)**: 위 §6(api-spec.md) 참조. `GameCore.kt tickAnnex` — 서버가 직접 이식. 별도 프로토콜 없이 기존 DELTA 경로 재사용.
 - **E 다중 클러스터**: `EnvAi.kt spawn`을 최원점(farthest-point) 샘플링으로 다시 짜서 `ENV_CLUSTER_COUNT`(기본 3)개 무리를 전국에 흩뿌린다. 실측: 강화도·울릉도·제주 3곳에 분산 스폰 확인(`env-cluster-check.mjs`). 클라의 "플레이어 근처 첫 씨앗" 로직은 뺐다 — 서버는 아무도 접속하기 전에 스폰하므로 기준 삼을 플레이어가 없다(README §4.6 "외곽 스폰"에 맞춰 첫 씨앗도 outer-score 최고점).
 
@@ -118,7 +118,7 @@ node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀
 
 ## 플레이 피드백 반영 (미사일 수량·분포, 색상 동기화)
 
-- **미사일 수량 2배**: `MISSILE_SPAWN_SEC` 10→5초, `MISSILE_MAX_TOTAL` 30→60, `MISSILE_MAX_PER_PLAYER` 5→8(공급 증가에 맞춰 병목 방지). 클라 `config.ts`와 동기화.
+- **미사일 수량 2배**: `MISSILE_SPAWN_SEC` 10→5초, `MISSILE_MAX_TOTAL` 30→60. 개인 보유 한도(`MISSILE_MAX_PER_PLAYER`)는 팀원이 별도로 완전히 제거(맵 총량만으로 제한하는 게 더 단순하고 공급 병목도 원천적으로 없앰) — 두 변경을 병합해 반영.
 - **미사일 스폰 분포 균등화**: 기존엔 전국 동을 그냥 균등 추첨해서, 서울·부산처럼 동이 촘촘히 쪼개진(=동 개수가 많은) 지역에 자연히 쏠렸다. `World.cellsBySido`(시도별 admIndex 목록, 생성 시 1회 계산)를 두고 **시도를 먼저 균등 추첨**한 뒤 그 안에서 동을 고르도록 `GameCore.trySpawnMissile`을 바꿨다 — 클라 `core.ts`도 동일 로직. 40개 표본 실측 결과 15/17개 시도에 5~12%씩 고르게 분산됨을 확인(`missile-distribution-test.mjs`).
 - **플레이어 색상 불일치 버그**: 이미 접속 중인 클라의 `world.holders`는 **자기 WELCOME 시점 스냅샷에 고정**돼 있어서, 그 이후 합류한 플레이어의 `paletteIdx`를 영영 모른 채 땅을 fallback 회색으로 칠하고 있었다(반면 리더보드 텍스트는 매번 새로 오는 LEADERBOARD로 이름만은 정확해서, "닉네임은 맞는데 색은 회색"으로 보였을 것). `DeltaMessage.newHolders`(신규 참가자 정보)를 추가해 **그 holder가 처음 동을 갖게 되는 것과 같은 DELTA**에 실어 보내도록 고쳤다 — 시점상 색이 틀리게 칠해지는 순간 자체가 아예 없어진다. 실브라우저 2세션으로 리더보드 스와치 색·지도 색이 모두 정확히 일치함을 확인(`color-sync-test.mjs`, Playwright 시각 확인).
 

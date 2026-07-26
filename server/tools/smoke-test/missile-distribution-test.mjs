@@ -13,7 +13,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 999, MISSILE_MAX_PER_PLAYER: 999 }),
+    body: JSON.stringify({ MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 999 }),
   });
 
   const client = new Client({
@@ -61,7 +61,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, MISSILE_MAX_PER_PLAYER: 8 }),
+    body: JSON.stringify({ MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60 }),
   });
   client.deactivate();
 

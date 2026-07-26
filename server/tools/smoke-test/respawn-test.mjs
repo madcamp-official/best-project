@@ -54,7 +54,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 1, MISSILE_MAX_PER_PLAYER: 999 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 200 }),
   });
   const a = await connectAndJoin("공격자A");
   const aState = { ownerId: a.welcome.ownerId.slice(), neighborIndex: a.welcome.neighborIndex, n: a.welcome.ownerId.length, missiles: new Set() };
@@ -111,7 +111,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 10, MISSILE_MAX_PER_PLAYER: 5 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60 }),
   });
 
   const bOwnsAny = bState.ownerId.some((o) => o === b.welcome.holderId);

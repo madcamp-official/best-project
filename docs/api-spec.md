@@ -118,7 +118,7 @@ interface LaunchMissileCommand {
 
 - `hits`는 클라가 폴리곤 기하로 계산해 보내지만 **신뢰하지 않는다**. 서버는 `radius`를 `MISSILE_MAX_RADIUS_DEG`로 클램프하고, 각 `hits[i]`의 centroid가 `center`에서 `radius + MISSILE_HIT_MARGIN_DEG` 이내인지 근사 검증한 것만 실제로 적용한다(서버엔 폴리곤이 없어 centroid 근접으로 근사)
 - 발사에는 발사자가 소유한 동 중 미사일이 얹힌 동이 최소 1개 필요 — 어느 동의 미사일이 소모되는지는 클라가 지정하지 않는다(서버가 발사자 소유 미사일 동 중 아무거나 1개 선택)
-- 개인 보유 상한 `MISSILE_MAX_PER_PLAYER`(기본 5) — 이미 상한이면 그 플레이어 동엔 새 미사일이 스폰되지 않는다(스폰 자체가 회피, 발사 시점 검증 아님)
+- 개인 보유 상한 없음 — 맵 전체 총량 `MISSILE_MAX_TOTAL`(기본 60)만으로 제한. 도달 시 새 미사일이 스폰되지 않는다(스폰 자체가 회피, 발사 시점 검증 아님). 스폰 동은 시도(sido) 단위로 먼저 균등 추첨한 뒤 그 안에서 고르므로 수도권 등 동 밀도가 높은 지역에 쏠리지 않는다
 
 ### 2.4 ERROR (S→C, `/user/queue/error`)
 

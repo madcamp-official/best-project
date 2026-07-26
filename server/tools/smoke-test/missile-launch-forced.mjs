@@ -15,11 +15,11 @@ function fail(msg) {
 }
 
 async function main() {
-  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=1, MISSILE_MAX_PER_PLAYER=999)...");
+  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=0.3, MISSILE_MAX_TOTAL=200)...");
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 1, MISSILE_MAX_PER_PLAYER: 999 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 200 }),
   });
 
   const state = { ownerId: null, myHolderId: -1, meta: null, neighborIndex: null, n: 0, missiles: new Set() };
@@ -108,7 +108,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 10, MISSILE_MAX_PER_PLAYER: 5 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60 }),
   });
 
   client.deactivate();
