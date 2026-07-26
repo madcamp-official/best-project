@@ -35,6 +35,11 @@ type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 // 법정동 경계 GeoJSON (web/public). gisdeveloper 읍면동(법정동) SHP를 mapshaper로
 // WGS84 변환한 정적 자산. 속성: EMD_CD(8자리 법정동코드=[시도2][시군구3][읍면동3]),
 // EMD_KOR_NM(한글명), EMD_ENG_NM(영문명).
+// 재현: mapshaper emd.shp encoding=euc-kr -clean -simplify 8% keep-shapes \
+//         -proj wgs84 -o format=geojson precision=0.00001 beopjeong-emd.geojson
+//   ※ -clean을 simplify 前에 둔다 — 원본 SHP의 자기교차를 재노딩해 렌더 시 생기는
+//     "좁고 긴 회랑"(얇은 삼각 슬래시) 아티팩트를 방지. (clean을 뒤에 두면 안 고쳐짐)
+//   경계 데이터를 바꾸면 server/tools/data-gen/generate.mjs도 다시 돌려 admIndex를 맞출 것.
 // 로드 후 TopoJSON 위상으로 인접 그래프 + 아크(공유 경계선) 추출 → polylabel 라벨 지점 계산.
 // SCOPE_SIDOCD = null 이면 전국 전체(~5,065 법정동), 시도 코드면 해당 시도만(성능 폴백).
 const DONG_GEOJSON_URL = `${import.meta.env.BASE_URL}beopjeong-emd.geojson`;
