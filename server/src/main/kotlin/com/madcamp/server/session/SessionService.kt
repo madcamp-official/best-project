@@ -1,9 +1,9 @@
 package com.madcamp.server.session
 
-import com.madcamp.server.config.HolderIds
 import com.madcamp.server.config.Palette
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.Holder
+import com.madcamp.server.domain.StartCellAssigner
 import com.madcamp.server.domain.World
 import org.springframework.stereotype.Service
 import java.util.UUID
@@ -32,7 +32,7 @@ class SessionService {
         val paletteIdx = Palette.PLAYER_IDXS[(holderId - 1).mod(Palette.PLAYER_IDXS.size)]
 
         world.holders[holderId] = Holder(holderId, name, paletteIdx)
-        val startIndex = StartCellAssigner.pick(world)
+        val startIndex = requireNotNull(StartCellAssigner.pick(world)) { "배정 가능한 중립 동이 없습니다(맵이 가득 참)." }
         world.ownerId[startIndex] = holderId
         world.troops[startIndex] = world.troopCap[startIndex]
         world.dirty.add(startIndex)
@@ -54,27 +54,5 @@ class SessionService {
             candidate = if (candidate >= 254) 1 else candidate + 1
         }
         error("holderId 254개가 모두 사용 중입니다.")
-    }
-}
-
-private object StartCellAssigner {
-    /**
-     * 신규 참가자 시작 동 배정(plan.md Day 3 "기존 영토와 겹치지 않는 중립 동, 전국에 분산").
-     * 이미 플레이어가 있는 시군구를 우선 피해 무작위로 골라 수도권 등 특정 지역 쏠림을 줄인다.
-     * 정교한 인구/지역 가중치 배정은 아님 — 데모 스코프의 단순 휴리스틱.
-     */
-    fun pick(world: World): Int {
-        val neutralCells = (0 until world.n).filter { world.ownerId[it] == HolderIds.NEUTRAL }
-        require(neutralCells.isNotEmpty()) { "배정 가능한 중립 동이 없습니다(맵이 가득 참)." }
-
-        val usedSgg = HashSet<String>()
-        for (i in 0 until world.n) {
-            val owner = world.ownerId[i]
-            if (owner != HolderIds.NEUTRAL && owner != HolderIds.ENV) usedSgg.add(world.meta[i].sggcd)
-        }
-
-        val fresh = neutralCells.filter { world.meta[it].sggcd !in usedSgg }
-        val pool = fresh.ifEmpty { neutralCells }
-        return pool.random()
     }
 }

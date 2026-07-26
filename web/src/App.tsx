@@ -8,7 +8,14 @@ import type { PreparedMap } from "./data/loadDong";
 import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
-import { applyWelcome, applyDelta, getLeaderboard, envCellCount, world } from "./world/worldView";
+import {
+  applyWelcome,
+  applyDelta,
+  getLeaderboard,
+  envCellCount,
+  drainRespawnEvents,
+  world,
+} from "./world/worldView";
 import { useUIStore } from "./store/uiStore";
 
 // plan.md §3 — 클라는 렌더러 + 입력 전송기.
@@ -42,7 +49,14 @@ function App() {
           setPrepared(map); // 스냅샷 반영 후 지도 렌더 시작
           setPhase("ready");
         });
-        connection.onDelta((msg) => applyDelta(msg));
+        connection.onDelta((msg) => {
+          applyDelta(msg);
+          // 미사일 등으로 내 동이 전부 사라졌다가 서버가 새 동을 배정해주면(궤멸 아님, 재시작)
+          // 알아차리기 어려우니 명시적으로 알려준다.
+          if (drainRespawnEvents().length > 0) {
+            useUIStore.getState().showToast("영토를 전부 잃었지만 새 지역에서 재시작합니다");
+          }
+        });
         connection.onError((msg) => useUIStore.getState().showToast(msg.message));
         connection.onLeaderboard((msg) =>
           useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)

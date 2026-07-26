@@ -265,6 +265,7 @@ export class LocalConnection implements Connection {
     const relayLegs = core.tickOrders(this.gs, now, wall);
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
+    core.respawnEliminatedPlayers(this.gs, wall); // 미사일 등으로 소유 동 0개가 된 플레이어 재시작
 
     // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
     this.envTimerMs += TICK_MS;

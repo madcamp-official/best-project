@@ -422,6 +422,27 @@ export function ownedCount(s: GameState, holderId: number): number {
   return c;
 }
 
+// 소유 동 0개가 된 실제 플레이어(미사일 직격 등으로 유일한 동을 잃은 경우)에게 새
+// 시작 동을 자동 배정한다 — SORTIE는 내 소유 동에서만 가능해서, 0개가 되면 아무것도
+// 할 수 없는 영구 탈락 상태가 된다. README/plan.md 어디에도 "영구 제거" 규칙은 없고
+// 지속형 캔버스 컨셉이므로 재시작시킨다. E(255)는 예외 — README §4.6대로 재스폰 없음.
+export function respawnEliminatedPlayers(s: GameState, wallNowMs: number): void {
+  for (const holder of s.holders.values()) {
+    if (holder.id === NEUTRAL_HOLDER_ID || holder.id === CONFIG.ENV_HOLDER_ID) continue;
+    if (ownedCount(s, holder.id) > 0) continue;
+
+    const neutralCells: number[] = [];
+    for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) neutralCells.push(i);
+    if (neutralCells.length === 0) continue; // 빈 동이 없으면 다음 tick 재시도
+
+    const newCell = neutralCells[Math.floor(Math.random() * neutralCells.length)];
+    s.ownerId[newCell] = holder.id;
+    s.troops[newCell] = s.troopCap[newCell];
+    s.dirty.add(newCell);
+    pushLog(s, `${holder.name}님이 궤멸 후 ${s.meta[newCell].name}에서 재시작합니다.`, wallNowMs);
+  }
+}
+
 // README §4.6, §8 — 순위표는 중립·환경 세력(E)을 제외한 플레이어만.
 export function getLeaderboard(s: GameState): LeaderboardRow[] {
   return Array.from(s.holders.values())

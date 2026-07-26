@@ -98,6 +98,7 @@ class GameLoop(
         GameCore.tickProduction(world, config, dtSec)
         GameCore.tickOrders(world, config, wallNow)
         GameCore.tickAnnex(world, config, wallNow, wallNow)
+        GameCore.respawnEliminatedPlayers(world, wallNow) // 미사일 등으로 소유 동 0개가 된 플레이어 재시작
         EnvAi.maybeAct(world, config, wallNow)
 
         // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
