@@ -108,7 +108,7 @@ SORTIE가 검증 실패로 거부됐을 때만 요청자에게 전송. 월드 �
 
 ```ts
 interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL";
   message: string; // 사용자 표시용 (아래 표의 한국어 문구)
   from: number;
   to: number;
@@ -119,7 +119,10 @@ interface ErrorMessage {
 |---|---|---|
 | `NOT_OWNER` | `ownerId[from] !== 요청자 holderId` | 본인 소유 동이 아닙니다. |
 | `NOT_ADJACENT` | `to`가 `neighborIndex[from]`에 없음 | 인접한 동이 아닙니다. |
-| `NO_TROOPS` | `floor(troops[from] * SORTIE_RATIO) <= 0` | 출정 가능한 병력이 없습니다. |
+| `NO_TROOPS` | `floor(troops[from] * ratio) <= 0` | 출정 가능한 병력이 없습니다. |
+| `ALREADY_FULL` | `to`가 내 동이고 `troopCap[to] - troops[to] <= 0`(이미 상한) | 이미 병력이 가득 찬 동입니다. |
+
+- `to`가 내 동(증원)인데 상한 여유가 있지만 `amount`보다 적으면 거부하지 않는다 — 서버가 `amount`를 여유분(`troopCap[to] - troops[to]`)으로 **클램프해서 보낸다**(넘치는 병력이 출발조차 안 함, 초과분 소멸 방지).
 
 ### 2.5 DELTA (S→C, `/topic/world`, 5Hz)
 
