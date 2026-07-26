@@ -186,10 +186,20 @@ export function tickOrders(s: GameState, nowMs: number, wallNowMs: number) {
 
 // README §4.3 — 전투 판정 (유닛 도착 시). 출발지 차감은 trySortie에서 이미 끝났다.
 function resolveArrival(s: GameState, order: Order, wallNowMs: number) {
-  const { to, amount, holderId } = order;
+  const { from, to, amount, holderId } = order;
 
   if (s.ownerId[to] === holderId) {
-    s.troops[to] = Math.min(s.troopCap[to], s.troops[to] + amount);
+    // 증원: 상한까지만 채우고, 넘치는 병력은 출발지로 되돌린다.
+    // (같은 동에 여러 출정이 동시에 도착할 때 상한 초과분이 소멸하던 버그 방지 —
+    //  출발지는 이 병력을 이미 내보냈으므로 되돌려도 대개 상한 안에 들어간다.)
+    const space = Math.max(0, s.troopCap[to] - s.troops[to]);
+    const accepted = Math.min(amount, space);
+    s.troops[to] += accepted;
+    const overflow = amount - accepted;
+    if (overflow > 0 && s.ownerId[from] === holderId) {
+      s.troops[from] = Math.min(s.troopCap[from], s.troops[from] + overflow);
+      s.dirty.add(from);
+    }
   } else {
     const remaining = s.troops[to] - amount; // 부호 있는 일반 number 연산으로 먼저 계산
     if (remaining < 0) {
