@@ -38,7 +38,10 @@ data class GameConfig(
     @JsonProperty("ENV_ATTACK_MARGIN") var envAttackMargin: Double = 1.2,
     @JsonProperty("ENV_BOUNTY") var envBounty: Int = 10,
     @JsonProperty("ENV_MAX_RATIO") var envMaxRatio: Double = 0.1,
-    @JsonProperty("ENV_MIN_PRESENCE") var envMinPresence: Int = 4,
+    // ENV_CLUSTER_COUNT(3) * ENV_START_CELLS(3) = 9개로 시작하므로 그보다 커야 한다 — 안 그러면
+    // 스폰 직후부터 already envCells(9) >= cap이 되어 E가 첫 행동도 못 해보고 얼어붙는다(실전에서
+    // "야만인이 가만히 있다"로 발견된 버그. 다중 클러스터 도입 시 이 값을 안 올려서 생겼다).
+    @JsonProperty("ENV_MIN_PRESENCE") var envMinPresence: Int = 12,
 
     // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
     @JsonProperty("MISSILE_SPAWN_SEC") var missileSpawnSec: Double = 5.0, // 체감상 적어서 2배로 상향
