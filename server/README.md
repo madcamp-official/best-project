@@ -116,6 +116,12 @@ node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀
 
 이 세 기능 모두 25명 동시 부하(`load-test.mjs`)·45초 8명 동시 확장(`annex-chaos-test.mjs`)에서 서버가 죽거나 느려지지 않는 것까지 확인됐다.
 
+## 플레이 피드백 반영 (미사일 수량·분포, 색상 동기화)
+
+- **미사일 수량 2배**: `MISSILE_SPAWN_SEC` 10→5초, `MISSILE_MAX_TOTAL` 30→60, `MISSILE_MAX_PER_PLAYER` 5→8(공급 증가에 맞춰 병목 방지). 클라 `config.ts`와 동기화.
+- **미사일 스폰 분포 균등화**: 기존엔 전국 동을 그냥 균등 추첨해서, 서울·부산처럼 동이 촘촘히 쪼개진(=동 개수가 많은) 지역에 자연히 쏠렸다. `World.cellsBySido`(시도별 admIndex 목록, 생성 시 1회 계산)를 두고 **시도를 먼저 균등 추첨**한 뒤 그 안에서 동을 고르도록 `GameCore.trySpawnMissile`을 바꿨다 — 클라 `core.ts`도 동일 로직. 40개 표본 실측 결과 15/17개 시도에 5~12%씩 고르게 분산됨을 확인(`missile-distribution-test.mjs`).
+- **플레이어 색상 불일치 버그**: 이미 접속 중인 클라의 `world.holders`는 **자기 WELCOME 시점 스냅샷에 고정**돼 있어서, 그 이후 합류한 플레이어의 `paletteIdx`를 영영 모른 채 땅을 fallback 회색으로 칠하고 있었다(반면 리더보드 텍스트는 매번 새로 오는 LEADERBOARD로 이름만은 정확해서, "닉네임은 맞는데 색은 회색"으로 보였을 것). `DeltaMessage.newHolders`(신규 참가자 정보)를 추가해 **그 holder가 처음 동을 갖게 되는 것과 같은 DELTA**에 실어 보내도록 고쳤다 — 시점상 색이 틀리게 칠해지는 순간 자체가 아예 없어진다. 실브라우저 2세션으로 리더보드 스와치 색·지도 색이 모두 정확히 일치함을 확인(`color-sync-test.mjs`, Playwright 시각 확인).
+
 ## 궤멸 후 자동 재시작 (버그 수정)
 
 실사용 중 발견: 미사일이 플레이어의 유일한 동을 직격하면 소유 동이 0개가 되고, SORTIE는 내 소유 동에서만 가능해서 이후 아무것도 할 수 없는 영구 탈락 상태가 됐다. README/plan.md 어디에도 "영구 제거" 규칙은 없고 지속형 캔버스 컨셉이므로, **소유 동이 0개가 된 실제 플레이어에게는 매 tick 새 시작 동을 자동 배정**한다(`GameCore.kt respawnEliminatedPlayers`, 신규 참가자와 같은 `StartCellAssigner`를 domain 패키지로 공유해서 재사용). 별도 프로토콜 없이 기존 DELTA `cells`/`events`(`"{닉네임}님이 궤멸 후 {동}에서 재시작합니다."`) 경로 그대로. E(255)는 예외 — README §4.6대로 소탕되면 재스폰 없음.

@@ -361,20 +361,40 @@ export function totalMissileCount(s: GameState): number {
 export function trySpawnMissile(s: GameState): number {
   if (s.n === 0) return -1;
   if (totalMissileCount(s) >= CONFIG.MISSILE_MAX_TOTAL) return -1; // 맵 전체 상한
-  const start = Math.floor(Math.random() * s.n);
-  for (let k = 0; k < s.n; k++) {
-    const i = (start + k) % s.n;
-    if (s.missiles[i]) continue;
-    const owner = s.ownerId[i];
-    if (
-      owner !== NEUTRAL_HOLDER_ID &&
-      owner !== CONFIG.ENV_HOLDER_ID &&
-      missileCount(s, owner) >= CONFIG.MISSILE_MAX_PER_PLAYER
-    ) {
-      continue; // 이 플레이어는 이미 상한
+
+  // 시도를 먼저 균등 추첨한 뒤 그 안에서 동을 고른다 — 동 개수가 시도별로 크게 달라서
+  // (서울·부산은 동이 촘촘히 쪼개져 있음) 동 단위로 그냥 균등 추첨하면 그쪽에 쏠린다.
+  // 시도 단위로 먼저 공평하게 나눠야 전국에 고르게 퍼진다.
+  const bySido = new Map<string, number[]>();
+  for (let i = 0; i < s.n; i++) {
+    const sido = s.meta[i].sidocd;
+    const list = bySido.get(sido);
+    if (list) list.push(i);
+    else bySido.set(sido, [i]);
+  }
+  const sidoGroups = Array.from(bySido.values());
+  for (let t = sidoGroups.length - 1; t > 0; t--) {
+    const j = Math.floor(Math.random() * (t + 1));
+    [sidoGroups[t], sidoGroups[j]] = [sidoGroups[j], sidoGroups[t]];
+  }
+
+  for (const cells of sidoGroups) {
+    if (cells.length === 0) continue;
+    const start = Math.floor(Math.random() * cells.length);
+    for (let k = 0; k < cells.length; k++) {
+      const i = cells[(start + k) % cells.length];
+      if (s.missiles[i]) continue;
+      const owner = s.ownerId[i];
+      if (
+        owner !== NEUTRAL_HOLDER_ID &&
+        owner !== CONFIG.ENV_HOLDER_ID &&
+        missileCount(s, owner) >= CONFIG.MISSILE_MAX_PER_PLAYER
+      ) {
+        continue; // 이 플레이어는 이미 상한
+      }
+      s.missiles[i] = 1;
+      return i;
     }
-    s.missiles[i] = 1;
-    return i;
   }
   return -1;
 }

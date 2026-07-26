@@ -267,18 +267,28 @@ object GameCore {
     fun trySpawnMissile(world: World, config: GameConfig, rng: java.util.Random): Int {
         if (world.n == 0) return -1
         if (totalMissileCount(world) >= config.missileMaxTotal) return -1 // 맵 전체 상한
-        val start = rng.nextInt(world.n)
-        for (k in 0 until world.n) {
-            val i = (start + k) % world.n
-            if (world.missile[i]) continue
-            val owner = world.ownerId[i]
-            if (owner != HolderIds.NEUTRAL && owner != HolderIds.ENV &&
-                missileCount(world, owner) >= config.missileMaxPerPlayer
-            ) {
-                continue
+
+        // 시도를 먼저 균등 추첨한 뒤 그 안에서 동을 고른다 — 동 개수가 시도별로 크게
+        // 달라서(서울·부산은 동이 촘촘히 쪼개져 있음) 동 단위로 그냥 균등 추첨하면
+        // 그쪽에 쏠린다. 시도 단위로 먼저 공평하게 나눠야 전국에 고르게 퍼진다.
+        val sidoOrder = (world.cellsBySido.indices).toMutableList()
+        sidoOrder.shuffle(rng)
+        for (sidoIdx in sidoOrder) {
+            val cells = world.cellsBySido[sidoIdx]
+            if (cells.isEmpty()) continue
+            val start = rng.nextInt(cells.size)
+            for (k in cells.indices) {
+                val i = cells[(start + k) % cells.size]
+                if (world.missile[i]) continue
+                val owner = world.ownerId[i]
+                if (owner != HolderIds.NEUTRAL && owner != HolderIds.ENV &&
+                    missileCount(world, owner) >= config.missileMaxPerPlayer
+                ) {
+                    continue
+                }
+                world.missile[i] = true
+                return i
             }
-            world.missile[i] = true
-            return i
         }
         return -1
     }

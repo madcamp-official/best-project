@@ -156,6 +156,7 @@ interface DeltaMessage {
   events: LogEvent[];    // 함락/침공/토벌 등 로그. **최신순**(newest-first) — 클라는 그대로 로그 앞에 붙인다
   missileAdd: number[];  // 이번 구간에 새로 스폰된 미사일 동
   missileRemove: number[]; // 이번 구간에 사라진 미사일 동(발사로 소모)
+  newHolders: Holder[];  // 이번 구간에 새로 생긴 holder(신규 참가자) — 아래 참고
 }
 
 interface Order {
@@ -174,6 +175,7 @@ interface LogEvent {
 
 - 도착(arrive) 처리 결과 자체는 `cells`(도착 시점의 ownerId/troops 변화)로 반영되며, `newOrders`는 "출발"만 알린다 — 클라는 도착 시각(arriveTick)에 자체적으로 유닛을 소멸시키고 `cells` 갱신을 반영
 - 환경 세력(E)의 행동도 동일한 `newOrders`/`cells` 경로로 온다. holder 목록에 없는 새 holderId는 오지 않음(E는 WELCOME에 이미 포함)
+- **`newHolders`**: 이미 접속 중인 다른 클라의 `world.holders`엔 없는 신규 참가자 정보(id/name/paletteIdx)다. 그 holder가 **처음 동을 갖게 되는 것과 같은 DELTA**에 실려 온다 — 그래서 클라는 `cells`를 반영하기 전에 먼저 `newHolders`를 `world.holders`에 채워 넣어야, 그 holder의 땅을 `paletteIdx` 모른 채(fallback 회색으로) 칠하는 순간이 생기지 않는다. `WelcomeMessage.holders`는 접속 시점의 스냅샷 1회뿐이라, 이후 합류하는 다른 플레이어 정보는 반드시 이 필드로만 전파된다.
 
 ### 2.6 LEADERBOARD (S→C, `/topic/leaderboard`, 1Hz)
 

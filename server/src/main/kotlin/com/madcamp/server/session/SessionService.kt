@@ -31,7 +31,11 @@ class SessionService {
         // 5명을 넘으면 색이 겹칠 수 있음 — 데모 규모에서는 허용(같은 comment가 클라 쪽에도 있음).
         val paletteIdx = Palette.PLAYER_IDXS[(holderId - 1).mod(Palette.PLAYER_IDXS.size)]
 
-        world.holders[holderId] = Holder(holderId, name, paletteIdx)
+        val holder = Holder(holderId, name, paletteIdx)
+        world.holders[holderId] = holder
+        // 이미 접속 중인 다른 클라는 이 holder를 모른다 — 다음 DELTA에 같이 실어 보내
+        // paletteIdx를 몰라 땅 색을 잘못(fallback) 칠하는 순간이 생기지 않게 한다.
+        world.pendingNewHolders.add(holder)
         val startIndex = requireNotNull(StartCellAssigner.pick(world)) { "배정 가능한 중립 동이 없습니다(맵이 가득 참)." }
         world.ownerId[startIndex] = holderId
         world.troops[startIndex] = world.troopCap[startIndex]

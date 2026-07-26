@@ -28,6 +28,11 @@ class World(
     // web/src/game/core.ts GameState.rally 대응.
     val rally: IntArray = IntArray(256) { -1 }
 
+    // 시도(sido)별 admIndex 목록 — 미사일 스폰을 지역 균등(시도 먼저 균등 추첨)으로 뽑을 때 쓴다.
+    // 동 개수가 시도별로 크게 달라서(서울·부산은 동이 촘촘히 쪼개져 있음) 동 단위로 그냥
+    // 균등 추첨하면 그쪽에 쏠린다(GameCore.trySpawnMissile 참조). World 생성 시 1회 계산.
+    val cellsBySido: List<IntArray> = (0 until n).groupBy { meta[it].sidocd }.values.map { it.toIntArray() }
+
     // 포위 귀속(GameCore.tickAnnex): 이 동을 현재 포위 중인 holderId(-1=없음)와, 그 연속 포위가
     // 시작된 시각(ms). ANNEX_HOLD_SEC 유지 판정용 — web/src/game/core.ts enclosedBy/enclosedSince 대응.
     val enclosedBy: IntArray = IntArray(n) { -1 }
@@ -38,6 +43,7 @@ class World(
     val pendingEvents: MutableList<LogEvent> = mutableListOf()
     val pendingMissileAdd: MutableList<Int> = mutableListOf()
     val pendingMissileRemove: MutableList<Int> = mutableListOf()
+    val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
     var nextLogId: Int = 1

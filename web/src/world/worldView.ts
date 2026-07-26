@@ -63,6 +63,10 @@ export const respawnEvents: number[] = [];
 export function applyDelta(msg: DeltaMessage) {
   const hadNoCells = world.myHolderId !== 0 && core.ownedCount(world, world.myHolderId) === 0;
 
+  // 신규 참가자 holder(색상 포함) 반영 — 이 DELTA의 cells에 그 holder의 첫 동이 같이
+  // 실려 오므로, 아래 cells 루프가 색을 찾기 전에 먼저 world.holders에 채워둔다.
+  for (const h of msg.newHolders) world.holders.set(h.id, h);
+
   for (const [admIndex, owner, troops] of msg.cells) {
     const prev = world.ownerId[admIndex];
     if (prev !== owner) {

@@ -328,7 +328,8 @@ export class LocalConnection implements Connection {
     ) {
       return;
     }
-    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove });
+    // 목 서버는 단일 로컬 플레이어라 접속 중 새 holder가 생기는 시나리오가 없다 — 항상 빈 배열.
+    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove, newHolders: [] });
   }
 
   private flushLeaderboard(): void {
