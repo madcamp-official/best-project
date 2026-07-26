@@ -21,6 +21,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 // 클라와 공유하는 정본 법정동 경계 파일 (web/public). 이 한 파일이 클라 렌더 geometry와
 // 서버 meta/neighbors의 공통 소스다 — 둘의 admIndex 정합성이 여기서 보장된다.
 const GEOJSON_PATH = new URL("../../../web/public/beopjeong-emd.geojson", import.meta.url);
+// 시군구/시도명 조회 테이블(generate-sgg-names.mjs 산출물) — beopjeong-emd.geojson엔
+// EMD_CD(코드)만 있고 이름이 없어 이걸로 채운다. 클라(loadDong.ts)도 같은 파일을 쓴다.
+const NAMES_PATH = new URL("../../../web/public/sgg-sido-names.json", import.meta.url);
 
 function ringArea(ring) {
   let sum = 0;
@@ -54,6 +57,8 @@ async function main() {
   const fc = JSON.parse(readFileSync(GEOJSON_PATH, "utf8"));
   console.log(`원본 feature 수: ${fc.features.length}`);
 
+  const { sggNames, sidoNames } = JSON.parse(readFileSync(NAMES_PATH, "utf8"));
+
   // 클라 loadDong과 동일한 필터: EMD_CD 존재. (전국 대상 — 시도 필터 없음)
   const filtered = fc.features.filter((f) => f.properties?.EMD_CD);
   console.log(`필터 후(EMD_CD 존재): ${filtered.length}`);
@@ -69,9 +74,9 @@ async function main() {
       code,
       name: f.properties.EMD_KOR_NM,
       sggcd: code.slice(0, 5), // [시도2][시군구3] — 시장 계급 판정용
-      sggnm: "", // 이 파일엔 시군구명이 없다(코드만). 필요 시 sig 데이터로 보강.
+      sggnm: sggNames[code.slice(0, 5)] ?? "",
       sidocd: code.slice(0, 2),
-      sidonm: "",
+      sidonm: sidoNames[code.slice(0, 2)] ?? "",
       centroid,
     });
     preparedFeatures.push({
@@ -89,6 +94,12 @@ async function main() {
 
   const n = meta.length;
   const cells = meta.map((m, i) => ({ ...m, neighbors: neighborIndex[i] ?? [] }));
+
+  const missingNames = cells.filter((c) => !c.sggnm || !c.sidonm);
+  if (missingNames.length > 0) {
+    console.warn(`시군구/시도명 조회 실패 ${missingNames.length}개 — sgg-sido-names.json을 재생성해야 할 수 있음`);
+    console.warn(missingNames.slice(0, 10).map((c) => `  - ${c.name}(${c.code})`).join("\n"));
+  }
 
   const isolated = cells.filter((c) => c.neighbors.length === 0);
   console.log(`인접 차수 0(섬/월경지 후보): ${isolated.length}개`);

@@ -40,11 +40,14 @@ src/main/kotlin/com/madcamp/server/
 
 **클라·서버가 정확히 같은 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터(`EMD_CD` 존재)·같은 순회 순서로 읽는다** — `web/src/data/loadDong.ts`는 fetch로, `generate.mjs`는 `readFileSync`로. admdongkor 같은 외부 API를 거치지 않고 정적 파일 하나를 공유하므로, admIndex 정렬이 어긋날 여지가 구조적으로 없다(예전엔 admdongkor 버전 드리프트를 걱정해야 했는데, 이 방식으로 그 문제 자체가 사라졌다).
 
+**시군구/시도명**(`sggnm`/`sidonm`)은 `beopjeong-emd.geojson`엔 코드(`EMD_CD`)만 있고 이름이 없어서, `tools/data-gen/generate-sgg-names.mjs`가 admdongkor의 sgg/sido 레벨에서 이름만 뽑아 `web/public/sgg-sido-names.json`(작은 code→name 딕셔너리, 클라·서버 공유)으로 미리 구워둔다. `generate.mjs`/`loadDong.ts` 둘 다 이 파일을 읽어 채운다. **주의**: admdongkor의 "latest"를 그대로 쓰면 안 된다 — 법정동 원본(2023-07-29 스냅샷)과 시군구/시도 코드 체계가 달라(그 사이 전북특별자치도 출범 등 행정구역 개편) 실제로 시도 3개·시군구 47개가 매칭 실패했다. 그래서 원본과 같은 시기 스냅샷(`20230701`)으로 고정했다(스크립트 상단 `NAME_SNAPSHOT_VERSION`).
+
 데이터를 다시 뽑으려면(원본 SHP가 갱신됐을 때 등):
 
 ```bash
 cd tools/data-gen
-node generate.mjs   # resources/data/nationwide-dong.json 갱신
+node generate-sgg-names.mjs   # web/public/sgg-sido-names.json 갱신 (이름 코드 체계가 바뀌었을 때만 재실행 필요)
+node generate.mjs             # resources/data/nationwide-dong.json 갱신
 ```
 
 실행 결과 인접 차수 0(섬·월경지)인 동이 62개 있다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).

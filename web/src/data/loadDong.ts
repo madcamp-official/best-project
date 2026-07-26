@@ -44,16 +44,29 @@ type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
 // SCOPE_SIDOCD = null 이면 전국 전체(~5,065 법정동), 시도 코드면 해당 시도만(성능 폴백).
 const DONG_GEOJSON_URL = `${import.meta.env.BASE_URL}beopjeong-emd.geojson`;
 
+// 시군구/시도명 조회 테이블 (server/tools/data-gen/generate-sgg-names.mjs 산출물).
+// beopjeong-emd.geojson엔 EMD_CD(코드)만 있고 이름이 없어서 별도로 채운다 — admdongkor
+// sgg/sido 레벨에서 뽑되, 법정동 원본(gisdeveloper 20230729)과 같은 시기 스냅샷(20230701)을
+// 써서 그 이후 행정구역 개편(전북특별자치도 출범 등)으로 코드가 어긋나는 문제를 피했다.
+const NAMES_URL = `${import.meta.env.BASE_URL}sgg-sido-names.json`;
+
 interface EmdProps {
   EMD_CD: string;
   EMD_KOR_NM: string;
   EMD_ENG_NM?: string;
 }
 
+interface NameLookup {
+  sggNames: Record<string, string>;
+  sidoNames: Record<string, string>;
+}
+
 export async function loadDong(): Promise<PreparedMap> {
-  const res = await fetch(DONG_GEOJSON_URL);
+  const [res, namesRes] = await Promise.all([fetch(DONG_GEOJSON_URL), fetch(NAMES_URL)]);
   if (!res.ok) throw new Error(`법정동 경계 로드 실패 (${res.status}) — ${DONG_GEOJSON_URL}`);
+  if (!namesRes.ok) throw new Error(`시군구/시도명 로드 실패 (${namesRes.status}) — ${NAMES_URL}`);
   const fc = (await res.json()) as FeatureCollection<Polygon | MultiPolygon, EmdProps>;
+  const { sggNames, sidoNames } = (await namesRes.json()) as NameLookup;
 
   const filtered = fc.features.filter(
     (f) =>
@@ -72,9 +85,9 @@ export async function loadDong(): Promise<PreparedMap> {
       code,
       name: f.properties.EMD_KOR_NM,
       sggcd: code.slice(0, 5), // [시도2][시군구3] — core.computeRank 시장 판정용
-      sggnm: "", // 이 파일엔 시군구명이 없다(코드만). 필요 시 sig 데이터로 보강.
+      sggnm: sggNames[code.slice(0, 5)] ?? "",
       sidocd: code.slice(0, 2),
-      sidonm: "",
+      sidonm: sidoNames[code.slice(0, 2)] ?? "",
       centroid,
     });
     preparedFeatures.push({
