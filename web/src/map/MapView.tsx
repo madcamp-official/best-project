@@ -58,6 +58,8 @@ const AIRDROP_UNIT_SOURCE = "airdrop-units"; // 공수부대 삼각형 유닛(�
 const AIRDROP_UNIT_LAYER = "airdrop-unit-icon";
 const AIRDROP_UNIT_LABEL = "airdrop-unit-label";
 const TRIANGLE_IMAGE_ID = "airdrop-triangle";
+const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표
+const ATTACK_ARROW_LAYER = "attack-arrow-layer";
 
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
@@ -148,6 +150,24 @@ export function MapView({ prepared, connection }: Props) {
             ]
           : [];
       src.setData({ type: "FeatureCollection", features });
+    };
+
+    // 우클릭 드래그 공격 상태 — 내 동에서 우클릭 눌러 시작(mousedown), 대상 동에서 떼면(mouseup) 공격.
+    let dragging = false;
+    let dragSource = -1;
+
+    // 출발지(from)에서 커서로 이어지는 공격 화살표(본선 + 화살촉)를 그린다. from<0이면 비운다.
+    const updateArrow = (from: number, cursor: [number, number] | null) => {
+      const src = map.getSource(ATTACK_ARROW_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      if (from < 0 || from >= world.n || !cursor) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      src.setData({
+        type: "FeatureCollection",
+        features: arrowFeatures(world.meta[from].centroid as [number, number], cursor),
+      });
     };
 
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
@@ -614,6 +634,19 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
+      // 우클릭 드래그 공격 화살표 — 출발지에서 커서로 향하는 흰 선(+화살촉). 맨 위에 그린다.
+      map.addSource(ATTACK_ARROW_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: ATTACK_ARROW_LAYER,
+        type: "line",
+        source: ATTACK_ARROW_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 3, "line-opacity": 0.95 },
+      });
+
       for (let i = 0; i < prepared.n; i++) {
         map.setFeatureState(
           { source: SOURCE_ID, id: i },
@@ -653,9 +686,10 @@ export function MapView({ prepared, connection }: Props) {
         const st = useUIStore.getState();
         if (st.isAiming) aimDirty = true;
         if (st.isTransporting && airdropPhase === "source") aimDirty = true;
+        if (dragging) updateArrow(dragSource, [e.lngLat.lng, e.lngLat.lat]); // 드래그 공격 화살표 추적
       });
 
-      // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 집결지 지정 중이면 = 집결지 설정/해제.
+      // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 공수 중이면 = 공수 클릭.
       map.on("click", (e) => {
         if (useUIStore.getState().isAiming) {
           fireMissile([e.lngLat.lng, e.lngLat.lat]);
@@ -665,30 +699,55 @@ export function MapView({ prepared, connection }: Props) {
           handleAirdropClick(e);
           return;
         }
-        if (useUIStore.getState().isSettingRally) {
-          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-          const hit = hits[0];
-          if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
-          return; // 지정 모드에선 일반 선택을 하지 않는다
-        }
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
         if (hit && hit.id !== undefined) handleSelect(Number(hit.id), map);
         else selectDong(map, null, useUIStore.getState().select);
       });
 
-      // 우클릭 = 선택한 동에서 그 동으로 병력 이동/공격.
+      // 우클릭 드래그 = 공격. 내 동에서 우클릭을 눌러 시작(mousedown), 화살표를 끌어 대상 동에서
+      // 떼면(mouseup) 그 동으로 공격/증원/행군한다. 브라우저 기본 컨텍스트 메뉴는 막는다.
       map.getCanvas().addEventListener("contextmenu", (ev) => ev.preventDefault());
-      map.on("contextmenu", (e) => {
+      map.on("contextmenu", () => {
+        // 우클릭 = 공수 취소(그 외 공격은 mousedown/mouseup 드래그가 처리하므로 여기선 안 함).
         const st = useUIStore.getState();
-        if (st.isTransporting) {
-          st.setTransporting(false); // 우클릭 = 공수 취소
-          return;
-        }
-        if (st.isAiming) return; // 조준 중엔 우클릭 출정 비활성
+        if (st.isTransporting) st.setTransporting(false);
+      });
+
+      map.on("mousedown", (e) => {
+        if (e.originalEvent.button !== 2) return; // 우클릭만
+        const st = useUIStore.getState();
+        if (st.isAiming || st.isTransporting) return; // 특수 모드 중엔 드래그 공격 비활성
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
-        if (hit && hit.id !== undefined) handleAction(Number(hit.id), connection);
+        if (!hit || hit.id === undefined) return;
+        const idx = Number(hit.id);
+        if (world.ownerId[idx] !== world.myHolderId) return; // 내 동에서만 시작
+        dragging = true;
+        dragSource = idx;
+        selectDong(map, idx, st.select); // 출발지 강조
+        updateArrow(idx, [e.lngLat.lng, e.lngLat.lat]);
+      });
+
+      map.on("mouseup", (e) => {
+        if (!dragging || e.originalEvent.button !== 2) return; // 우클릭 뗄 때만
+        dragging = false;
+        updateArrow(-1, null); // 화살표 지우기
+        const from = dragSource;
+        dragSource = -1;
+        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+        const hit = hits[0];
+        if (!hit || hit.id === undefined) return; // 빈 곳에 놓으면 취소
+        doAttack(from, Number(hit.id), connection);
+      });
+
+      // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
+      map.on("dblclick", (e) => {
+        const st = useUIStore.getState();
+        if (st.isAiming || st.isTransporting) return;
+        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+        const hit = hits[0];
+        if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
       });
 
       useUIStore.getState().setPhase("ready");
@@ -698,7 +757,7 @@ export function MapView({ prepared, connection }: Props) {
     // README.md §4.5 — 물리 키(e.code) 사용, 한글 IME 조합 중에는 무시.
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
-      // Esc = 미사일 조준 / 집결지 지정 모드 취소
+      // Esc = 미사일 조준 / 공수 모드 취소
       if (e.code === "Escape") {
         const st = useUIStore.getState();
         if (st.isAiming) {
@@ -709,18 +768,18 @@ export function MapView({ prepared, connection }: Props) {
           st.setTransporting(false);
           return;
         }
-        if (st.isSettingRally) {
-          st.setSettingRally(false);
-          return;
-        }
       }
-      // Space = 집결지 지정 모드 토글. (Space는 기본 스크롤/버튼 클릭을 유발하므로 막는다.)
+      // Space = 미사일 조준 모드 토글. (Space는 기본 스크롤/버튼 클릭을 유발하므로 막는다.)
       if (e.code === "Space") {
         e.preventDefault();
         const st = useUIStore.getState();
-        const next = !st.isSettingRally;
-        st.setSettingRally(next);
-        if (next && st.isAiming) st.setAiming(false); // 미사일 조준 중이었으면 해제하고 집결지 모드로
+        if (!st.isAiming && st.missileCount === 0) {
+          st.showToast("보유한 미사일이 없습니다.");
+          return;
+        }
+        const next = !st.isAiming;
+        st.setAiming(next);
+        if (next && st.isTransporting) st.setTransporting(false); // 공수 중이었으면 해제하고 조준으로
         return;
       }
       const step = 60;
@@ -962,25 +1021,21 @@ function handleSelect(idx: number, map: MaplibreMap) {
   else selectDong(map, idx, select);
 }
 
-// 우클릭: 선택한 내 동에서 대상 동으로 병력 파견(서버에 명령 전송).
+// 우클릭 드래그 공격: 출발지(from)에서 대상(to)으로 병력 파견(서버에 명령 전송).
 //  · 인접 적/중립 → 전투    · 인접 내 동 → 증원    · 먼 내 동 → 경로 자동 출정(B1, 내 영토 따라 연쇄)
 // 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
-function handleAction(idx: number, connection: Connection) {
-  const { selectedIndex, showToast, sortieRatio } = useUIStore.getState();
+function doAttack(from: number, to: number, connection: Connection) {
+  const { showToast, sortieRatio } = useUIStore.getState();
 
-  // 명백히 무효한 입력은 왕복 없이 즉시 안내(선택 상태는 순수 UI). 최종 검증은 서버가 한다.
-  if (selectedIndex === null || world.ownerId[selectedIndex] !== world.myHolderId) {
-    showToast("먼저 내 동을 좌클릭으로 선택하세요.");
-    return;
-  }
-  if (selectedIndex === idx) return;
+  if (from < 0 || world.ownerId[from] !== world.myHolderId) return; // 출발지가 내 동이 아니면 무시
+  if (from === to) return; // 같은 동에 놓으면 취소
 
-  const adjacent = world.neighborIndex[selectedIndex]?.includes(idx) ?? false;
+  const adjacent = world.neighborIndex[from]?.includes(to) ?? false;
 
   // 인접이 아니면: 내 동이면 경로 자동 출정(B1), 아니면 공격은 인접만 가능함을 안내.
   if (!adjacent) {
-    if (world.ownerId[idx] === world.myHolderId) {
-      connection.sendMarch(selectedIndex, idx, sortieRatio);
+    if (world.ownerId[to] === world.myHolderId) {
+      connection.sendMarch(from, to, sortieRatio);
     } else {
       showToast("먼 내 동은 자동 행군, 공격은 인접 동만 가능합니다.");
     }
@@ -989,19 +1044,49 @@ function handleAction(idx: number, connection: Connection) {
 
   // 인접 증원인데 이미 가득 찼으면(여유 0) 보낼 게 없으니 왕복 전에 막는다.
   // (여유가 있으면 그대로 보내고, 서버가 상한 여유분만큼만 잘라서 증원한다.)
-  if (world.ownerId[idx] === world.myHolderId && world.troops[idx] >= world.troopCap[idx]) {
+  if (world.ownerId[to] === world.myHolderId && world.troops[to] >= world.troopCap[to]) {
     showToast("이미 병력이 가득 찬 동입니다.");
     return;
   }
 
   // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
-  connection.sendSortie(selectedIndex, idx, sortieRatio);
+  connection.sendSortie(from, to, sortieRatio);
 }
 
-// 좌클릭(집결지 지정 모드): 내 동을 집결지로 설정, 현재 집결지를 다시 클릭하면 해제한다(B2).
+// 우클릭 드래그 공격 화살표 지오메트리 — 본선(a→b) + b 끝의 화살촉(V자) 두 선.
+// 경도는 위도에 따라 실제 거리가 달라 cosLat로 스케일해 방향을 계산한다.
+function arrowFeatures(a: [number, number], b: [number, number]) {
+  const feats = [
+    { type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [a, b] } },
+  ];
+  const cosLat = Math.cos((b[1] * Math.PI) / 180) || 1;
+  const dx = (b[0] - a[0]) * cosLat;
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy);
+  if (len > 1e-9) {
+    const ux = dx / len;
+    const uy = dy / len;
+    const head = Math.min(0.008, len * 0.35); // 화살촉 길이(도)
+    const ang = (25 * Math.PI) / 180;
+    for (const s of [ang, -ang]) {
+      // b에서 a 방향(-u)을 ±ang 회전한 짧은 선 → 화살촉.
+      const rx = -ux * Math.cos(s) + uy * Math.sin(s);
+      const ry = -ux * Math.sin(s) - uy * Math.cos(s);
+      const tip: [number, number] = [b[0] + (rx * head) / cosLat, b[1] + ry * head];
+      feats.push({
+        type: "Feature" as const,
+        properties: {},
+        geometry: { type: "LineString" as const, coordinates: [b, tip] },
+      });
+    }
+  }
+  return feats;
+}
+
+// 더블클릭으로 호출: 내 동을 집결지로 설정, 현재 집결지를 다시 더블클릭하면 해제한다(B2).
 // 마커·요약은 낙관적으로 즉시 반영(setMyRally)하고, 서버는 sendRally로 검증·저장한다.
 function handleSetRally(idx: number, connection: Connection) {
-  const { showToast, setSettingRally, rallyIndex } = useUIStore.getState();
+  const { showToast, rallyIndex } = useUIStore.getState();
   if (world.ownerId[idx] !== world.myHolderId) {
     showToast("내 동만 집결지로 지정할 수 있습니다.");
     return;
@@ -1015,7 +1100,6 @@ function handleSetRally(idx: number, connection: Connection) {
     setMyRally(idx);
     showToast(`집결지: ${world.meta[idx].name}`);
   }
-  setSettingRally(false); // 한 번 지정하면 모드 종료
 }
 
 // 이모지를 캔버스에 렌더해 지도 아이콘(addImage)용 픽셀 데이터로 만든다. glyphs 서버가 없어
