@@ -443,7 +443,9 @@ export function setRally(s: GameState, holderId: number, index: number) {
 }
 
 // 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진시킨다(시뮬레이터가 SUPPLY_INTERVAL_SEC 주기 호출).
-export function tickSupply(s: GameState) {
+// 반환 = 이번 주기에 새로 출발한 보급 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
+export function tickSupply(s: GameState, nowMs: number): Order[] {
+  const out: Order[] = [];
   for (let h = 0; h < s.rally.length; h++) {
     const rallyIdx = s.rally[h];
     if (rallyIdx < 0) continue;
@@ -451,13 +453,21 @@ export function tickSupply(s: GameState) {
       s.rally[h] = -1; // 집결지를 잃으면 자동 해제
       continue;
     }
-    supplyToward(s, h, rallyIdx);
+    supplyToward(s, h, rallyIdx, nowMs, out);
   }
+  return out;
 }
 
-// 집결지에서 BFS로 각 내 동까지의 홉 거리를 구하고, 가까운 동부터 '집결지에 한 칸 더 가까운'
-// 이웃으로 병력 일부를 넘긴다. 가까운 것부터 처리해야 한 tick당 정확히 한 홉씩만 전진한다.
-function supplyToward(s: GameState, holderId: number, rallyIdx: number) {
+// 집결지에서 BFS로 각 내 동까지의 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로
+// 병력 일부를 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다.
+// 도착 처리(증원·상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
+function supplyToward(
+  s: GameState,
+  holderId: number,
+  rallyIdx: number,
+  nowMs: number,
+  out: Order[]
+) {
   const dist = new Int32Array(s.n).fill(-1);
   dist[rallyIdx] = 0;
   const q = [rallyIdx];
@@ -469,7 +479,6 @@ function supplyToward(s: GameState, holderId: number, rallyIdx: number) {
       q.push(nb);
     }
   }
-  // q는 dist 오름차순 — 집결지에 가까운 동부터 처리한다(먼 동이 준 병력은 다음 tick에 다시 전진).
   for (let k = 1; k < q.length; k++) {
     const i = q[k];
     if (s.troops[i] <= CONFIG.SUPPLY_MIN_TROOPS) continue;
@@ -482,14 +491,16 @@ function supplyToward(s: GameState, holderId: number, rallyIdx: number) {
     }
     if (j < 0) continue;
     const space = s.troopCap[j] - s.troops[j];
-    if (space <= 0) continue; // 앞이 가득 차면 뒤에서 밀지 않고 쌓아둔다(손실 없음)
+    if (space <= 0) continue; // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
     let amt = Math.floor(s.troops[i] * CONFIG.SUPPLY_RATIO);
     if (amt < 1) continue;
     if (amt > space) amt = space;
+    // 병력은 즉시 출발지를 떠나(차감) 이웃으로 행군한다. 도착 시 tickOrders가 증원 처리(초과분 반환).
     s.troops[i] -= amt;
-    s.troops[j] += amt;
     s.dirty.add(i);
-    s.dirty.add(j);
+    const order = makeOrder(s, i, j, amt, holderId, nowMs);
+    s.orders.push(order);
+    out.push(order);
   }
 }
 
