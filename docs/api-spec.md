@@ -54,7 +54,7 @@ JOIN에 대한 응답. **전체 스냅샷** 1회 — 이후 변경분은 DELTA�
 interface WelcomeMessage {
   holderId: number;          // 이 커넥션의 holderId (재접속 시 기존 값)
   token: string;             // 재접속용 토큰. 클라는 localStorage에 저장
-  color: { fillColorIdx: number; strokeColorIdx: number }; // README §7.1 팔레트 인덱스
+  paletteIdx: number;        // web/src/config.ts PALETTE 인덱스 (fill+stroke 한 쌍, README §7.1)
 
   config: typeof CONFIG;     // 서버가 원본. plan.md §4 "CONFIG 값은 서버가 원본"
   serverTimeMs: number;      // 시간 동기화용 서버 시각(§3 참조)
@@ -73,7 +73,7 @@ interface WelcomeMessage {
 ```
 
 ```ts
-interface Holder { id: number; name: string; fillColorIdx: number; strokeColorIdx: number; }
+interface Holder { id: number; name: string; paletteIdx: number; } // web/src/game/types.ts와 동일
 
 interface DongStaticMeta {
   admIndex: number;

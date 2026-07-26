@@ -1,0 +1,51 @@
+package com.madcamp.server.domain
+
+import com.madcamp.server.config.GameConfig
+import com.madcamp.server.config.HolderIds
+import com.madcamp.server.data.BoundaryCell
+
+/**
+ * web/src/game/core.ts `GameState` 1:1 대응 (plan.md §4). React 밖 상태였던 것처럼
+ * 여기서는 [com.madcamp.server.loop.GameLoop]의 단일 스레드에서만 mutate된다 —
+ * 그래서 동시성 제어(락)가 없다. 다른 스레드는 GameLoop.runOnLoop{}를 통해서만 접근한다.
+ */
+class World(
+    val n: Int,
+    val ownerId: IntArray,
+    val troops: IntArray,
+    val troopAccum: DoubleArray,
+    val troopCap: IntArray,
+    val neighborIndex: Array<IntArray>,
+    val meta: Array<DongStaticMeta>,
+) {
+    val holders: LinkedHashMap<Int, Holder> = LinkedHashMap()
+    val orders: MutableList<Order> = mutableListOf() // 이동 중인 유닛(원)
+    val dirty: MutableSet<Int> = HashSet()
+
+    // 이번 tick 구간에 발생한 것 — DELTA 브로드캐스트 후 비운다(api-spec.md §2.5).
+    val pendingNewOrders: MutableList<Order> = mutableListOf()
+    val pendingEvents: MutableList<LogEvent> = mutableListOf()
+
+    var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
+    var nextLogId: Int = 1
+    var envLastActMs: Long = 0L
+
+    companion object {
+        /** README §3.4 — pop 데이터 미보유 시 fallback: 전 동 troopCap = baseCap 균일. */
+        fun create(cells: List<BoundaryCell>, config: GameConfig): World {
+            val n = cells.size
+            val ownerId = IntArray(n) { HolderIds.NEUTRAL }
+            val troops = IntArray(n) { config.neutralTroops }
+            val troopAccum = DoubleArray(n)
+            val troopCap = IntArray(n) { config.baseCap }
+            val neighborIndex = Array(n) { cells[it].neighbors.toIntArray() }
+            val meta = Array(n) {
+                val c = cells[it]
+                DongStaticMeta(c.admIndex, c.code, c.name, c.sggcd, c.sggnm, c.sidocd, c.sidonm, c.centroid)
+            }
+            val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta)
+            world.holders[HolderIds.NEUTRAL] = Holder(HolderIds.NEUTRAL, "중립", 0)
+            return world
+        }
+    }
+}
