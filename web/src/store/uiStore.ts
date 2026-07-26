@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { world, computeRank } from "../world/worldView";
+import { CONFIG } from "../config";
 import type { LogEntry, Rank } from "../game/types";
 
 export interface SelectedInfo {
@@ -33,8 +34,11 @@ interface UIState {
   myRank: Rank;
   logEntries: LogEntry[];
   toast: string | null;
+  // 우클릭 1회당 이동할 병력 비율(0~1). 오른쪽 아래 슬라이더로 조절. (CONFIG.SORTIE_RATIO 기본)
+  sortieRatio: number;
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
+  setSortieRatio: (ratio: number) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
   // 서버 LEADERBOARD 메시지 반영 (rows는 중립·E 제외된 플레이어 순위).
@@ -64,8 +68,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   myRank: null,
   logEntries: [],
   toast: null,
+  sortieRatio: CONFIG.SORTIE_RATIO,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
+  setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
 
   select: (index) => {
     set({ selectedIndex: index });

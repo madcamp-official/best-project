@@ -12,8 +12,8 @@ import type {
 export interface Connection {
   // 접속(또는 재접속). token이 있으면 기존 holder 복구 시도.
   join(nickname: string, token?: string): void;
-  // 출정/이동 명령 전송. amount는 서버가 계산.
-  sendSortie(from: number, to: number): void;
+  // 출정/이동 명령 전송. ratio = 이번 출정에 보낼 병력 비율(0~1, UI 슬라이더). amount는 서버가 계산.
+  sendSortie(from: number, to: number, ratio: number): void;
 
   // 서버 → 클라 이벤트 구독. 각 1개 콜백만 등록(단순화).
   onWelcome(cb: (msg: WelcomeMessage) => void): void;

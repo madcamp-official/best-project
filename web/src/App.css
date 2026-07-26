@@ -215,6 +215,43 @@
   font-size: 12px;
 }
 
+/* 출정 병력 비율 슬라이더 (오른쪽 아래) */
+.hud-bottom-right {
+  min-width: 200px;
+  bottom: 34px; /* 지도 저작권(attribution) 바 위로 올려 겹침 방지 */
+}
+
+.hud-ratio-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hud-ratio-head .hud-title {
+  margin-bottom: 0;
+}
+
+.hud-ratio-value {
+  color: #e8484f;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.hud-ratio-slider {
+  width: 100%;
+  margin: 10px 0 0;
+  accent-color: #e8484f;
+  cursor: pointer;
+}
+
+.hud-ratio-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
 .hud-env {
   margin-top: 8px;
   padding-top: 8px;

@@ -1,5 +1,5 @@
 import { useUIStore } from "../store/uiStore";
-import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
+import { ENV_PALETTE_IDX, PALETTE } from "../config";
 
 export function Hud() {
   const phase = useUIStore((s) => s.phase);
@@ -11,6 +11,9 @@ export function Hud() {
   const myRank = useUIStore((s) => s.myRank);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
+  const sortieRatio = useUIStore((s) => s.sortieRatio);
+  const setSortieRatio = useUIStore((s) => s.setSortieRatio);
+  const sortiePct = Math.round(sortieRatio * 100);
 
   if (phase === "loading") {
     return (
@@ -77,16 +80,21 @@ export function Hud() {
       </div>
 
       <div className="hud-panel hud-bottom-right">
-        <div className="hud-title">범례</div>
-        <div className="hud-legend-row">
-          <span className="hud-swatch" style={{ background: PALETTE[0].stroke }} /> 중립 (병력 {CONFIG.NEUTRAL_TROOPS})
+        <div className="hud-ratio-head">
+          <span className="hud-title">출정 병력</span>
+          <strong className="hud-ratio-value">{sortiePct}%</strong>
         </div>
-        <div className="hud-legend-row">
-          <span className="hud-swatch" style={{ background: PALETTE[1].stroke }} /> 나
-        </div>
-        <div className="hud-legend-row">
-          <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} /> 야만인 (E)
-        </div>
+        <input
+          type="range"
+          className="hud-ratio-slider"
+          min={5}
+          max={100}
+          step={5}
+          value={sortiePct}
+          onChange={(e) => setSortieRatio(Number(e.currentTarget.value) / 100)}
+          aria-label="출정 병력 비율"
+        />
+        <div className="hud-ratio-hint">우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다</div>
       </div>
 
       {selectedInfo && (
@@ -98,7 +106,7 @@ export function Hud() {
           </div>
           {selectedInfo.isMine && (
             <div className="hud-sortie">
-              이동/출정: {Math.floor(selectedInfo.troops * CONFIG.SORTIE_RATIO)}명 (인접 동 우클릭)
+              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%, 인접 동 우클릭)
             </div>
           )}
         </div>

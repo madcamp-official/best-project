@@ -127,12 +127,13 @@ export function trySortie(
   from: number,
   to: number,
   holderId: number,
-  nowMs: number
+  nowMs: number,
+  ratio: number = CONFIG.SORTIE_RATIO // 출정 비율. 플레이어는 UI 슬라이더 값, E AI 등은 기본값.
 ): SortieResult {
   if (s.ownerId[from] !== holderId) return { ok: false, reason: "본인 소유 동이 아닙니다." };
   if (!s.neighborIndex[from]?.includes(to)) return { ok: false, reason: "인접한 동이 아닙니다." };
 
-  const amount = Math.floor(s.troops[from] * CONFIG.SORTIE_RATIO);
+  const amount = Math.floor(s.troops[from] * ratio);
   if (amount <= 0) return { ok: false, reason: "출정 가능한 병력이 없습니다." };
 
   s.troops[from] -= amount; // 병력은 출발과 동시에 출발지를 떠난다.

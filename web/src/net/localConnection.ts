@@ -136,10 +136,12 @@ export class LocalConnection implements Connection {
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
-  sendSortie(from: number, to: number): void {
+  sendSortie(from: number, to: number, ratio: number): void {
     const now = performance.now();
     const before = this.gs.orders.length;
-    const res = core.trySortie(this.gs, from, to, this.holderId, now);
+    // 클라가 보낸 비율은 신뢰하지 않고 안전 범위(0.05~1)로 클램프한다(실서버도 동일).
+    const safeRatio = Number.isFinite(ratio) ? Math.min(1, Math.max(0.05, ratio)) : CONFIG.SORTIE_RATIO;
+    const res = core.trySortie(this.gs, from, to, this.holderId, now, safeRatio);
     if (!res.ok) {
       this.errorCb?.({ code: this.errorCode(from, to), message: res.reason, from, to });
       return;

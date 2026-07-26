@@ -454,7 +454,7 @@ function handleSelect(idx: number, map: MaplibreMap) {
 //  · 적/중립 → 전투    · 내 동 → 증원(영토 내 병력 이동)
 // 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
 function handleAction(idx: number, connection: Connection) {
-  const { selectedIndex, showToast } = useUIStore.getState();
+  const { selectedIndex, showToast, sortieRatio } = useUIStore.getState();
 
   // 명백히 무효한 입력은 왕복 없이 즉시 안내(선택 상태는 순수 UI). 최종 검증은 서버가 한다.
   if (selectedIndex === null || world.ownerId[selectedIndex] !== world.myHolderId) {
@@ -468,7 +468,8 @@ function handleAction(idx: number, connection: Connection) {
     return;
   }
 
-  connection.sendSortie(selectedIndex, idx);
+  // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
+  connection.sendSortie(selectedIndex, idx, sortieRatio);
 }
 
 function selectDong(map: MaplibreMap, idx: number | null, select: (i: number | null) => void) {

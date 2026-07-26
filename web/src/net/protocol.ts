@@ -18,10 +18,12 @@ export interface JoinMessage {
   token?: string; // 재접속 시 localStorage의 UUID. 없으면 신규
 }
 
-// api-spec §2.3 — amount는 서버가 계산(floor(troops*SORTIE_RATIO)), 클라는 from/to만
+// api-spec §2.3 — amount = floor(troops*ratio)를 서버가 계산. ratio는 플레이어가
+// UI 슬라이더로 정한 이번 출정의 병력 비율(0~1). 서버가 안전 범위로 클램프한다.
 export interface SortieCommand {
   from: number; // 내 소유 admIndex
   to: number; // from에 인접한 admIndex
+  ratio: number; // 출정 병력 비율 (0~1). 없으면 서버 기본(SORTIE_RATIO)
 }
 
 // ── S→C ──────────────────────────────────────────────────────────────
