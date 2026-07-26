@@ -53,13 +53,13 @@
 - **게임/월드 상태**(3,500동 배열, `GameState`)는 React/Zustand에 절대 넣지 않는다 — React 밖(`world/worldView.ts`의 `world`)에 유지하고 `dirty` 변경분만 rAF로 MapLibre에 반영(README §1, §7.3)
 - **UI 상태**(선택한 동, 패널 열림 등 소량)만 `store/uiStore.ts`(Zustand)에 둔다
 - `map/MapView.tsx`의 MapLibre 인스턴스는 `useRef`로 감싸 `useEffect` 1회만 생성 — 이후 React 렌더가 지도를 직접 건드리지 않는다
-- **클라는 게임 로직을 돌리지 않는다**: 입력은 `net/connection.ts`의 `Connection.sendSortie`로 서버(현재는 `localConnection` 목 서버)에 보내고, 결과는 WELCOME/DELTA로 받아 `worldView`에 반영만 한다(plan.md §3)
+- **클라는 게임 로직을 돌리지 않는다**: 입력은 `net/connection.ts`의 `Connection.sendSortie`로 서버에 보내고, 결과는 WELCOME/DELTA로 받아 `worldView`에 반영만 한다(plan.md §3). 기본 연결은 실서버(`stompConnection`)이고, `VITE_USE_LOCAL_MOCK=1`이면 브라우저 내 목 서버(`localConnection`)로 전환된다
 
 ### 2.5 폴더 규칙
 
 ```
 game/   순수 로직 (core.ts) + 공유 타입 (types.ts) — 서버 이식 대상
-net/    Connection 인터페이스 + 프로토콜 타입 + 로컬 목 서버(localConnection)
+net/    Connection 인터페이스 + 프로토콜 타입 + 실서버 연결(stompConnection) + 로컬 목 서버(localConnection)
 world/  서버 상태 사본(worldView) — WELCOME/DELTA 반영 계층. 게임 로직 없음
 data/   경계/인접 그래프 로딩, 좌표 계산 — 게임 규칙과 무관한 데이터 가공
 map/    MapLibre 렌더 전용 컴포넌트 (world를 읽고 connection으로 입력 전송)
@@ -75,11 +75,13 @@ ui/     HUD 등 프레젠테이션 컴포넌트
 
 ---
 
-## 3. 서버 (Spring Boot, 착수 전)
+## 3. 서버 (Spring Boot 4 · Kotlin)
 
-- 언어(Kotlin/Java) 및 상세 컨벤션은 Day 1 착수 시 서버 담당이 확정해 이 절에 추가한다.
-- 확정 원칙만 미리 못박음: **`core.ts`를 사양서로 1:1 대조 이식**하고(plan.md §4), 이식 후 케이스별로 목업과 결과를 비교 검증한다(plan.md §6 "로직 이식 불일치" 리스크 대응).
-- 패키지 구성 초안은 [architecture.md](./architecture.md) §3.2 참조.
+- 언어는 Kotlin으로 확정. `kotlin("plugin.spring")`이 `@Component`/`@Service` 등이 붙은 클래스를 자동으로 `open`으로 만드는데, 그 상태에서 `private set`이 붙은 프로퍼티는 Kotlin이 거부한다(`Private setters for open properties are prohibited`) — 그런 클래스에선 프로퍼티에 `final`을 명시한다(`GameLoop.world`, `ConfigService.current` 참조).
+- Jackson 3(`tools.jackson.*` 패키지, 이 프로젝트의 Spring Boot 4 조합)로 이식하면서 알게 된 것: `jackson-annotations`(`@JsonProperty` 등)만은 여전히 구 패키지 `com.fasterxml.jackson.annotation`을 쓴다. `ObjectMapper`/`JsonNode`는 `tools.jackson.databind.*`.
+- **`core.ts`를 사양서로 1:1 대조 이식**한다(plan.md §4) — `GameCore.kt`가 그 결과물. 순수 함수·시계 주입 원칙(§2.3)도 그대로 지켰다.
+- **동시성**: World는 `GameLoop`의 단일 스레드 executor에서만 mutate한다. 락 대신 "결국 한 스레드만 건드린다"는 구조로 경합을 원천 차단 — 새 명령/조회를 추가할 때도 반드시 `GameLoop.runOnLoop{}`/`submitOnLoop{}`를 거치게 할 것. 직접 `World`를 참조해 컨트롤러에서 바로 수정하면 이 보장이 깨진다.
+- 실제 모듈 구성·상세 실행법은 [server/README.md](../server/README.md) 참조. 아키텍처 개요는 [architecture.md](./architecture.md) §3.
 
 ---
 

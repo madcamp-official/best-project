@@ -67,42 +67,47 @@ web/src/
 - 로컬 tick 오케스트레이션은 **`net/localConnection.ts`(브라우저 내 목 서버)**로 이동. core.ts를 감싸 tick을 돌리고 WELCOME/DELTA를 발신한다.
 - 클라 상태는 **`world/worldView.ts`(스냅샷/델타 반영 계층)** — WELCOME 1회 적용 + DELTA 누적 적용.
 - 입력은 `connection.sendSortie` 로 전송, 결과는 DELTA/ERROR로 비동기 수신 (클라 예측 없음).
-- **실서버 전환**: `localConnection`을 `StompConnection`으로 교체만 하면 된다. `Connection` 인터페이스·`worldView`·`MapView`는 불변.
-- 유닛 이동 보간은 그대로. 실서버에선 `Order.departTick/arriveTick`이 서버 시각 기준이 되므로 `offset` 보정 적용(api-spec.md §3). 목 서버는 클라와 같은 `performance.now()`를 써서 offset≈0.
+- **실서버 전환(완료)**: `web/src/net/stompConnection.ts`가 실제 STOMP 구현체다. `App.tsx`가 기본으로 이걸 쓰고(`VITE_USE_LOCAL_MOCK=1`이면 여전히 `localConnection`으로 전환 가능), `Connection` 인터페이스·`worldView`·`MapView`는 실제로 손대지 않았다.
+- 유닛 이동 보간은 그대로. 실서버는 `Order.departTick/arriveTick`이 서버 시각(epoch ms) 기준이므로, `StompConnection`이 WELCOME의 `serverTimeMs`로 `offset`을 1회 계산해 Order들을 클라 rAF 시간축(`performance.now()`)으로 변환한 뒤 콜백에 넘긴다(api-spec.md §3) — `worldView`/`MapView`는 이 차이를 모른다. 목 서버는 애초에 `performance.now()`를 써서 offset이 필요 없었다.
+- 클라·서버가 admdongkor에서 각자 admIndex를 매기므로(§4), 버전을 `"20260701"`로 고정하고 두 시퀀스가 동일함을 스크립트(`server/tools/data-gen/verify-admindex.mjs`)로 검증했다.
 
 ---
 
-## 3. 서버 (Spring Boot, 미착수)
+## 3. 서버 (Spring Boot 4 · Kotlin, 구현됨)
 
 ### 3.1 결정된 사항 (plan.md §2)
 
 | 항목 | 값 |
 |---|---|
-| 프레임워크 | Spring Boot |
-| 언어 | Kotlin 권장(Java 가능) — Day 1 착수 전 서버 담당이 최종 결정 |
-| 통신 | WebSocket + STOMP (Day 1 저녁까지 막히면 raw WebSocket + 수동 JSON으로 강등, plan.md §6) |
+| 프레임워크 | Spring Boot 4 |
+| 언어 | Kotlin |
+| 통신 | WebSocket + STOMP (SockJS 엔드포인트로 등록하되 `/ws/websocket` 순수 WS 서브패스로 클라가 직접 붙는다) |
 | 세션 | 게스트 — 닉네임 + UUID 토큰, 로그인 없음 |
 | 월드 | 단일 월드 1개 (방 없음) |
-| 영속화 | 서버 재시작 시 월드 스냅샷 파일 저장/복구 (plan.md Day 5) |
+| 영속화 | 서버 재시작 시 월드 스냅샷 파일 저장/복구 (`SnapshotService`, 30초 주기 자동저장 + 종료 시 저장) |
 
-### 3.2 예상 모듈 구성 (착수 시 확정)
+### 3.2 실제 모듈 구성
 
 ```
-server/
-├─ world/       # GameState 상당 — ownerId/troops 배열, holders, orders (core.ts 이식)
-├─ ws/          # STOMP 컨트롤러 — JOIN/SORTIE 수신, WELCOME/DELTA/LEADERBOARD 발신
-├─ session/     # 토큰 발급/검증, 재접속 복구
-├─ env/         # 환경 세력(E) AI tick (README §4.6)
-└─ data/        # 전국 경계/인접 그래프 리소스 (목업 topojson 산출물을 JSON으로 추출해 포함)
+server/src/main/kotlin/com/madcamp/server/
+├─ config/      GameConfig(README §5 CONFIG) · ConfigService(런타임 리로드)
+├─ domain/      World(core.ts GameState 대응) · GameCore(순수 로직 이식) · EnvAi(§4.6) · Types
+├─ data/        BoundaryDataLoader — resources/data/nationwide-dong.json 로드
+├─ session/     SessionService — 게스트 토큰/재접속/시작 동 배정
+├─ ws/          WebSocketConfig(STOMP) · JoinController · SortieController · ConnectionRegistry
+├─ loop/        GameLoop — 단일 스레드 tick(5Hz) + DELTA/LEADERBOARD 브로드캐스트
+├─ persistence/ SnapshotService — 월드 저장/복구
+└─ admin/       AdminController — /healthz, /admin/config
 ```
 
-- tick 루프: 생산(lazy 계산) → SORTIE 검증 → Order 도착 처리(전투) → E AI → dirty 수집 → DELTA 브로드캐스트(5Hz)
-- 명령 검증 순서와 동시성 처리(같은 tick 내 경합)는 Day 4 통합 테스트에서 집중 검증 대상(plan.md §5)
+- tick 루프(`GameLoop`, 5Hz): 큐에 쌓인 JOIN/SORTIE 명령 처리 → 생산(lazy 계산) → Order 도착 처리(전투) → E AI → dirty 수집 → DELTA 브로드캐스트. 5틱(1초)마다 LEADERBOARD도 함께.
+- 명령 검증 순서와 동시성 처리: JOIN/SORTIE 모두 `GameLoop`의 **단일 스레드 executor**에서만 World를 건드리므로(`runOnLoop`/`submitOnLoop`), 같은 tick 내 경합이 애초에 발생하지 않는 구조로 짰다. 25명 동시 접속·초당 수백 건 SORTIE 부하 테스트(`server/tools/smoke-test/load-test.mjs`)로 검증(plan.md §5 Day4 대응).
+- 상세는 [server/README.md](../server/README.md) 참조.
 
 ### 3.3 배포
 
-- Spring이 클라 정적 빌드(`web/dist`)를 서빙 — 단일 origin이라 CORS 불필요(plan.md Day 5)
-- 데모 당일 네트워크 불안 대비: 로컬 LAN 핫스팟 + `host:true` 폴백 리허설(plan.md §6)
+- Spring이 클라 정적 빌드(`web/dist`)를 서빙 — 단일 origin이라 CORS 불필요(plan.md Day 5). `./gradlew deployJar`가 `npm run build` 후 `web/dist`를 jar에 동봉한다(평소 `bootRun`/`build`엔 안 걸림). `java -jar build/libs/*-deploy.jar`로 실행하면 `:8080` 하나로 API+화면 모두 서빙 — 실제 브라우저로 검증 완료.
+- 데모 당일 네트워크 불안 대비: 로컬 LAN 핫스팟 + `host:true` 폴백 리허설(plan.md §6) — Vite `host:true`는 이미 설정됨, 클라의 서버 URL 자동 판별(`stompConnection.ts`)도 `window.location.hostname` 기준이라 LAN IP로 접속해도 그대로 동작. 다만 실제 다른 기기로 접속해보는 리허설 자체는 아직 안 함.
 
 ---
 

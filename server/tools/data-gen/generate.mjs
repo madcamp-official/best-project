@@ -38,14 +38,16 @@ function computeLabelPoint(feature) {
   return polylabel(best, 1e-4);
 }
 
+// web/src/data/loadDong.ts의 ADMDONGKOR_VERSION과 반드시 같은 값을 유지한다 — 클라와
+// 서버가 독립적으로 admIndex를 매기므로, 버전이 어긋나면 동 이름/좌표가 서버 판정과 안 맞는다.
+// 버전을 올릴 땐 두 파일을 같이 바꾸고 이 스크립트를 다시 돌려 nationwide-dong.json을 갱신할 것.
+const ADMDONGKOR_VERSION = "20260701";
+
 async function main() {
-  console.log("admdongkor 버전 목록 조회 중...");
-  const versions = adk.versions();
-  const latest = versions[versions.length - 1];
-  console.log(`사용 버전: ${latest}`);
+  console.log(`사용 버전(고정): ${ADMDONGKOR_VERSION}`);
 
   console.log("전국 emd(읍면동) GeoJSON 다운로드 중... (수십 MB, 시간이 걸릴 수 있음)");
-  const fc = await adk.get(latest, "emd");
+  const fc = await adk.get(ADMDONGKOR_VERSION, "emd");
   console.log(`원본 feature 수: ${fc.features.length}`);
 
   // README §2.3 — 전국 전체(~3,500동). emd8 없는 feature 제외(비정상 데이터).
@@ -90,7 +92,7 @@ async function main() {
     if (isolated.length > 20) console.log(`  ... 외 ${isolated.length - 20}개`);
   }
 
-  const out = { n, generatedAt: new Date().toISOString(), sourceVersion: latest, cells };
+  const out = { n, generatedAt: new Date().toISOString(), sourceVersion: ADMDONGKOR_VERSION, cells };
   const outPath = new URL(
     "../../src/main/resources/data/nationwide-dong.json",
     import.meta.url

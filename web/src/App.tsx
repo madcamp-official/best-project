@@ -6,13 +6,18 @@ import { JoinScreen } from "./ui/JoinScreen";
 import { loadDong } from "./data/loadDong";
 import type { PreparedMap } from "./data/loadDong";
 import { LocalConnection } from "./net/localConnection";
+import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
 import { applyWelcome, applyDelta, getLeaderboard, envCellCount, world } from "./world/worldView";
 import { useUIStore } from "./store/uiStore";
 
 // plan.md §3 — 클라는 렌더러 + 입력 전송기.
-// 데이터 로드 → Connection(지금은 브라우저 내 로컬 mock 서버) 생성 → 접속 화면(닉네임) →
+// 데이터 로드 → Connection(기본: 실서버 StompConnection) 생성 → 접속 화면(닉네임) →
 // JOIN → WELCOME 스냅샷 반영 → 이후 DELTA로만 갱신.
+//
+// 서버 없이 렌더링/입력만 확인하고 싶을 때는 `VITE_USE_LOCAL_MOCK=1 npm run dev`로
+// 브라우저 내 목 서버(localConnection)를 대신 쓸 수 있다 — Connection 계약이 같아
+// 이 스위치 하나로 교체된다(architecture.md §2.3).
 function App() {
   const [prepared, setPrepared] = useState<PreparedMap | null>(null);
   const connectionRef = useRef<Connection | null>(null);
@@ -26,8 +31,9 @@ function App() {
         const map = await loadDong();
         if (cancelled) return;
 
-        // 목 서버 생성 + 서버→클라 메시지 배선.
-        const connection = new LocalConnection(map);
+        // Connection 생성(기본: 실서버 STOMP) + 서버→클라 메시지 배선.
+        const useLocalMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
+        const connection: Connection = useLocalMock ? new LocalConnection(map) : new StompConnection();
         connection.onWelcome((msg) => {
           applyWelcome(msg);
           localStorage.setItem("token", msg.token); // 재접속용

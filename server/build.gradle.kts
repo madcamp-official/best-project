@@ -36,3 +36,37 @@ kotlin {
 tasks.withType<Test> {
 	useJUnitPlatform()
 }
+
+// ── 배포용 정적 서빙 (plan.md Day 5 "Spring이 클라 정적 빌드를 서빙, 단일 origin") ──
+// 기본 bootJar/build/bootRun 경로는 건드리지 않는다 — 매번 npm 빌드가 끼면 느려지고
+// 서버만 만지는 사람 머신엔 Node가 없을 수도 있다. 그래서 별도 BootJar 태스크
+// (deployJar)를 새로 만들어 그쪽에만 web/dist를 동봉한다. `./gradlew deployJar`로 명시 실행.
+val webProjectDir = file("../web")
+val webStagingDir = layout.buildDirectory.dir("web-static")
+
+val buildWeb = tasks.register<Exec>("buildWeb") {
+	group = "deploy"
+	description = "web/ 클라이언트를 프로덕션 빌드한다 (web/dist 생성)"
+	workingDir = webProjectDir
+	val isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows
+	commandLine(if (isWindows) listOf("cmd", "/c", "npm", "run", "build") else listOf("npm", "run", "build"))
+}
+
+val syncWebBuild = tasks.register<Copy>("syncWebBuild") {
+	group = "deploy"
+	description = "web/dist를 배포용 스테이징 디렉터리로 복사한다"
+	dependsOn(buildWeb)
+	from(webProjectDir.resolve("dist"))
+	into(webStagingDir)
+}
+
+tasks.register<org.springframework.boot.gradle.tasks.bundling.BootJar>("deployJar") {
+	group = "deploy"
+	description = "클라 빌드를 동봉한 배포용 jar (build/libs/*-deploy.jar 실행 시 :8080에서 API+화면 모두 서빙)"
+	dependsOn(syncWebBuild)
+	archiveClassifier.set("deploy")
+	mainClass.set("com.madcamp.server.ServerApplicationKt")
+	targetJavaVersion.set(JavaVersion.current())
+	classpath(sourceSets.main.get().output, configurations.runtimeClasspath)
+	from(webStagingDir) { into("static") }
+}

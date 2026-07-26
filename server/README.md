@@ -6,8 +6,9 @@
 ## 실행
 
 ```bash
-./gradlew bootRun          # http://localhost:8080, WS 엔드포인트 /ws
+./gradlew bootRun          # http://localhost:8080, WS 엔드포인트 /ws (개발용 — 클라는 별도로 npm run dev)
 ./gradlew build             # 컴파일 + 테스트 + jar
+./gradlew deployJar          # web/ 프로덕션 빌드까지 동봉한 단일 jar (아래 "배포" 참조)
 ```
 
 JDK 17+ 필요(툴체인 고정 안 함 — `./gradlew`를 실행하는 JDK를 그대로 씀). 첫 실행 시 Gradle 배포판(9.5.1)을 인터넷에서 내려받는다.
@@ -31,31 +32,50 @@ src/main/kotlin/com/madcamp/server/
 └─ admin/       AdminController — /healthz, /admin/config
 ```
 
-**동시성 원칙**: World는 [GameLoop](src/main/kotlin/com/madcamp/server/loop/GameLoop.kt)의 단일 스레드에서만 mutate된다. JOIN/SORTIE 컨트롤러는 `GameLoop.runOnLoop{}`(응답 필요) 또는 `submitOnLoop{}`(fire-and-forget)로 위임할 뿐 World를 직접 건드리지 않는다 — 락 없이 레이스를 원천 차단.
+**동시성 원칙**: World는 [GameLoop](src/main/kotlin/com/madcamp/server/loop/GameLoop.kt)의 단일 스레드에서만 mutate된다. JOIN/SORTIE 컨트롤러는 `GameLoop.runOnLoop{}`(응답 필요) 또는 `submitOnLoop{}`(fire-and-forget)로 위임할 뿐 World를 직접 건드리지 않는다 — 락 없이 레이스를 원천 차단. `tools/smoke-test/load-test.mjs`로 25명 동시 접속·명령 난사 상황에서 실측 검증함(아래 참조).
 
 ## 전국 경계 데이터
 
-`resources/data/nationwide-dong.json`(약 800KB)은 `tools/data-gen/generate.mjs`(Node)가 admdongkor + topojson으로 미리 뽑아둔 산출물이다. web/src/data/loadSeoulDong.ts와 같은 방식(위상 기반 인접 그래프, polylabel 라벨 좌표)을 시도 필터 없이 전국(3,558동)에 적용했다.
+`resources/data/nationwide-dong.json`(약 800KB)은 `tools/data-gen/generate.mjs`(Node)가 admdongkor + topojson으로 미리 뽑아둔 산출물이다. `web/src/data/loadDong.ts`와 같은 방식(위상 기반 인접 그래프, polylabel 라벨 좌표)을 전국(3,558동)에 적용했다.
 
-데이터를 다시 뽑으려면(admdongkor 버전 갱신 등):
+**admdongkor 버전은 클라·서버 양쪽에 `"20260701"`로 고정**되어 있다(`generate.mjs`의 `ADMDONGKOR_VERSION`, `loadDong.ts`의 동일 상수). 클라와 서버가 각자 admdongkor에서 독립적으로 admIndex를 매기므로, `"latest"`를 그때그때 풀면 admdongkor에 새 버전이 배포되는 순간 둘의 admIndex 순서가 어긋난다(동 이름·좌표가 서버 판정과 안 맞게 됨) — `tools/data-gen/verify-admindex.mjs`로 두 시퀀스가 실제로 동일함을 확인했다.
+
+데이터를 다시 뽑거나(admdongkor 버전을 의도적으로 올릴 때) 정합성을 재확인하려면:
 
 ```bash
 cd tools/data-gen
 npm install
-node generate.mjs   # resources/data/nationwide-dong.json 갱신
+node generate.mjs          # resources/data/nationwide-dong.json 갱신 (ADMDONGKOR_VERSION 고정값 사용)
+node verify-admindex.mjs   # web/의 loadDong.ts와 admIndex 시퀀스가 같은지 검증
 ```
 
-실행 결과 인접 차수 0(섬·월경지)인 동이 54개 있었다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).
+> 버전을 올릴 땐 `generate.mjs`와 `web/src/data/loadDong.ts` 두 곳의 `ADMDONGKOR_VERSION`을 **같이** 바꾸고 위 두 명령을 다시 돌릴 것.
 
-## 스모크 테스트
+실행 결과 인접 차수 0(섬·월경지)인 동이 54개 있다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).
 
-`tools/smoke-test/smoke.mjs`가 실제 STOMP 라운드트립(JOIN→WELCOME, 잘못된 SORTIE→ERROR, 정상 SORTIE→DELTA→함락 로그)을 검증한다. 서버를 띄운 상태에서:
+## 배포 (plan.md Day 5 — 단일 origin 서빙)
+
+```bash
+./gradlew deployJar
+java -jar build/libs/server-*-deploy.jar
+```
+
+`deployJar`는 별도 Gradle 태스크로, `web/`을 `npm run build`로 프로덕션 빌드한 뒤 그 결과물(`web/dist`)을 jar 안 `/static`으로 동봉한다. 평소 쓰는 `bootRun`/`build`/`bootJar`에는 전혀 안 걸려 있어(서버만 만지는 동안엔 npm 빌드가 안 돌고, Node 없는 머신에서도 평소 개발이 된다), 배포 직전에만 명시적으로 돌리면 된다. 실행하면 `:8080` 하나로 API·WebSocket·화면이 전부 나온다(같은 origin이라 CORS 문제 없음) — Playwright로 실제 브라우저에서 `http://localhost:8080` 접속→JOIN→렌더까지 검증 완료.
+
+## 테스트 도구 (`tools/`)
+
+서버를 `./gradlew bootRun`(또는 `deployJar`로 만든 jar)으로 띄운 상태에서:
 
 ```bash
 cd tools/smoke-test
 npm install
-node smoke.mjs
+node smoke.mjs                  # 기본 라운드트립: JOIN→WELCOME, 잘못된 SORTIE→ERROR, 정상 SORTIE(ratio 포함)→DELTA→함락+토벌 로그
+node reconnect-test.mjs         # 같은 토큰 재접속=holderId·영토 유지 / 가짜 토큰=신규 참가자 처리
+node auto-reconnect-test.mjs    # stompjs 자동 재연결(reconnectDelay)까지 포함해 holderId 유지되는지 검증
+node load-test.mjs 25 8         # N명 동시 접속(기본 25) × 초(기본 8) 동안 SORTIE 난사 → 서버 생존·월드 상태 불변식 확인
 ```
+
+`load-test.mjs`는 25명·8초·약 2,300건 SORTIE 기준으로 healthz 정상, 클라이언트측 WS/STOMP 오류 0건, 월드 상태 불변식(모든 동의 ownerId가 0~255 유효 범위) 위반 0건을 확인했다(Day 4 "동시성 검증"에 대응).
 
 ## plan.md 대비 진행 상황
 
@@ -64,26 +84,28 @@ node smoke.mjs
 | 1 | 프로젝트 셋업, STOMP, 전국 경계 데이터 로드 | 완료 |
 | 2 | 월드 tick(생산·SORTIE 검증·Order·전투), DELTA | 완료 |
 | 3 | E AI, 게스트 세션/재접속, 시작 동 배정 | 완료 |
-| 4 | 동시성 검증(다인 플레이테스트), 재접속 엣지 케이스 | 미착수 — 실제 다인 부하 테스트 필요 |
-| 5 | 배포(정적 서빙 이미 설정, 클라우드/교내 서버 배포는 미착수), 스냅샷 저장/복구 | 스냅샷 완료, 배포 미착수 |
-| 6 | 프리즈, 리허설 | 미착수 |
+| 4 | 동시성 검증(다인 플레이테스트), 재접속 엣지 케이스 | 완료 — 자동화 부하/재접속 테스트로 검증(위 "테스트 도구") |
+| 5 | 배포(정적 서빙), 스냅샷 저장/복구 | 완료 — `deployJar`로 실제 단일 jar 배포까지 브라우저 검증 |
+| 6 | 프리즈, 리허설 | 팀 차원 활동 — 코드로 대체 불가. 실제 청중 앞 리허설·LAN 폴백 리허설은 남아 있음 |
 
-## 클라(web/) 프로토콜 정합성
+## 클라(web/) 연동 — StompConnection으로 실서버 연결 완료
 
-클라 담당이 `web/src/net/`(`protocol.ts`·`connection.ts`·`localConnection.ts`)에 STOMP 실서버와 같은 인터페이스로 동작하는 **브라우저 내 목 서버**를 이미 구현해뒀다. 이게 사실상 "실서버가 어떻게 동작해야 하는가"의 참조 구현이라, 이 서버를 그 계약에 맞춰 검증·조정했다:
+클라의 `Connection` 인터페이스 실서버 구현체 `web/src/net/stompConnection.ts`를 추가하고, `App.tsx`의 기본 연결을 이걸로 교체했다(`VITE_USE_LOCAL_MOCK=1`로 이전 브라우저 내 목 서버(`localConnection`)로도 되돌릴 수 있게 스위치는 남겨둠). 클라가 먼저 구현해둔 `localConnection.ts`(목 서버)가 사실상 "실서버가 어떻게 동작해야 하는가"의 참조 구현이라, 서버도 거기 맞춰 검증·조정했다:
 
-- `SortieCommand.ratio`(출정 비율 슬라이더) 반영 — 서버가 `[0.05, 1]`로 클램프, 비정상값은 `CONFIG.SORTIE_RATIO`로 대체(`localConnection.ts sendSortie`와 동일 규칙)
+- `SortieCommand.ratio`(출정 비율 슬라이더) 반영 — 서버가 `[0.05, 1]`로 클램프, 비정상값은 `CONFIG.SORTIE_RATIO`로 대체
 - `WELCOME.config`에 `ENV_HOLDER_ID` 포함 — 클라 `CONFIG` 객체 그대로 매칭(`@JsonProperty`로 SCREAMING_SNAKE_CASE 유지)
-- 환경 세력(E) holder 이름 `"야만인"`, `paletteIdx = 6`(클라 `ENV_PALETTE_IDX`) — 렌더링 시 클라 팔레트와 어긋나지 않게
+- 환경 세력(E) holder 이름 `"야만인"`, `paletteIdx = 6`(클라 `ENV_PALETTE_IDX`)
 - 플레이어 `paletteIdx`는 클라 `PLAYER_PALETTE_IDXS = [1,2,3,4,5]`와 동일한 5슬롯 순환
-- 함락 로그 메시지에 토벌 보너스 표기(`"... (+10 토벌)"`) — `core.ts resolveArrival`과 문구 통일
-- `DELTA.events`를 최신순(newest-first)으로 전송 — `worldView.ts applyDelta`가 그 순서를 가정하고 그대로 prepend함
+- 함락 로그에 토벌 보너스 표기(`"... (+10 토벌)"`) — `core.ts resolveArrival`과 문구 통일
+- `DELTA.events`를 최신순(newest-first)으로 전송 — `worldView.ts applyDelta`의 prepend 가정과 일치
+- **시간 동기화**(api-spec.md §3): `StompConnection`이 WELCOME의 `serverTimeMs`로 offset을 1회 계산해, 서버가 보낸 `Order.departTick/arriveTick`(epoch ms)을 클라 rAF 시간축(`performance.now()`)으로 변환한다 — `worldView`/`MapView`는 이 차이를 몰라도 되게 경계(Connection)에서만 처리
+- **admIndex 정렬**: 클라·서버가 admdongkor에서 독립적으로 admIndex를 매기므로 버전을 `"20260701"`로 고정하고 실제로 시퀀스가 동일함을 스크립트로 검증(위 "전국 경계 데이터" 참조)
 
-남은 정합성 이슈는 없는지 실제 `StompConnection` 붙일 때 다시 한번 라운드트립 확인 필요.
+**실제 브라우저(Playwright, Chrome)로 검증**: `npm run dev`(5173) + `./gradlew bootRun`(8080) 조합, 그리고 `deployJar`로 만든 단일 jar(8080, 같은 origin) 둘 다에서 접속→JOIN→WELCOME 반영→지도 렌더→좌클릭 선택까지 콘솔 에러 없이 동작 확인.
 
 ## 아직 안 한 것 / 다음에 할 것
 
-- 클라의 `localConnection`을 실제 `StompConnection`으로 교체하는 작업(클라 담당 몫) — `Connection` 인터페이스는 이미 있으므로 구현체만 추가하면 됨
 - 계급(Rank) 계산은 구현했지만 어떤 메시지로도 아직 안 내려줌(api-spec.md에 계급 필드 없음 — 필요해지면 LEADERBOARD나 별도 메시지에 추가)
-- 클라 정적 빌드를 `src/main/resources/static/`에 넣는 실제 빌드 파이프라인(Day 5) 미구성
-- 다인 동시 접속 부하/경합 실측(Day 4) 안 해봄 — 지금까지는 단일 클라이언트 스모크 테스트만
+- 실제 청중 다수가 동시에 접속하는 Day 6 리허설(로컬 LAN 핫스팟 + `host:true` 폴백 포함) — 이건 실제 사람과 네트워크가 필요해 코드로 못 끝냄
+- 클라우드 VM/교내 서버로의 실제 배포(현재는 로컬에서 `deployJar` 산출물 실행까지만 검증) 및 도메인/포트 확정
+- 12색 팔레트(현재 5슬롯) 확장 여부 — 5명 넘게 동시 플레이하면 색이 겹침(README 부록A 미정 항목, 클라 쪽 결정 필요)
