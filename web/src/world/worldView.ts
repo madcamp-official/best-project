@@ -49,14 +49,20 @@ export const captureFlashes: number[] = [];
 // 미사일로 중립화된 동 큐 — 렌더러가 꺼내 폭발 충격파를 터뜨린다.
 // (현재 규칙상 동이 중립(0)으로 바뀌는 건 오직 미사일뿐이므로 이게 착탄 신호가 된다.)
 export const missileImpacts: number[] = [];
+// 내가 소유 동 0개(궤멸)였다가 서버가 새 동을 배정해줘서 다시 생긴 admIndex 큐.
+// (server GameCore.respawnEliminatedPlayers — 미사일 등으로 전멸해도 영구 탈락은 아니다.)
+export const respawnEvents: number[] = [];
 
 // DELTA 적용 — 변경된 동만 갱신하고 dirty에 모은다(렌더러가 배치 반영).
 export function applyDelta(msg: DeltaMessage) {
+  const hadNoCells = world.myHolderId !== 0 && core.ownedCount(world, world.myHolderId) === 0;
+
   for (const [admIndex, owner, troops] of msg.cells) {
     const prev = world.ownerId[admIndex];
     if (prev !== owner) {
       captureFlashes.push(admIndex); // 소유권 변경 = 함락
       if (owner === 0 && prev !== 0) missileImpacts.push(admIndex); // non-중립→중립 = 미사일 착탄
+      if (hadNoCells && owner === world.myHolderId) respawnEvents.push(admIndex); // 궤멸 후 재시작
     }
     world.ownerId[admIndex] = owner;
     world.troops[admIndex] = troops;
@@ -82,6 +88,11 @@ export function drainCaptureFlashes(): number[] {
 export function drainMissileImpacts(): number[] {
   if (missileImpacts.length === 0) return [];
   return missileImpacts.splice(0, missileImpacts.length);
+}
+
+export function drainRespawnEvents(): number[] {
+  if (respawnEvents.length === 0) return [];
+  return respawnEvents.splice(0, respawnEvents.length);
 }
 
 // 도착 시각이 지난 이동 유닛을 시각적으로 제거한다(api-spec §2.5).

@@ -366,4 +366,23 @@ object GameCore {
         }
         return set.toList()
     }
+
+    // ── 궤멸 후 재시작 ────────────────────────────────────────────────
+    // 미사일 직격(내 유일한 동이 중립화)이나 전투 패배로 플레이어가 소유 동 0개가 되면
+    // 두 번 다시 아무것도 할 수 없는 영구 탈락 상태가 된다(SORTIE는 내 소유 동에서만
+    // 가능하므로). README/plan.md 어디에도 "영구 제거" 규칙은 없고 지속형 캔버스
+    // 컨셉이므로, 새 시작 동을 자동 배정해 계속 플레이하게 한다. E(255)는 예외 —
+    // README §4.6대로 소탕되면 재스폰 없음(맵 장악 못 하는 조연이라는 정체성 유지).
+    fun respawnEliminatedPlayers(world: World, wallNowMs: Long) {
+        for (holder in world.holders.values) {
+            if (!isRealPlayer(holder.id)) continue
+            if (ownedCount(world, holder.id) > 0) continue
+
+            val newCell = StartCellAssigner.pick(world) ?: continue // 빈 중립 동이 없으면 다음 tick 재시도
+            world.ownerId[newCell] = holder.id
+            world.troops[newCell] = world.troopCap[newCell]
+            world.dirty.add(newCell)
+            pushLog(world, "${holder.name}님이 궤멸 후 ${world.meta[newCell].name}에서 재시작합니다.", wallNowMs)
+        }
+    }
 }
