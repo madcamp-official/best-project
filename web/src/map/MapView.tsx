@@ -593,6 +593,15 @@ export function MapView({ prepared, connection }: Props) {
           return;
         }
       }
+      // Space = 집결지 지정 모드 토글. (Space는 기본 스크롤/버튼 클릭을 유발하므로 막는다.)
+      if (e.code === "Space") {
+        e.preventDefault();
+        const st = useUIStore.getState();
+        const next = !st.isSettingRally;
+        st.setSettingRally(next);
+        if (next && st.isAiming) st.setAiming(false); // 미사일 조준 중이었으면 해제하고 집결지 모드로
+        return;
+      }
       const step = 60;
       switch (e.code) {
         case "KeyW":

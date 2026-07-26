@@ -156,7 +156,11 @@ export function Hud() {
               fontSize: 13,
             }}
           >
-            {isSettingRally ? "지정 중… (Esc 취소)" : rallyName ? "집결지 변경" : "집결지 지정"}
+            {isSettingRally
+              ? "지정 중… (Space/Esc 취소)"
+              : rallyName
+                ? "집결지 변경 (Space)"
+                : "집결지 지정 (Space)"}
           </button>
           <div className="hud-ratio-hint">
             {isSettingRally
