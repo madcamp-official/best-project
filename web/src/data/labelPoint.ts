@@ -9,7 +9,8 @@ export function computeLabelPoint(
   const geom = feature.geometry;
 
   if (geom.type === "Polygon") {
-    return polylabel(geom.coordinates, 1e-4) as [number, number];
+    // GeoJSON Position[][] → polylabel 타입([number,number][][]) 캐스트.
+    return polylabel(geom.coordinates as [number, number][][], 1e-4) as [number, number];
   }
 
   // MultiPolygon: 가장 면적이 큰 파트에서 라벨 지점을 계산한다.
@@ -22,7 +23,7 @@ export function computeLabelPoint(
       best = polygon;
     }
   }
-  return polylabel(best, 1e-4) as [number, number];
+  return polylabel(best as [number, number][][], 1e-4) as [number, number];
 }
 
 // 부호 없는 슈레이스 공식 근사치 (파트 비교용이므로 정밀도는 불필요).
