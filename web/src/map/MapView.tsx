@@ -38,6 +38,8 @@ const UNIT_CIRCLE_LAYER = "unit-circle";
 const UNIT_LABEL_LAYER = "unit-label";
 const MISSILE_SOURCE = "missiles";
 const MISSILE_LAYER = "missiles-layer";
+const MISSILE_IMAGE_ID = "missile-icon"; // addImage로 얹는 🚀 아이콘 이름
+const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 미사일 이모지가 없어 로켓 사용)
 const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
@@ -348,22 +350,43 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
-      // 미사일 마커 — 미사일이 얹힌 동 centroid에 앰버 원.
+      // 미사일 마커 — 미사일이 얹힌 동 centroid에 🚀 이모지 아이콘.
+      // (스타일에 glyphs 서버가 없어 text-field로는 컬러 이모지를 못 그리므로, 이모지를
+      //  캔버스에 렌더해 래스터 아이콘으로 addImage 후 symbol 레이어로 얹는다.)
       map.addSource(MISSILE_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      map.addLayer({
-        id: MISSILE_LAYER,
-        type: "circle",
-        source: MISSILE_SOURCE,
-        paint: {
-          "circle-radius": 5,
-          "circle-color": "#ffcc33",
-          "circle-stroke-color": "#4a2f00",
-          "circle-stroke-width": 1.5,
-        },
-      });
+      const missileIcon = makeEmojiIcon(MISSILE_EMOJI, 28);
+      if (missileIcon) {
+        if (!map.hasImage(MISSILE_IMAGE_ID)) {
+          map.addImage(MISSILE_IMAGE_ID, missileIcon.data, { pixelRatio: missileIcon.pixelRatio });
+        }
+        map.addLayer({
+          id: MISSILE_LAYER,
+          type: "symbol",
+          source: MISSILE_SOURCE,
+          layout: {
+            "icon-image": MISSILE_IMAGE_ID,
+            "icon-size": 1,
+            "icon-allow-overlap": true, // 밀집해도 미사일은 항상 보이게
+            "icon-ignore-placement": true,
+          },
+        });
+      } else {
+        // 캔버스 렌더 실패(구형 환경 등) 시 폴백: 기존 앰버 원.
+        map.addLayer({
+          id: MISSILE_LAYER,
+          type: "circle",
+          source: MISSILE_SOURCE,
+          paint: {
+            "circle-radius": 5,
+            "circle-color": "#ffcc33",
+            "circle-stroke-color": "#4a2f00",
+            "circle-stroke-width": 1.5,
+          },
+        });
+      }
 
       // 미사일 조준 원(마우스 따라다님) — 반투명 흰 채움 + 흰 점선 테두리.
       map.addSource(AIM_CIRCLE_SOURCE, {
@@ -725,6 +748,27 @@ function handleAction(idx: number, connection: Connection) {
 
   // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
   connection.sendSortie(selectedIndex, idx, sortieRatio);
+}
+
+// 이모지를 캔버스에 렌더해 지도 아이콘(addImage)용 픽셀 데이터로 만든다. glyphs 서버가 없어
+// symbol text-field로는 컬러 이모지를 못 그리므로 래스터 아이콘으로 얹기 위한 것. sizePx는
+// CSS 픽셀 기준 논리 크기이고, devicePixelRatio만큼 확대 렌더 후 pixelRatio로 되돌려 선명하게.
+function makeEmojiIcon(
+  emoji: string,
+  sizePx: number
+): { data: ImageData; pixelRatio: number } | null {
+  const ratio = Math.max(1, Math.min(4, Math.round(window.devicePixelRatio || 1)));
+  const px = sizePx * ratio;
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.font = `${Math.floor(px * 0.82)}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, px / 2, px / 2);
+  return { data: ctx.getImageData(0, 0, px, px), pixelRatio: ratio };
 }
 
 function selectDong(map: MaplibreMap, idx: number | null, select: (i: number | null) => void) {

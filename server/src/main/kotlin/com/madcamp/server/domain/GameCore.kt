@@ -106,7 +106,18 @@ object GameCore {
         val holderId = order.holderId
 
         if (world.ownerId[to] == holderId) {
-            world.troops[to] = min(world.troopCap[to], world.troops[to] + amount)
+            // 증원: 상한까지만 채우고, 넘치는 병력은 출발지로 되돌린다.
+            // (같은 동에 여러 출정이 동시에 도착할 때 상한 초과분이 소멸하던 버그 방지 —
+            //  출발지는 이 병력을 이미 내보냈으므로 되돌려도 대개 상한 안에 들어간다.)
+            val space = (world.troopCap[to] - world.troops[to]).coerceAtLeast(0)
+            val accepted = min(amount, space)
+            world.troops[to] += accepted
+            val overflow = amount - accepted
+            if (overflow > 0 && world.ownerId[order.from] == holderId) {
+                world.troops[order.from] =
+                    min(world.troopCap[order.from], world.troops[order.from] + overflow)
+                world.dirty.add(order.from)
+            }
         } else {
             val prevOwner = world.ownerId[to]
             val remaining = world.troops[to] - amount
