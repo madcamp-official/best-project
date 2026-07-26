@@ -187,13 +187,16 @@ export const CONFIG = {
 
   // 환경 세력 (PvPvE, §4.6) — 초반 긴장용 조연(문명 야만인). 전부 튜닝값.
   ENV_HOLDER_ID: 255,       // E 전용 holderId (예약)
-  ENV_START_CELLS: 3,       // 시작 시 E 보유 동 수 (외곽에서 선정)
+  ENV_CLUSTER_COUNT: 3,     // 야만인 무리 수(전국에 흩뿌리는 캠프 개수, 구현 후 추가)
+  ENV_START_CELLS: 3,       // 무리 1개당 시작 E 보유 동 수 (외곽에서 선정)
   ENV_PROD_MULT: 1.0,       // E 생산 배율 (기본 = 플레이어와 동일, 램프 없음)
   ENV_ACT_INTERVAL_SEC: 6,  // E 행동 주기
   ENV_ATTACK_MARGIN: 1.2,   // 이길 만할 때만 공격 (자살 방지 계수)
   ENV_BOUNTY: 10,           // E 동 함락 시 보너스 병력
-  ENV_MAX_RATIO: 0.04,      // E 보유 동 수 하드 상한 (전체 대비 비율) — 절대 초과 못함
-  ENV_MIN_PRESENCE: 4,      // 아무도 크지 않은 극초반의 E 최소 존재감(동 수)
+  ENV_MAX_RATIO: 0.1,       // E 보유 동 수 하드 상한 (전체 대비 비율) — 절대 초과 못함
+  // ENV_CLUSTER_COUNT * ENV_START_CELLS(=9)보다 커야 한다 — 안 그러면 스폰 직후부터
+  // never-surpass 상한에 걸려 E가 첫 행동도 못 해보고 얼어붙는다.
+  ENV_MIN_PRESENCE: 12,      // 아무도 크지 않은 극초반의 E 최소 존재감(동 수)
 };
 ```
 > 모든 밸런스 값은 이 객체 한 곳에. 절대값은 **마일스톤 2에서 플레이하며 확정**. 지금은 위 초기값으로 시작.

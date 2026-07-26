@@ -130,6 +130,12 @@ node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀
 
 실서버에 실제 시나리오(갓 접속한 플레이어가 미사일 직격으로 동 1개→0개)를 그대로 재현해 다음 tick 안에 자동 재시작되는 것까지 확인했다(`respawn-test.mjs`).
 
+## 야만인(E)이 안 움직이는 버그 수정
+
+실사용 중 발견: 실제로 접속해보면 야만인(E)이 아무리 기다려도 확장 공격을 전혀 하지 않았다. 원인은 E 다중 클러스터 도입 시(위 "클라 추가 기능 3종") 생긴 값 불일치였다 — `ENV_CLUSTER_COUNT`(3) × `ENV_START_CELLS`(3) = **9개**로 스폰하는데, `EnvAi.maybeAct`/`core.ts tickEnv`의 상한 계산 `min(하드 상한, max(ENV_MIN_PRESENCE, 최대 플레이어 점유 동 수))`에서 당시 `ENV_MIN_PRESENCE`가 옛날 단일-클러스터(3개 스폰) 시절 값인 **4**로 남아 있었다. 초반엔 플레이어도 몇 동 안 가지고 있어 이 상한이 곧 `ENV_MIN_PRESENCE`가 되므로, **스폰 직후부터 `envCells(9) ≥ cap(4)`가 성립해 E가 첫 행동도 못 해보고 영구히 얼어붙었다.**
+
+`ENV_MIN_PRESENCE`를 스폰 총량(9)보다 확실히 크게 12로 올려 해소했다(`GameConfig.kt`/`config.ts` 동기화). 실서버에서 스폰 직후 12개까지(클러스터 하나가 3→6개로) 확장 공격하는 것을 확인했고, 이 클래스의 버그가 재발하지 않도록 `ENV_MIN_PRESENCE ≥ ENV_CLUSTER_COUNT × ENV_START_CELLS` 불변식을 직접 검증하는 회귀 테스트를 추가했다(`env-active-check.mjs`).
+
 ## 아직 안 한 것 / 다음에 할 것
 
 - 계급(Rank) 계산은 구현했지만 어떤 메시지로도 아직 안 내려줌(api-spec.md에 계급 필드 없음 — 필요해지면 LEADERBOARD나 별도 메시지에 추가)

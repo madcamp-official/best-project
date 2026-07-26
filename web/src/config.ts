@@ -24,7 +24,10 @@ export const CONFIG = {
   ENV_ATTACK_MARGIN: 1.2, // 이길 만할 때만 공격 (자살 방지 계수)
   ENV_BOUNTY: 10, // E 동 함락 시 보너스 병력
   ENV_MAX_RATIO: 0.1, // E 보유 동 수 하드 상한 (전체 대비 비율)
-  ENV_MIN_PRESENCE: 4, // 극초반 E 최소 존재감(동 수)
+  // ENV_CLUSTER_COUNT(3) * ENV_START_CELLS(3) = 9개로 시작하므로 그보다 커야 한다 — 안 그러면
+  // 스폰 직후부터 envCells(9) >= cap이 되어 E가 첫 행동도 못 해보고 얼어붙는다("야만인이 가만히
+  // 있다" 버그. 다중 클러스터 도입 시 이 값을 안 올려서 생겼다).
+  ENV_MIN_PRESENCE: 12, // 극초반 E 최소 존재감(동 수)
 
   // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
   MISSILE_SPAWN_SEC: 5, // 전국에서 무작위 동 1곳에 미사일이 스폰되는 주기(초) — 체감상 적어서 2배로 상향
