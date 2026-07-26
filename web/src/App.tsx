@@ -1,27 +1,50 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
-import { loadSeoulDong } from "./data/loadSeoulDong";
-import type { PreparedMap } from "./data/loadSeoulDong";
-import { initGame, pickStartIndex } from "./game/state";
+import { JoinScreen } from "./ui/JoinScreen";
+import { loadDong } from "./data/loadDong";
+import type { PreparedMap } from "./data/loadDong";
+import { LocalConnection } from "./net/localConnection";
+import type { Connection } from "./net/connection";
+import { applyWelcome, applyDelta, getLeaderboard, envCellCount, world } from "./world/worldView";
 import { useUIStore } from "./store/uiStore";
 
-// README.md §9 마일스톤 1~2 — 서버 없는 오프라인 목업.
-// 데이터 로드 → 인접 그래프 계산 → 게임 상태 초기화까지 여기서 1회 수행.
+// plan.md §3 — 클라는 렌더러 + 입력 전송기.
+// 데이터 로드 → Connection(지금은 브라우저 내 로컬 mock 서버) 생성 → 접속 화면(닉네임) →
+// JOIN → WELCOME 스냅샷 반영 → 이후 DELTA로만 갱신.
 function App() {
   const [prepared, setPrepared] = useState<PreparedMap | null>(null);
+  const connectionRef = useRef<Connection | null>(null);
+  const phase = useUIStore((s) => s.phase);
   const setPhase = useUIStore((s) => s.setPhase);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const map = await loadSeoulDong();
+        const map = await loadDong();
         if (cancelled) return;
-        const startIndex = pickStartIndex(map.meta);
-        initGame(map.n, map.neighborIndex, map.meta, startIndex);
-        setPrepared(map);
+
+        // 목 서버 생성 + 서버→클라 메시지 배선.
+        const connection = new LocalConnection(map);
+        connection.onWelcome((msg) => {
+          applyWelcome(msg);
+          localStorage.setItem("token", msg.token); // 재접속용
+          // 첫 LEADERBOARD 메시지(최대 1s 뒤) 전 빈 순위표 깜빡임 방지용 시드.
+          useUIStore.getState().setLeaderboard(getLeaderboard(), envCellCount(), world.n);
+          setPrepared(map); // 스냅샷 반영 후 지도 렌더 시작
+          setPhase("ready");
+        });
+        connection.onDelta((msg) => applyDelta(msg));
+        connection.onError((msg) => useUIStore.getState().showToast(msg.message));
+        connection.onLeaderboard((msg) =>
+          useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)
+        );
+        connectionRef.current = connection;
+
+        // 데이터 준비 완료 → 접속 화면(닉네임 입력)으로.
+        setPhase("join");
       } catch (err) {
         if (cancelled) return;
         setPhase("error", err instanceof Error ? err.message : String(err));
@@ -29,13 +52,34 @@ function App() {
     })();
     return () => {
       cancelled = true;
+      connectionRef.current?.dispose();
+      connectionRef.current = null;
     };
   }, [setPhase]);
 
+  const handleJoin = (nickname: string) => {
+    const token = localStorage.getItem("token") ?? undefined;
+    connectionRef.current?.join(nickname, token);
+    // 첫 참가자에게만 조작 안내 (한 번 보면 다시 안 뜸).
+    if (!localStorage.getItem("onboarded")) {
+      localStorage.setItem("onboarded", "1");
+      setTimeout(
+        () =>
+          useUIStore
+            .getState()
+            .showToast("좌클릭으로 내 동 선택 → 우클릭으로 출정! 야만인을 물리치고 영토를 넓히세요"),
+        900
+      );
+    }
+  };
+
   return (
     <div className="app-root">
-      {prepared && <MapView prepared={prepared} />}
+      {prepared && connectionRef.current && (
+        <MapView prepared={prepared} connection={connectionRef.current} />
+      )}
       <Hud />
+      {phase === "join" && <JoinScreen onJoin={handleJoin} />}
     </div>
   );
 }

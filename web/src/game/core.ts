@@ -127,12 +127,13 @@ export function trySortie(
   from: number,
   to: number,
   holderId: number,
-  nowMs: number
+  nowMs: number,
+  ratio: number = CONFIG.SORTIE_RATIO // 출정 비율. 플레이어는 UI 슬라이더 값, E AI 등은 기본값.
 ): SortieResult {
   if (s.ownerId[from] !== holderId) return { ok: false, reason: "본인 소유 동이 아닙니다." };
   if (!s.neighborIndex[from]?.includes(to)) return { ok: false, reason: "인접한 동이 아닙니다." };
 
-  const amount = Math.floor(s.troops[from] * CONFIG.SORTIE_RATIO);
+  const amount = Math.floor(s.troops[from] * ratio);
   if (amount <= 0) return { ok: false, reason: "출정 가능한 병력이 없습니다." };
 
   s.troops[from] -= amount; // 병력은 출발과 동시에 출발지를 떠난다.
@@ -174,13 +175,21 @@ function resolveArrival(s: GameState, order: Order, wallNowMs: number) {
   } else {
     const remaining = s.troops[to] - amount; // 부호 있는 일반 number 연산으로 먼저 계산
     if (remaining < 0) {
-      const prevHolder = s.holders.get(s.ownerId[to]);
+      const prevOwner = s.ownerId[to];
+      const prevHolder = s.holders.get(prevOwner);
       const nextHolder = s.holders.get(holderId);
       s.ownerId[to] = holderId;
       s.troops[to] = -remaining;
+      // README §4.6 토벌 보상 — 플레이어가 E 동을 함락하면 보너스 병력.
+      const playerBeatEnv =
+        prevOwner === CONFIG.ENV_HOLDER_ID &&
+        holderId !== CONFIG.ENV_HOLDER_ID &&
+        holderId !== NEUTRAL_HOLDER_ID;
+      if (playerBeatEnv) s.troops[to] += CONFIG.ENV_BOUNTY;
       pushLog(
         s,
-        `${s.meta[to].name} 함락 — ${prevHolder?.name ?? "?"} → ${nextHolder?.name ?? "?"}`,
+        `${s.meta[to].name} 함락 — ${prevHolder?.name ?? "?"} → ${nextHolder?.name ?? "?"}` +
+          (playerBeatEnv ? ` (+${CONFIG.ENV_BOUNTY} 토벌)` : ""),
         wallNowMs
       );
     } else {
@@ -220,9 +229,10 @@ export function ownedCount(s: GameState, holderId: number): number {
   return c;
 }
 
+// README §4.6, §8 — 순위표는 중립·환경 세력(E)을 제외한 플레이어만.
 export function getLeaderboard(s: GameState): LeaderboardRow[] {
   return Array.from(s.holders.values())
-    .filter((h) => h.id !== NEUTRAL_HOLDER_ID)
+    .filter((h) => h.id !== NEUTRAL_HOLDER_ID && h.id !== CONFIG.ENV_HOLDER_ID)
     .map((h) => ({ holderId: h.id, name: h.name, count: ownedCount(s, h.id) }))
     .sort((a, b) => b.count - a.count);
 }
@@ -252,4 +262,83 @@ export function computeRank(s: GameState, holderId: number): Rank {
   if (fullSgg === 0) return "동장";
   if (fullSgg === sggTotal.size) return "도지사"; // 목업은 서울 단일 시도라 실질 도달은 어려움
   return "시장";
+}
+
+// ── 환경 세력 (E) — README §4.6 ──────────────────────────────────────
+// 문명 야만인형 초반 조연. 상한(하드캡·never-surpass)이 있어 맵을 장악하지 못한다.
+
+export function envCellCount(s: GameState): number {
+  return ownedCount(s, CONFIG.ENV_HOLDER_ID);
+}
+
+function maxPlayerCells(s: GameState): number {
+  const counts = new Map<number, number>();
+  for (let i = 0; i < s.n; i++) {
+    const o = s.ownerId[i];
+    if (o !== NEUTRAL_HOLDER_ID && o !== CONFIG.ENV_HOLDER_ID) {
+      counts.set(o, (counts.get(o) ?? 0) + 1);
+    }
+  }
+  let max = 0;
+  for (const c of counts.values()) if (c > max) max = c;
+  return max;
+}
+
+// E holder 등록 + 시작 동 배정. cells는 호출자(외곽 선정 등)가 정해 넘긴다.
+export function envSpawn(s: GameState, cells: number[], paletteIdx: number, wallNowMs: number) {
+  s.holders.set(CONFIG.ENV_HOLDER_ID, {
+    id: CONFIG.ENV_HOLDER_ID,
+    name: "야만인",
+    paletteIdx,
+  });
+  for (const i of cells) {
+    if (s.ownerId[i] !== NEUTRAL_HOLDER_ID) continue; // 이미 점령된 동은 건너뜀
+    s.ownerId[i] = CONFIG.ENV_HOLDER_ID;
+    s.troops[i] = s.troopCap[i];
+    s.dirty.add(i);
+  }
+  if (cells.length > 0) pushLog(s, "야만인이 나타났습니다.", wallNowMs);
+}
+
+// E 행동 1회 — 호출자가 ENV_ACT_INTERVAL_SEC 주기로 부른다.
+// 상한에 여유가 있을 때만 "최다 병력 동 → 인접 최소 병력 동"으로 출정(trySortie 재사용).
+// 새로 발주된 order가 있으면 반환(호출자가 DELTA에 실어 보낸다).
+export function tickEnv(s: GameState, nowMs: number): Order | null {
+  const env = envCellCount(s);
+  if (env === 0) return null; // 소멸됨(전부 함락) — 재스폰 없음
+
+  const hardCap = Math.round(CONFIG.ENV_MAX_RATIO * s.n);
+  const softCap = Math.max(CONFIG.ENV_MIN_PRESENCE, maxPlayerCells(s));
+  if (env >= Math.min(hardCap, softCap)) return null; // 상한 도달 → 확장 안 함
+
+  // 최다 병력 E 동 X
+  let X = -1;
+  let bestT = -1;
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] === CONFIG.ENV_HOLDER_ID && s.troops[i] > bestT) {
+      bestT = s.troops[i];
+      X = i;
+    }
+  }
+  if (X < 0) return null;
+
+  // X 인접 중 병력 최소인 비-E 동 Y
+  let Y = -1;
+  let minT = Infinity;
+  for (const j of s.neighborIndex[X]) {
+    if (s.ownerId[j] !== CONFIG.ENV_HOLDER_ID && s.troops[j] < minT) {
+      minT = s.troops[j];
+      Y = j;
+    }
+  }
+  if (Y < 0) return null;
+
+  // 이길 만할 때만(자살 공격 방지)
+  const amount = Math.floor(s.troops[X] * CONFIG.SORTIE_RATIO);
+  if (amount <= s.troops[Y] * CONFIG.ENV_ATTACK_MARGIN) return null;
+
+  const before = s.orders.length;
+  const res = trySortie(s, X, Y, CONFIG.ENV_HOLDER_ID, nowMs);
+  if (res.ok && s.orders.length > before) return s.orders[s.orders.length - 1];
+  return null;
 }

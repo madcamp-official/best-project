@@ -50,20 +50,23 @@
 
 ### 2.4 상태 계층 분리
 
-- **게임 상태**(3,500동 배열, `GameState`)는 React/Zustand에 절대 넣지 않는다 — React 밖(`game/state.ts`)에 유지하고 `dirty` 변경분만 rAF로 MapLibre에 반영(README §1, §7.3)
+- **게임/월드 상태**(3,500동 배열, `GameState`)는 React/Zustand에 절대 넣지 않는다 — React 밖(`world/worldView.ts`의 `world`)에 유지하고 `dirty` 변경분만 rAF로 MapLibre에 반영(README §1, §7.3)
 - **UI 상태**(선택한 동, 패널 열림 등 소량)만 `store/uiStore.ts`(Zustand)에 둔다
 - `map/MapView.tsx`의 MapLibre 인스턴스는 `useRef`로 감싸 `useEffect` 1회만 생성 — 이후 React 렌더가 지도를 직접 건드리지 않는다
+- **클라는 게임 로직을 돌리지 않는다**: 입력은 `net/connection.ts`의 `Connection.sendSortie`로 서버(현재는 `localConnection` 목 서버)에 보내고, 결과는 WELCOME/DELTA로 받아 `worldView`에 반영만 한다(plan.md §3)
 
 ### 2.5 폴더 규칙
 
 ```
-game/   순수 로직 (core.ts) + 로컬 오케스트레이션 (state.ts) + 공유 타입 (types.ts)
+game/   순수 로직 (core.ts) + 공유 타입 (types.ts) — 서버 이식 대상
+net/    Connection 인터페이스 + 프로토콜 타입 + 로컬 목 서버(localConnection)
+world/  서버 상태 사본(worldView) — WELCOME/DELTA 반영 계층. 게임 로직 없음
 data/   경계/인접 그래프 로딩, 좌표 계산 — 게임 규칙과 무관한 데이터 가공
-map/    MapLibre 렌더 전용 컴포넌트
+map/    MapLibre 렌더 전용 컴포넌트 (world를 읽고 connection으로 입력 전송)
 store/  Zustand — UI 상태만
 ui/     HUD 등 프레젠테이션 컴포넌트
 ```
-새 파일을 추가할 때 이 중 어느 계층에 속하는지 먼저 정한다. `core.ts`에 렌더/DOM 코드가 섞이거나 `map/`에 게임 규칙 판단이 섞이면 서버 이식 시 대조가 깨진다.
+새 파일을 추가할 때 이 중 어느 계층에 속하는지 먼저 정한다. `core.ts`에 렌더/DOM 코드가 섞이거나 `map/`에 게임 규칙 판단이 섞이면 서버 이식 시 대조가 깨진다. 게임 규칙 판단은 `core.ts`(→서버)에만, `world`/`map`은 반영·렌더만.
 
 ### 2.6 입력 처리 (README §4.5 그대로 준수)
 

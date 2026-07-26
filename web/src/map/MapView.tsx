@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { PreparedMap } from "../data/loadSeoulDong";
-import { game, tickProduction, tickOrders, drainDirty, trySortie } from "../game/state";
+import type { PreparedMap } from "../data/loadDong";
+import { world, drainDirty, pruneArrivedOrders, drainCaptureFlashes } from "../world/worldView";
+import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
-import { MY_HOLDER_ID, PALETTE } from "../config";
+import { PALETTE } from "../config";
 
 interface Props {
   prepared: PreparedMap;
+  connection: Connection;
 }
 
 const BASEMAP_SOURCE = "basemap";
@@ -16,6 +18,8 @@ const SOURCE_ID = "dong";
 const FILL_LAYER = "dong-fill";
 const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
+const FLASH_LAYER = "dong-flash";
+const FLASH_MS = 600; // 함락 플래시 지속 시간
 const ARC_SOURCE = "arcs";
 const FRONTIER_GLOW = "frontier-glow";
 const FRONTIER_LAYER = "frontier";
@@ -32,10 +36,11 @@ const BASEMAP_TILES = ["a", "b", "c", "d"].map(
   (s) => `https://${s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png`
 );
 
-// README.md §1 핵심 제약 — 3,500(목업은 424)개 동 상태를 React state에 넣지 않는다.
+// README.md §1 핵심 제약 — 3,500개 동 상태를 React state에 넣지 않는다.
 // 이 컴포넌트는 마운트 시 MapLibre 인스턴스를 1회 생성하고, 이후 모든 갱신은
-// game/state.ts 를 직접 읽어 setFeatureState로 명령형 반영한다. React는 재렌더링하지 않는다.
-export function MapView({ prepared }: Props) {
+// world(서버 상태 사본)를 직접 읽어 setFeatureState로 명령형 반영한다. React는 재렌더링하지 않는다.
+// 입력은 connection.sendSortie로 서버에 보낼 뿐, 클라가 직접 게임 로직을 돌리지 않는다(plan.md §3).
+export function MapView({ prepared, connection }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -48,8 +53,8 @@ export function MapView({ prepared }: Props) {
         sources: {},
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1220" } }],
       },
-      center: averageCenter(prepared),
-      zoom: 10.4,
+      center: myStartCenter(prepared), // 시작 시 내 영토로 카메라 이동
+      zoom: 11,
       attributionControl: false,
       doubleClickZoom: false, // 더블클릭 확대 비활성화 (동을 빠르게 두 번 클릭할 때 오확대 방지)
     });
@@ -59,6 +64,10 @@ export function MapView({ prepared }: Props) {
     // 우클릭을 병력 이동/공격에 쓰므로 우클릭 드래그 회전을 끈다 (평면 톱다운 유지).
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
+    // 개발 편의용 디버그 훅 (프로덕션 빌드에선 제외됨).
+    if (import.meta.env.DEV) {
+      Object.assign(window, { __map: map, __world: world });
+    }
 
     map.on("error", (e) => {
       console.error("[maplibre error]", e.error);
@@ -91,8 +100,15 @@ export function MapView({ prepared }: Props) {
         type: "fill",
         source: SOURCE_ID,
         paint: {
-          "fill-color": buildOwnerColorExpr("fill"),
-          "fill-opacity": ["case", ["==", ["feature-state", "owner"], 0], 0.16, 0.42],
+          // feature-state "owner"에는 holder의 paletteIdx(색 슬롯)를 넣는다.
+          "fill-color": buildPaletteMatchExpr(["feature-state", "owner"], "fill"),
+          // 내 영토(mine)는 더 진하게 강조 → 한눈에 구분.
+          "fill-opacity": [
+            "case",
+            ["==", ["feature-state", "owner"], 0], 0.16,
+            ["==", ["feature-state", "mine"], true], 0.55,
+            0.4,
+          ],
         },
       });
 
@@ -148,23 +164,33 @@ export function MapView({ prepared }: Props) {
           "line-opacity": ["case", ["==", ["feature-state", "selected"], true], 1, 0],
         },
       });
+      // 함락 순간 흰색 플래시(짧게 번쩍이고 사라진다). feature-state "flash"(0~1)를 rAF가 페이드.
+      map.addLayer({
+        id: FLASH_LAYER,
+        type: "fill",
+        source: SOURCE_ID,
+        paint: {
+          "fill-color": "#ffffff",
+          "fill-opacity": ["coalesce", ["feature-state", "flash"], 0],
+        },
+      });
 
       map.addSource(BADGE_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
       // 동 이름 — 작은 흰 글자로 병력 숫자 위에 표시. (값과의 구분은 '크기'가 담당)
+      // 전국 스케일에선 저줌에서도 라벨이 필요하므로 minzoom을 낮추되(10), allow-overlap을
+      // 끄고 MapLibre 충돌 배치에 맡겨 밀집 지역(서울 등)에서 라벨이 뭉치지 않게 한다.
       map.addLayer({
         id: NAME_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 12,
+        minzoom: 10,
         layout: {
           "text-field": ["get", "name"],
           "text-size": 11,
           "text-offset": [0, -1.5], // 병력 숫자 위, 간격 넉넉히
-          "text-allow-overlap": true,
-          "text-ignore-placement": true,
         },
         paint: {
           "text-color": "#ffffff",
@@ -173,16 +199,17 @@ export function MapView({ prepared }: Props) {
         },
       });
       // 병력 수 — 핵심 값. 이름보다 훨씬 크고 두꺼운 외곽선으로 크게 강조.
+      // 저줌에서 라벨이 겹치면 병력이 많은(=중요한) 동을 우선 배치한다.
       map.addLayer({
         id: BADGE_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 12, // README.md §7.2 — 병력 숫자는 근접 줌에서만
+        minzoom: 10, // 전국 스케일: 접속·이동 줌(10~11)에서도 병력 숫자가 보이도록
         layout: {
           "text-field": ["get", "troops"],
           "text-size": 18,
           "text-offset": [0, 0.35], // 이름과 겹치지 않게 살짝 아래로
-          "text-allow-overlap": true,
+          "symbol-sort-key": ["*", -1, ["to-number", ["get", "troops"]]],
         },
         paint: {
           "text-color": "#ffffff",
@@ -203,7 +230,7 @@ export function MapView({ prepared }: Props) {
         source: UNIT_SOURCE,
         paint: {
           "circle-radius": 8,
-          "circle-color": PALETTE[MY_HOLDER_ID].stroke,
+          "circle-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 2,
         },
@@ -228,12 +255,16 @@ export function MapView({ prepared }: Props) {
       });
 
       for (let i = 0; i < prepared.n; i++) {
-        map.setFeatureState({ source: SOURCE_ID, id: i }, { owner: game.ownerId[i] });
+        map.setFeatureState(
+          { source: SOURCE_ID, id: i },
+          { owner: paletteIdxOf(world.ownerId[i]), mine: world.ownerId[i] === world.myHolderId }
+        );
       }
       for (let i = 0; i < prepared.arcSides.length; i++) {
         setArcState(map, prepared, i);
       }
       updateBadges(map, prepared);
+      drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
 
       let hovered: number | null = null;
       map.on("mousemove", FILL_LAYER, (e) => {
@@ -265,7 +296,7 @@ export function MapView({ prepared }: Props) {
       map.on("contextmenu", (e) => {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
-        if (hit && hit.id !== undefined) handleAction(Number(hit.id));
+        if (hit && hit.id !== undefined) handleAction(Number(hit.id), connection);
       });
 
       useUIStore.getState().setPhase("ready");
@@ -307,31 +338,50 @@ export function MapView({ prepared }: Props) {
     };
     window.addEventListener("keydown", onKeyDown);
 
-    // README.md §4.1, §7.3 — 생산 tick + 유닛 이동 + dirty Set 배치 리페인트를 rAF 루프에서.
+    // 렌더 루프 — 서버가 보낸 world(사본)의 변경분만 반영한다. 게임 로직(생산·전투)은
+    // 서버(로컬 mock)가 돌린다. 여기선 (1) 도착 유닛 제거 (2) dirty 배치 리페인트
+    // (3) 이동 유닛 원 보간만 한다. (README §7.3, plan.md §3)
     let raf = 0;
-    let last = performance.now();
     let lastSummaryAt = 0;
     let hadUnits = false;
+    const flashing = new Map<number, number>(); // admIndex → 플래시 시작 시각
     const loop = (now: number) => {
-      const dt = (now - last) / 1000;
-      last = now;
-      tickProduction(dt);
-      tickOrders(now); // 도착한 유닛의 전투/증원 처리 (dirty 추가)
+      // 소스가 아직 없으면(load 핸들러 전) 아무것도 하지 않는다 — dirty를 소진하지 않아 보존된다.
+      if (!map.getSource(SOURCE_ID)) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      pruneArrivedOrders(now); // 도착 유닛 시각 제거(실제 상태 변화는 DELTA cells로 옴)
 
       const changed = drainDirty();
-      if (changed.length > 0 && map.isStyleLoaded()) {
+      if (changed.length > 0) {
         // 소유권이 바뀐 동 + 그 동에 접한 아크만 다시 계산해 국경선을 갱신한다.
         const arcsToUpdate = new Set<number>();
         for (const idx of changed) {
-          map.setFeatureState({ source: SOURCE_ID, id: idx }, { owner: game.ownerId[idx] });
+          map.setFeatureState(
+            { source: SOURCE_ID, id: idx },
+            { owner: paletteIdxOf(world.ownerId[idx]), mine: world.ownerId[idx] === world.myHolderId }
+          );
           for (const ai of prepared.dongArcs[idx]) arcsToUpdate.add(ai);
         }
         for (const ai of arcsToUpdate) setArcState(map, prepared, ai);
         updateBadges(map, prepared);
       }
 
+      // 함락 플래시 — 새 함락은 시작 시각 기록, 매 프레임 흰색을 페이드아웃.
+      for (const idx of drainCaptureFlashes()) flashing.set(idx, now);
+      for (const [idx, start] of flashing) {
+        const a = 1 - (now - start) / FLASH_MS;
+        if (a <= 0) {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: 0 });
+          flashing.delete(idx);
+        } else {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: a * 0.6 });
+        }
+      }
+
       // 이동 중인 유닛 원 위치를 매 프레임 갱신. 없으면 마지막에 한 번 비운다.
-      if (game.orders.length > 0) {
+      if (world.orders.length > 0) {
         updateUnits(map, now);
         hadUnits = true;
       } else if (hadUnits) {
@@ -372,13 +422,13 @@ export function MapView({ prepared }: Props) {
 // 같은 팀끼리(중립-중립 포함) 맞닿은 내부 경계는 frontier=false 라 보이지 않는다.
 function setArcState(map: MaplibreMap, prepared: PreparedMap, i: number) {
   const { a, b } = prepared.arcSides[i];
-  const oa = a >= 0 ? game.ownerId[a] : -1;
-  const ob = b >= 0 ? game.ownerId[b] : -1; // -1 = 지도 바깥
+  const oa = a >= 0 ? world.ownerId[a] : -1;
+  const ob = b >= 0 ? world.ownerId[b] : -1; // -1 = 지도 바깥
   const frontier = oa !== ob;
-  const holder = borderHolder(oa, ob);
+  const pIdx = paletteIdxOf(borderHolder(oa, ob));
   map.setFeatureState(
     { source: ARC_SOURCE, id: i },
-    { frontier, color: (PALETTE[holder] ?? PALETTE[0]).stroke }
+    { frontier, color: (PALETTE[pIdx] ?? PALETTE[0]).stroke }
   );
 }
 
@@ -400,26 +450,26 @@ function handleSelect(idx: number, map: MaplibreMap) {
   else selectDong(map, idx, select);
 }
 
-// 우클릭: 선택한 내 동에서 인접한 대상 동으로 병력 파견.
+// 우클릭: 선택한 내 동에서 인접한 대상 동으로 병력 파견(서버에 명령 전송).
 //  · 적/중립 → 전투    · 내 동 → 증원(영토 내 병력 이동)
-function handleAction(idx: number) {
-  const { selectedIndex, showToast } = useUIStore.getState();
+// 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
+function handleAction(idx: number, connection: Connection) {
+  const { selectedIndex, showToast, sortieRatio } = useUIStore.getState();
 
-  if (selectedIndex === null || game.ownerId[selectedIndex] !== MY_HOLDER_ID) {
+  // 명백히 무효한 입력은 왕복 없이 즉시 안내(선택 상태는 순수 UI). 최종 검증은 서버가 한다.
+  if (selectedIndex === null || world.ownerId[selectedIndex] !== world.myHolderId) {
     showToast("먼저 내 동을 좌클릭으로 선택하세요.");
     return;
   }
   if (selectedIndex === idx) return;
 
-  if (!game.neighborIndex[selectedIndex]?.includes(idx)) {
+  if (!world.neighborIndex[selectedIndex]?.includes(idx)) {
     showToast("인접한 동으로만 이동/공격할 수 있습니다.");
     return;
   }
 
-  const result = trySortie(selectedIndex, idx, MY_HOLDER_ID);
-  if (!result.ok) showToast(result.reason);
-  // 소유권 변경분(채움색·국경선)은 rAF 루프가 dirty set을 보고 반영한다.
-  useUIStore.getState().refreshSummary();
+  // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
+  connection.sendSortie(selectedIndex, idx, sortieRatio);
 }
 
 function selectDong(map: MaplibreMap, idx: number | null, select: (i: number | null) => void) {
@@ -440,7 +490,7 @@ function updateBadges(map: MaplibreMap, prepared: PreparedMap) {
     type: "FeatureCollection",
     features: prepared.meta.map((m) => ({
       type: "Feature",
-      properties: { troops: game.troops[m.admIndex], name: m.name },
+      properties: { troops: world.troops[m.admIndex], name: m.name },
       geometry: { type: "Point", coordinates: m.centroid },
     })),
   });
@@ -450,14 +500,14 @@ function updateBadges(map: MaplibreMap, prepared: PreparedMap) {
 function updateUnits(map: MaplibreMap, now: number) {
   const src = map.getSource(UNIT_SOURCE) as GeoJSONSource | undefined;
   if (!src) return;
-  const features = game.orders.map((o) => {
+  const features = world.orders.map((o) => {
     const span = o.arriveTick - o.departTick;
     const t = span > 0 ? Math.min(1, Math.max(0, (now - o.departTick) / span)) : 1;
-    const a = game.meta[o.from].centroid;
-    const b = game.meta[o.to].centroid;
+    const a = world.meta[o.from].centroid;
+    const b = world.meta[o.to].centroid;
     return {
       type: "Feature" as const,
-      properties: { amount: o.amount },
+      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId) },
       geometry: {
         type: "Point" as const,
         coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
@@ -477,9 +527,22 @@ function averageCenter(prepared: PreparedMap): [number, number] {
   return [sx / prepared.meta.length, sy / prepared.meta.length];
 }
 
-// owner(feature-state, holderId) → PALETTE 색 매칭 expression. 매칭 실패 시 중립색 fallback.
-function buildOwnerColorExpr(kind: "fill" | "stroke") {
-  const expr: unknown[] = ["match", ["feature-state", "owner"]];
+// 내 첫 영토 동의 중심 — 시작 시 카메라를 여기로. 내 동이 없으면 전체 무게중심.
+function myStartCenter(prepared: PreparedMap): [number, number] {
+  for (let i = 0; i < world.n; i++) {
+    if (world.ownerId[i] === world.myHolderId) return world.meta[i].centroid;
+  }
+  return averageCenter(prepared);
+}
+
+// holderId → 그 holder의 paletteIdx (색 슬롯). holder 미등록/미상은 중립(0).
+function paletteIdxOf(holderId: number): number {
+  return world.holders.get(holderId)?.paletteIdx ?? 0;
+}
+
+// paletteIdx(keyExpr가 가리키는 값) → PALETTE 색 매칭 expression. 매칭 실패 시 중립색 fallback.
+function buildPaletteMatchExpr(keyExpr: unknown, kind: "fill" | "stroke") {
+  const expr: unknown[] = ["match", keyExpr];
   PALETTE.forEach((c, idx) => {
     expr.push(idx, kind === "fill" ? c.fill : c.stroke);
   });

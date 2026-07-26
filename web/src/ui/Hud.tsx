@@ -1,22 +1,34 @@
 import { useUIStore } from "../store/uiStore";
-import { CONFIG, MY_HOLDER_ID, PALETTE } from "../config";
+import { ENV_PALETTE_IDX, PALETTE } from "../config";
 
 export function Hud() {
   const phase = useUIStore((s) => s.phase);
   const errorMessage = useUIStore((s) => s.errorMessage);
   const selectedInfo = useUIStore((s) => s.selectedInfo);
   const leaderboard = useUIStore((s) => s.leaderboard);
+  const myHolderId = useUIStore((s) => s.myHolderId);
+  const envCells = useUIStore((s) => s.envCells);
   const myRank = useUIStore((s) => s.myRank);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
+  const sortieRatio = useUIStore((s) => s.sortieRatio);
+  const setSortieRatio = useUIStore((s) => s.setSortieRatio);
+  const sortiePct = Math.round(sortieRatio * 100);
 
   if (phase === "loading") {
     return (
       <div className="hud-overlay hud-center">
-        <p>서울 행정동 지도를 불러오는 중...</p>
+        <div className="loading-box">
+          <div className="loading-spinner" />
+          <p className="loading-title">전국 지도를 준비하는 중…</p>
+          <p className="loading-sub">3,500개 행정동의 경계·인접 그래프를 계산하고 있어요</p>
+        </div>
       </div>
     );
   }
+
+  // 접속 화면(닉네임 입력) 표시 중에는 HUD를 감춘다 — JoinScreen이 화면을 덮는다.
+  if (phase === "join") return null;
 
   if (phase === "error") {
     return (
@@ -36,15 +48,25 @@ export function Hud() {
         </div>
         <ol className="hud-leaderboard">
           {leaderboard.map((row) => (
-            <li key={row.holderId} className={row.holderId === MY_HOLDER_ID ? "me" : ""}>
+            <li key={row.holderId} className={row.holderId === myHolderId ? "me" : ""}>
               <span
                 className="hud-swatch"
-                style={{ background: PALETTE[row.holderId % PALETTE.length]?.stroke }}
+                style={{ background: PALETTE[row.paletteIdx]?.stroke }}
               />
               {row.name} — {row.count}개 동
             </li>
           ))}
         </ol>
+        <div className="hud-env">
+          {envCells > 0 ? (
+            <>
+              <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
+              야만인 잔존: {envCells}개 동
+            </>
+          ) : (
+            <span className="hud-env-clear">야만인 정리됨 ✓</span>
+          )}
+        </div>
       </div>
 
       <div className="hud-panel hud-bottom-left">
@@ -58,13 +80,21 @@ export function Hud() {
       </div>
 
       <div className="hud-panel hud-bottom-right">
-        <div className="hud-title">범례</div>
-        <div className="hud-legend-row">
-          <span className="hud-swatch" style={{ background: PALETTE[0].stroke }} /> 중립 (병력 {CONFIG.NEUTRAL_TROOPS})
+        <div className="hud-ratio-head">
+          <span className="hud-title">출정 병력</span>
+          <strong className="hud-ratio-value">{sortiePct}%</strong>
         </div>
-        <div className="hud-legend-row">
-          <span className="hud-swatch" style={{ background: PALETTE[1].stroke }} /> 나
-        </div>
+        <input
+          type="range"
+          className="hud-ratio-slider"
+          min={5}
+          max={100}
+          step={5}
+          value={sortiePct}
+          onChange={(e) => setSortieRatio(Number(e.currentTarget.value) / 100)}
+          aria-label="출정 병력 비율"
+        />
+        <div className="hud-ratio-hint">우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다</div>
       </div>
 
       {selectedInfo && (
@@ -76,7 +106,7 @@ export function Hud() {
           </div>
           {selectedInfo.isMine && (
             <div className="hud-sortie">
-              이동/출정: {Math.floor(selectedInfo.troops * CONFIG.SORTIE_RATIO)}명 (인접 동 우클릭)
+              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%, 인접 동 우클릭)
             </div>
           )}
         </div>

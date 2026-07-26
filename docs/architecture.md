@@ -32,14 +32,19 @@
 ```
 web/src/
 ├─ game/
-│  ├─ core.ts     # 순수 도메인 로직 — React/MapLibre/Zustand/브라우저 시계에 의존하지 않음
-│  ├─ state.ts     # core.ts를 브라우저 tick(rAF)에 연결하는 오케스트레이션
+│  ├─ core.ts      # 순수 도메인 로직 — React/MapLibre/Zustand/브라우저 시계에 의존하지 않음
 │  └─ types.ts     # Holder / Order / DongStaticMeta / LogEntry 등 공유 타입
+├─ net/
+│  ├─ protocol.ts       # WELCOME/DELTA/SORTIE/ERROR/LEADERBOARD 메시지 타입 (api-spec.md)
+│  ├─ connection.ts     # Connection 인터페이스 — 클라의 유일한 서버 통신 창구
+│  └─ localConnection.ts # 브라우저 내 목 서버 (core.ts를 감싸 tick·메시지 발신). 실서버=STOMP로 교체 예정
+├─ world/
+│  └─ worldView.ts # 상태 반영 계층 — WELCOME/DELTA를 적용해 두는 "서버 상태 사본" (게임 로직 안 돌림)
 ├─ data/
-│  ├─ loadSeoulDong.ts  # admdongkor 로드 + topojson 인접 그래프 추출 (README §2)
+│  ├─ loadDong.ts  # admdongkor 로드 + topojson 인접 그래프 추출 (README §2), 전국/시도 필터
 │  └─ labelPoint.ts     # polylabel 기반 라벨 좌표 계산
 ├─ map/
-│  └─ MapView.tsx  # MapLibre 인스턴스 (useRef 1회 생성, 이후 React가 직접 건드리지 않음)
+│  └─ MapView.tsx  # MapLibre 인스턴스 (useRef 1회 생성). world를 읽어 렌더, 입력은 connection으로 전송
 ├─ store/
 │  └─ uiStore.ts   # Zustand — 선택 동, HUD 등 "소량"만. 게임 상태(3,500동)는 넣지 않음
 ├─ ui/
@@ -56,11 +61,14 @@ web/src/
 - 온라인 전환 후에는 서버 tick 루프가 같은 함수 시그니처로 호출 — **로직 자체는 바뀌지 않는다**
 - 서버 담당은 이 파일을 Kotlin/Java로 1:1 대조 이식하면 된다(plan.md §4)
 
-### 2.3 온라인 전환 후 변경점
+### 2.3 클라이언트-서버 경계 (이미 도입됨)
 
-- `state.ts`의 로컬 tick 오케스트레이션 → "스냅샷/델타 반영 계층"으로 교체 (WELCOME 1회 적용 + DELTA 누적 적용)
-- `trySortie` 직접 호출 → `SORTIE` 메시지 전송으로 교체, 결과는 DELTA/ERROR로 비동기 수신
-- 유닛 이동 보간은 그대로 유지하되 `Order.departTick/arriveTick`이 서버 시각 기준이 되므로 `offset` 보정 적용(api-spec.md §3)
+클라는 이미 `Connection` 경유로만 동작한다 — 직접 게임 로직을 돌리지 않는다:
+- 로컬 tick 오케스트레이션은 **`net/localConnection.ts`(브라우저 내 목 서버)**로 이동. core.ts를 감싸 tick을 돌리고 WELCOME/DELTA를 발신한다.
+- 클라 상태는 **`world/worldView.ts`(스냅샷/델타 반영 계층)** — WELCOME 1회 적용 + DELTA 누적 적용.
+- 입력은 `connection.sendSortie` 로 전송, 결과는 DELTA/ERROR로 비동기 수신 (클라 예측 없음).
+- **실서버 전환**: `localConnection`을 `StompConnection`으로 교체만 하면 된다. `Connection` 인터페이스·`worldView`·`MapView`는 불변.
+- 유닛 이동 보간은 그대로. 실서버에선 `Order.departTick/arriveTick`이 서버 시각 기준이 되므로 `offset` 보정 적용(api-spec.md §3). 목 서버는 클라와 같은 `performance.now()`를 써서 offset≈0.
 
 ---
 
