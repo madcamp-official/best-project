@@ -180,17 +180,17 @@ export function MapView({ prepared, connection }: Props) {
         data: { type: "FeatureCollection", features: [] },
       });
       // 동 이름 — 작은 흰 글자로 병력 숫자 위에 표시. (값과의 구분은 '크기'가 담당)
+      // 전국 스케일에선 저줌에서도 라벨이 필요하므로 minzoom을 낮추되(10), allow-overlap을
+      // 끄고 MapLibre 충돌 배치에 맡겨 밀집 지역(서울 등)에서 라벨이 뭉치지 않게 한다.
       map.addLayer({
         id: NAME_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 12,
+        minzoom: 10,
         layout: {
           "text-field": ["get", "name"],
           "text-size": 11,
           "text-offset": [0, -1.5], // 병력 숫자 위, 간격 넉넉히
-          "text-allow-overlap": true,
-          "text-ignore-placement": true,
         },
         paint: {
           "text-color": "#ffffff",
@@ -199,16 +199,17 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
       // 병력 수 — 핵심 값. 이름보다 훨씬 크고 두꺼운 외곽선으로 크게 강조.
+      // 저줌에서 라벨이 겹치면 병력이 많은(=중요한) 동을 우선 배치한다.
       map.addLayer({
         id: BADGE_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 12, // README.md §7.2 — 병력 숫자는 근접 줌에서만
+        minzoom: 10, // 전국 스케일: 접속·이동 줌(10~11)에서도 병력 숫자가 보이도록
         layout: {
           "text-field": ["get", "troops"],
           "text-size": 18,
           "text-offset": [0, 0.35], // 이름과 겹치지 않게 살짝 아래로
-          "text-allow-overlap": true,
+          "symbol-sort-key": ["*", -1, ["to-number", ["get", "troops"]]],
         },
         paint: {
           "text-color": "#ffffff",
