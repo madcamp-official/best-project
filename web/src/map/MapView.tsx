@@ -153,7 +153,11 @@ export function MapView({ prepared, connection }: Props) {
       src.setData({ type: "FeatureCollection", features });
     };
 
-    // 우클릭 드래그 공격 상태 — 내 동에서 우클릭 눌러 시작(mousedown), 대상 동에서 떼면(mouseup) 공격.
+    // 우클릭 드래그 공격 상태. 우클릭 누른 지점(rightDownPoint)에서 임계(px) 이상 움직이면 드래그로
+    // 확정하고(dragging), 그 미만이면 '클릭'으로 보고 옛 방식(좌클릭 선택 동 → 대상)으로 처리한다.
+    const DRAG_THRESHOLD_PX = 6;
+    let rightDownPoint: { x: number; y: number } | null = null;
+    let rightDownDong = -1; // 우클릭이 눌린 동(내 동일 때만 드래그 출발지가 된다)
     let dragging = false;
     let dragSource = -1;
 
@@ -693,15 +697,26 @@ export function MapView({ prepared, connection }: Props) {
         const st = useUIStore.getState();
         if (st.isAiming) aimDirty = true;
         if (st.isTransporting && airdropPhase === "source") aimDirty = true;
-        // 드래그 공격 화살표 — 커서가 아니라 커서 아래 동의 '중심'으로 자석처럼 스냅한다.
-        if (dragging) {
-          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-          const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-          const end: [number, number] =
-            over >= 0 && over !== dragSource
-              ? (world.meta[over].centroid as [number, number])
-              : [e.lngLat.lng, e.lngLat.lat]; // 동 밖이거나 출발지 위면 커서를 따라간다
-          updateArrow(dragSource, end);
+        // 우클릭을 누른 채 임계 이상 움직이면 드래그 공격으로 확정(내 동에서 시작한 경우만).
+        if (rightDownPoint && (e.originalEvent.buttons & 2) !== 0) {
+          if (!dragging) {
+            const moved = Math.hypot(e.point.x - rightDownPoint.x, e.point.y - rightDownPoint.y);
+            if (moved > DRAG_THRESHOLD_PX && rightDownDong >= 0 && world.ownerId[rightDownDong] === world.myHolderId) {
+              dragging = true;
+              dragSource = rightDownDong;
+              selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
+            }
+          }
+          // 화살표 끝을 커서가 아니라 커서 아래 동의 '중심'으로 자석처럼 스냅한다.
+          if (dragging) {
+            const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+            const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+            const end: [number, number] =
+              over >= 0 && over !== dragSource
+                ? (world.meta[over].centroid as [number, number])
+                : [e.lngLat.lng, e.lngLat.lat]; // 동 밖이거나 출발지 위면 커서를 따라간다
+            updateArrow(dragSource, end);
+          }
         }
       });
 
@@ -721,8 +736,10 @@ export function MapView({ prepared, connection }: Props) {
         else selectDong(map, null, useUIStore.getState().select);
       });
 
-      // 우클릭 드래그 = 공격. 내 동에서 우클릭을 눌러 시작(mousedown), 화살표를 끌어 대상 동에서
-      // 떼면(mouseup) 그 동으로 공격/증원/행군한다. 브라우저 기본 컨텍스트 메뉴는 막는다.
+      // 우클릭 공격 — 두 방식 공존:
+      //  (새) 내 동에서 우클릭을 눌러 화살표를 끌어 대상 동에서 떼면 그 동으로 공격/증원/행군.
+      //  (옛) 좌클릭으로 내 동을 선택해 두고 대상 동을 그냥 우클릭해도 동일하게 파견.
+      // 임계(px) 미만 움직임이면 '클릭'(옛), 이상이면 '드래그'(새)로 갈린다. 기본 컨텍스트 메뉴는 막는다.
       map.getCanvas().addEventListener("contextmenu", (ev) => ev.preventDefault());
       map.on("contextmenu", () => {
         // 우클릭 = 공수 취소(그 외 공격은 mousedown/mouseup 드래그가 처리하므로 여기선 안 함).
@@ -733,28 +750,30 @@ export function MapView({ prepared, connection }: Props) {
       map.on("mousedown", (e) => {
         if (e.originalEvent.button !== 2) return; // 우클릭만
         const st = useUIStore.getState();
-        if (st.isAiming || st.isTransporting) return; // 특수 모드 중엔 드래그 공격 비활성
+        if (st.isAiming || st.isTransporting) return; // 특수 모드 중엔 우클릭 공격 비활성
+        // 누른 지점·동만 기록해 둔다. 드래그 확정은 mousemove의 임계 판정이 한다.
+        rightDownPoint = { x: e.point.x, y: e.point.y };
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-        const hit = hits[0];
-        if (!hit || hit.id === undefined) return;
-        const idx = Number(hit.id);
-        if (world.ownerId[idx] !== world.myHolderId) return; // 내 동에서만 시작
-        dragging = true;
-        dragSource = idx;
-        selectDong(map, idx, st.select); // 출발지 강조
-        updateArrow(idx, [e.lngLat.lng, e.lngLat.lat]);
+        rightDownDong = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+        dragging = false;
+        dragSource = -1;
       });
 
       map.on("mouseup", (e) => {
-        if (!dragging || e.originalEvent.button !== 2) return; // 우클릭 뗄 때만
-        dragging = false;
-        updateArrow(-1, null); // 화살표 지우기
+        if (e.originalEvent.button !== 2 || !rightDownPoint) return; // 우클릭 뗄 때만
+        const wasDragging = dragging;
         const from = dragSource;
+        rightDownPoint = null; // 상태 리셋
+        rightDownDong = -1;
+        dragging = false;
         dragSource = -1;
+        updateArrow(-1, null); // 화살표 지우기
+
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-        const hit = hits[0];
-        if (!hit || hit.id === undefined) return; // 빈 곳에 놓으면 취소
-        doAttack(from, Number(hit.id), connection);
+        const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+        if (target < 0) return; // 빈 곳에 뗌 = 취소
+        if (wasDragging) doAttack(from, target, connection); // 새: 드래그 출발지 → 대상
+        else doAttackFromSelected(target, connection); // 옛: 좌클릭으로 선택해 둔 내 동 → 대상
       });
 
       // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
@@ -1067,6 +1086,16 @@ function doAttack(from: number, to: number, connection: Connection) {
 
   // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
   connection.sendSortie(from, to, sortieRatio);
+}
+
+// 옛 방식(드래그 없이 우클릭한 경우): 좌클릭으로 선택해 둔 내 동을 출발지로 삼아 대상으로 파견한다.
+function doAttackFromSelected(to: number, connection: Connection) {
+  const { selectedIndex, showToast } = useUIStore.getState();
+  if (selectedIndex === null || world.ownerId[selectedIndex] !== world.myHolderId) {
+    showToast("먼저 내 동을 좌클릭으로 선택하세요.");
+    return;
+  }
+  doAttack(selectedIndex, to, connection);
 }
 
 // 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
