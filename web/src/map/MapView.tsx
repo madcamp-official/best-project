@@ -58,8 +58,9 @@ const AIRDROP_UNIT_SOURCE = "airdrop-units"; // 공수부대 삼각형 유닛(�
 const AIRDROP_UNIT_LAYER = "airdrop-unit-icon";
 const AIRDROP_UNIT_LABEL = "airdrop-unit-label";
 const TRIANGLE_IMAGE_ID = "airdrop-triangle";
-const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표
-const ATTACK_ARROW_LAYER = "attack-arrow-layer";
+const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표(HOI 스타일 블록 화살표)
+const ATTACK_ARROW_FILL = "attack-arrow-fill";
+const ATTACK_ARROW_LINE = "attack-arrow-line";
 
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
@@ -166,7 +167,7 @@ export function MapView({ prepared, connection }: Props) {
       }
       src.setData({
         type: "FeatureCollection",
-        features: arrowFeatures(world.meta[from].centroid as [number, number], cursor),
+        features: arrowPolygon(world.meta[from].centroid as [number, number], cursor),
       });
     };
 
@@ -634,17 +635,23 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
-      // 우클릭 드래그 공격 화살표 — 출발지에서 커서로 향하는 흰 선(+화살촉). 맨 위에 그린다.
+      // 우클릭 드래그 공격 화살표 — HOI 스타일 블록 화살표(반투명 주황 채움 + 밝은 테두리). 맨 위에 그린다.
       map.addSource(ATTACK_ARROW_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
-        id: ATTACK_ARROW_LAYER,
+        id: ATTACK_ARROW_FILL,
+        type: "fill",
+        source: ATTACK_ARROW_SOURCE,
+        paint: { "fill-color": "#ff5a2b", "fill-opacity": 0.55 },
+      });
+      map.addLayer({
+        id: ATTACK_ARROW_LINE,
         type: "line",
         source: ATTACK_ARROW_SOURCE,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#ffffff", "line-width": 3, "line-opacity": 0.95 },
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#ffd9a8", "line-width": 1.5, "line-opacity": 0.95 },
       });
 
       for (let i = 0; i < prepared.n; i++) {
@@ -686,7 +693,16 @@ export function MapView({ prepared, connection }: Props) {
         const st = useUIStore.getState();
         if (st.isAiming) aimDirty = true;
         if (st.isTransporting && airdropPhase === "source") aimDirty = true;
-        if (dragging) updateArrow(dragSource, [e.lngLat.lng, e.lngLat.lat]); // 드래그 공격 화살표 추적
+        // 드래그 공격 화살표 — 커서가 아니라 커서 아래 동의 '중심'으로 자석처럼 스냅한다.
+        if (dragging) {
+          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+          const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+          const end: [number, number] =
+            over >= 0 && over !== dragSource
+              ? (world.meta[over].centroid as [number, number])
+              : [e.lngLat.lng, e.lngLat.lat]; // 동 밖이거나 출발지 위면 커서를 따라간다
+          updateArrow(dragSource, end);
+        }
       });
 
       // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 공수 중이면 = 공수 클릭.
@@ -1053,34 +1069,46 @@ function doAttack(from: number, to: number, connection: Connection) {
   connection.sendSortie(from, to, sortieRatio);
 }
 
-// 우클릭 드래그 공격 화살표 지오메트리 — 본선(a→b) + b 끝의 화살촉(V자) 두 선.
-// 경도는 위도에 따라 실제 거리가 달라 cosLat로 스케일해 방향을 계산한다.
-function arrowFeatures(a: [number, number], b: [number, number]) {
-  const feats = [
-    { type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: [a, b] } },
-  ];
-  const cosLat = Math.cos((b[1] * Math.PI) / 180) || 1;
+// 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
+// 얇게 시작해 넓어지는 테이퍼 샤프트 + 그보다 넓은 삼각 촉으로 굵고 또렷한 공세 화살표를 만든다.
+// 경도는 위도에 따라 실제 거리가 달라 cosLat로 스케일해 방향/수직 벡터를 계산한 뒤 lng/lat로 환산한다.
+function arrowPolygon(a: [number, number], b: [number, number]) {
+  const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180) || 1;
   const dx = (b[0] - a[0]) * cosLat;
   const dy = b[1] - a[1];
   const len = Math.hypot(dx, dy);
-  if (len > 1e-9) {
-    const ux = dx / len;
-    const uy = dy / len;
-    const head = Math.min(0.008, len * 0.35); // 화살촉 길이(도)
-    const ang = (25 * Math.PI) / 180;
-    for (const s of [ang, -ang]) {
-      // b에서 a 방향(-u)을 ±ang 회전한 짧은 선 → 화살촉.
-      const rx = -ux * Math.cos(s) + uy * Math.sin(s);
-      const ry = -ux * Math.sin(s) - uy * Math.cos(s);
-      const tip: [number, number] = [b[0] + (rx * head) / cosLat, b[1] + ry * head];
-      feats.push({
-        type: "Feature" as const,
-        properties: {},
-        geometry: { type: "LineString" as const, coordinates: [b, tip] },
-      });
-    }
-  }
-  return feats;
+  if (len < 1e-9) return [];
+
+  const ux = dx / len; // 진행 방향(단위)
+  const uy = dy / len;
+  const px = -uy; // 왼쪽 수직(단위)
+  const py = ux;
+
+  const shaftW = Math.min(0.006, Math.max(0.0014, len * 0.09)); // 샤프트 반폭
+  const headW = shaftW * 2.3; // 화살촉 반폭(샤프트보다 넓게)
+  const headLen = Math.min(len * 0.55, Math.max(len * 0.3, headW * 1.6)); // 화살촉 길이
+  const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
+  const startW = shaftW * 0.55; // 시작부는 얇게(테이퍼)
+
+  // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
+  const P = (along: number, side: number): [number, number] => [
+    a[0] + (ux * along + px * side) / cosLat,
+    a[1] + (uy * along + py * side),
+  ];
+
+  const ring: [number, number][] = [
+    P(0, startW),
+    P(baseLen, shaftW),
+    P(baseLen, headW), // 촉 왼쪽 날개
+    P(len, 0), // 뾰족한 끝(타깃)
+    P(baseLen, -headW), // 촉 오른쪽 날개
+    P(baseLen, -shaftW),
+    P(0, -startW),
+    P(0, startW), // 닫기
+  ];
+  return [
+    { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [ring] } },
+  ];
 }
 
 // 더블클릭으로 호출: 내 동을 집결지로 설정, 현재 집결지를 다시 더블클릭하면 해제한다(B2).
