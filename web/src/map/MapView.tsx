@@ -468,7 +468,8 @@ function handleAction(idx: number, connection: Connection) {
     return;
   }
 
-  // 목적지가 이미 병력 상한인 내 동이면 보내도 상한에 막혀 소멸 → 왕복 전에 막는다(서버도 거부).
+  // 목적지가 내 동인데 이미 가득 찼으면(여유 0) 보낼 게 없으니 왕복 전에 막는다.
+  // (여유가 있으면 그대로 보내고, 서버가 상한 여유분만큼만 잘라서 증원한다.)
   if (world.ownerId[idx] === world.myHolderId && world.troops[idx] >= world.troopCap[idx]) {
     showToast("이미 병력이 가득 찬 동입니다.");
     return;
