@@ -31,6 +31,9 @@ export const CONFIG = {
   MISSILE_MAX_TOTAL: 30, // 맵 전체 동시 존재 미사일 총 상한(소유·중립 무관). 도달 시 스폰 중단.
   MISSILE_MAX_PER_PLAYER: 5, // 개인 보유 상한(내 소유 동에 얹힌 미사일 수)
   MISSILE_RADIUS_DEG: 0.02, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
+
+  // 경로 자동 출정(B1) — 멀리 있는 내 동을 우클릭하면 내 영토를 따라 최단 경로로 연쇄 출정.
+  MARCH_MAX_HOPS: 60, // 자동 경로 최대 홉(원거리 남용/BFS 비용 방지)
 } as const;
 
 // holderId 0 = 중립. 목업은 단일 플레이어이므로 1만 사용.

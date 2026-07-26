@@ -13,6 +13,9 @@ export interface Order {
   holderId: number; // 파견한 소유주 (도착 시 전투 판정 주체)
   departTick: number;
   arriveTick: number;
+  // 경로 자동 출정(B1): to 도착 후 이어서 방문할 남은 홉(최종 목적지가 마지막). 비면 to가 최종.
+  // 릴레이 컬럼은 to를 '통과'만 하고 다음 홉으로 이어지며, 병력은 최종 목적지에서만 정착한다.
+  path?: number[];
 }
 
 export interface LogEntry {

@@ -72,38 +72,125 @@ object GameCore {
         world.troops[from] -= amount
         world.dirty.add(from)
 
-        val travelSec = (centroidDistance(world, from, to) / config.unitSpeedDegPerSec)
-            .coerceIn(config.unitTravelMinSec, config.unitTravelMaxSec)
-        val order = Order(
-            from = from,
-            to = to,
-            amount = amount,
-            holderId = holderId,
-            departTick = nowMs,
-            arriveTick = nowMs + (travelSec * 1000).toLong(),
-        )
+        val order = makeOrder(world, config, from, to, amount, holderId, nowMs)
         world.orders.add(order)
         world.pendingNewOrders.add(order)
         return SortieResult.Ok
     }
 
-    // 매 tick 호출 — 도착한 유닛을 처리하고 목록에서 제거.
+    // 이동 유닛(order) 하나를 만든다. path가 있으면 경로 자동 출정(B1)의 릴레이 컬럼이 된다.
+    private fun makeOrder(
+        world: World,
+        config: GameConfig,
+        from: Int,
+        to: Int,
+        amount: Int,
+        holderId: Int,
+        nowMs: Long,
+        path: List<Int> = emptyList(),
+    ): Order {
+        val travelSec = (centroidDistance(world, from, to) / config.unitSpeedDegPerSec)
+            .coerceIn(config.unitTravelMinSec, config.unitTravelMaxSec)
+        return Order(from, to, amount, holderId, nowMs, nowMs + (travelSec * 1000).toLong(), path)
+    }
+
+    // B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를 찾아,
+    // 출발지 병력을 빼고 그 경로를 통째로 지고 가는 릴레이 컬럼 1개를 띄운다. web/src/game/core.ts tryMarch 대응.
+    fun tryMarch(
+        world: World,
+        config: GameConfig,
+        from: Int,
+        finalTarget: Int,
+        holderId: Int,
+        nowMs: Long,
+        ratio: Double = config.sortieRatio,
+    ): SortieResult {
+        if (world.ownerId[from] != holderId) {
+            return SortieResult.Err(SortieErrorCode.NOT_OWNER, "본인 소유 동이 아닙니다.")
+        }
+        if (from == finalTarget) {
+            return SortieResult.Err(SortieErrorCode.NO_PATH, "같은 동입니다.")
+        }
+        if (world.ownerId[finalTarget] != holderId) {
+            return SortieResult.Err(SortieErrorCode.NO_PATH, "내 소유 동으로만 자동 행군할 수 있습니다.")
+        }
+        val nodes = ownedPath(world, from, finalTarget, holderId, config.marchMaxHops)
+        if (nodes == null || nodes.size < 2) {
+            return SortieResult.Err(SortieErrorCode.NO_PATH, "연결된 내 영토 경로가 없습니다.")
+        }
+        val amount = floor(world.troops[from] * ratio).toInt()
+        if (amount <= 0) {
+            return SortieResult.Err(SortieErrorCode.NO_TROOPS, "출정 가능한 병력이 없습니다.")
+        }
+        world.troops[from] -= amount
+        world.dirty.add(from)
+
+        // nodes = [from, h1, ..., finalTarget]. 첫 leg = from→h1, 남은 경로 = [h2..finalTarget].
+        val order = makeOrder(world, config, from, nodes[1], amount, holderId, nowMs, nodes.subList(2, nodes.size).toList())
+        world.orders.add(order)
+        world.pendingNewOrders.add(order)
+        return SortieResult.Ok
+    }
+
+    // from→to를 잇는 최단 경로를 BFS로 찾되, 통과 가능한 동은 holderId 소유 동만이다(내 영토 릴레이).
+    // 반환 = [from, ..., to], 도달 불가면 null. maxHops를 넘는 깊이는 탐색하지 않는다.
+    private fun ownedPath(world: World, from: Int, to: Int, holderId: Int, maxHops: Int): List<Int>? {
+        val prev = IntArray(world.n) { -2 } // -2=미방문, -1=출발지
+        val dist = IntArray(world.n)
+        prev[from] = -1
+        val q = ArrayList<Int>()
+        q.add(from)
+        var h = 0
+        while (h < q.size) {
+            val cur = q[h]; h++
+            if (cur == to) break
+            if (dist[cur] >= maxHops) continue
+            for (nb in world.neighborIndex[cur]) {
+                if (prev[nb] != -2 || world.ownerId[nb] != holderId) continue // 내 소유 동만 밟는다
+                prev[nb] = cur
+                dist[nb] = dist[cur] + 1
+                q.add(nb)
+            }
+        }
+        if (prev[to] == -2) return null
+        val rev = ArrayList<Int>()
+        var c = to
+        while (c != -1) { rev.add(c); c = prev[c] }
+        rev.reverse()
+        return rev
+    }
+
+    // 매 tick 호출 — 도착한 유닛을 처리하고 목록에서 제거. 릴레이(B1)가 이어지면 다음-홉 order를
+    // 반복 순회가 끝난 뒤 world.orders/pendingNewOrders에 추가한다(순회 중 수정 방지).
     fun tickOrders(world: World, config: GameConfig, nowMs: Long) {
+        val newLegs = ArrayList<Order>()
         val it = world.orders.iterator()
         while (it.hasNext()) {
             val order = it.next()
             if (nowMs >= order.arriveTick) {
-                resolveArrival(world, config, order, nowMs)
+                val leg = resolveArrival(world, config, order, nowMs)
                 it.remove()
+                if (leg != null) newLegs.add(leg)
             }
+        }
+        if (newLegs.isNotEmpty()) {
+            world.orders.addAll(newLegs)
+            world.pendingNewOrders.addAll(newLegs)
         }
     }
 
     // README §4.3 — 전투 판정. §4.6 토벌 보너스(ENV_BOUNTY)도 여기서 함께 처리한다.
-    private fun resolveArrival(world: World, config: GameConfig, order: Order, wallNowMs: Long) {
+    // 릴레이 컬럼(경로 자동 출정)이면 다음-홉 order를 반환, 아니면 null.
+    private fun resolveArrival(world: World, config: GameConfig, order: Order, nowMs: Long): Order? {
         val to = order.to
         val amount = order.amount
         val holderId = order.holderId
+
+        // 경로 자동 출정: 남은 경로가 있고 이 동과 다음 홉이 모두 내 소유면 '통과'만 하고 다음 홉으로 이어간다.
+        val path = order.path
+        if (path.isNotEmpty() && world.ownerId[to] == holderId && world.ownerId[path[0]] == holderId) {
+            return makeOrder(world, config, to, path[0], amount, holderId, nowMs, path.subList(1, path.size).toList())
+        }
 
         if (world.ownerId[to] == holderId) {
             // 증원: 상한까지만 채우고, 넘치는 병력은 출발지로 되돌린다.
@@ -134,13 +221,14 @@ object GameCore {
                 pushLog(
                     world,
                     "${world.meta[to].name} 함락 — ${prevHolder?.name ?: "?"} → ${nextHolder?.name ?: "?"}$bountySuffix",
-                    wallNowMs,
+                    nowMs,
                 )
             } else {
                 world.troops[to] = remaining
             }
         }
         world.dirty.add(to)
+        return null
     }
 
     private fun centroidDistance(world: World, from: Int, to: Int): Double {

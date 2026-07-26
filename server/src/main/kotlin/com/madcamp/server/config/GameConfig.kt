@@ -47,6 +47,9 @@ data class GameConfig(
     @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.02,
     @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.06, // 발사 반경 검증 상한
     @JsonProperty("MISSILE_HIT_MARGIN_DEG") var missileHitMarginDeg: Double = 0.05, // 타격 centroid 근접 여유
+
+    // 경로 자동 출정(B1) — 멀리 있는 내 동으로 내 영토를 따라 최단 경로 연쇄 출정.
+    @JsonProperty("MARCH_MAX_HOPS") var marchMaxHops: Int = 60, // 자동 경로 최대 홉
 )
 
 /** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */

@@ -14,6 +14,8 @@ export interface Connection {
   join(nickname: string, token?: string): void;
   // 출정/이동 명령 전송. ratio = 이번 출정에 보낼 병력 비율(0~1, UI 슬라이더). amount는 서버가 계산.
   sendSortie(from: number, to: number, ratio: number): void;
+  // B1 경로 자동 출정. to는 인접이 아니어도 됨 — 서버가 내 영토를 따라 최단 경로로 연쇄 출정한다.
+  sendMarch(from: number, to: number, ratio: number): void;
   // 미사일 발사. center=원 중심[lng,lat], radius=반경(도), hits=원에 겹치는 동 admIndex(클라 계산).
   sendMissile(center: [number, number], radius: number, hits: number[]): void;
 

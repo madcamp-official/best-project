@@ -721,8 +721,8 @@ function handleSelect(idx: number, map: MaplibreMap) {
   else selectDong(map, idx, select);
 }
 
-// 우클릭: 선택한 내 동에서 인접한 대상 동으로 병력 파견(서버에 명령 전송).
-//  · 적/중립 → 전투    · 내 동 → 증원(영토 내 병력 이동)
+// 우클릭: 선택한 내 동에서 대상 동으로 병력 파견(서버에 명령 전송).
+//  · 인접 적/중립 → 전투    · 인접 내 동 → 증원    · 먼 내 동 → 경로 자동 출정(B1, 내 영토 따라 연쇄)
 // 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
 function handleAction(idx: number, connection: Connection) {
   const { selectedIndex, showToast, sortieRatio } = useUIStore.getState();
@@ -734,12 +734,19 @@ function handleAction(idx: number, connection: Connection) {
   }
   if (selectedIndex === idx) return;
 
-  if (!world.neighborIndex[selectedIndex]?.includes(idx)) {
-    showToast("인접한 동으로만 이동/공격할 수 있습니다.");
+  const adjacent = world.neighborIndex[selectedIndex]?.includes(idx) ?? false;
+
+  // 인접이 아니면: 내 동이면 경로 자동 출정(B1), 아니면 공격은 인접만 가능함을 안내.
+  if (!adjacent) {
+    if (world.ownerId[idx] === world.myHolderId) {
+      connection.sendMarch(selectedIndex, idx, sortieRatio);
+    } else {
+      showToast("먼 내 동은 자동 행군, 공격은 인접 동만 가능합니다.");
+    }
     return;
   }
 
-  // 목적지가 내 동인데 이미 가득 찼으면(여유 0) 보낼 게 없으니 왕복 전에 막는다.
+  // 인접 증원인데 이미 가득 찼으면(여유 0) 보낼 게 없으니 왕복 전에 막는다.
   // (여유가 있으면 그대로 보내고, 서버가 상한 여유분만큼만 잘라서 증원한다.)
   if (world.ownerId[idx] === world.myHolderId && world.troops[idx] >= world.troopCap[idx]) {
     showToast("이미 병력이 가득 찬 동입니다.");

@@ -210,6 +210,20 @@ export class LocalConnection implements Connection {
     }
   }
 
+  sendMarch(from: number, to: number, ratio: number): void {
+    const now = performance.now();
+    const before = this.gs.orders.length;
+    const safeRatio = Number.isFinite(ratio) ? Math.min(1, Math.max(0.05, ratio)) : CONFIG.SORTIE_RATIO;
+    const res = core.tryMarch(this.gs, from, to, this.holderId, now, safeRatio);
+    if (!res.ok) {
+      this.errorCb?.({ code: "NO_PATH", message: res.reason, from, to });
+      return;
+    }
+    if (this.gs.orders.length > before) {
+      this.pendingOrders.push(this.gs.orders[this.gs.orders.length - 1]);
+    }
+  }
+
   sendMissile(center: [number, number], radius: number, hits: number[]): void {
     // 실서버와 동일 취지의 검증: 각 hit 동 centroid가 원 중심에서 radius+여유 안인지.
     const valid = hits.filter((h) => this.withinRadius(h, center, radius));
@@ -247,7 +261,9 @@ export class LocalConnection implements Connection {
     this.lastTickMs = now;
 
     core.tickProduction(this.gs, dt);
-    core.tickOrders(this.gs, now, wall); // 도착 유닛 전투 처리(dirty·log 갱신)
+    // 도착 유닛 전투/증원 처리. 경로 자동 출정(B1) 릴레이의 다음-홉 order는 반환되므로 DELTA에 싣는다.
+    const relayLegs = core.tickOrders(this.gs, now, wall);
+    if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
     // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)

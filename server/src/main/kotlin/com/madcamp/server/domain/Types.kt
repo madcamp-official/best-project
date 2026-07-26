@@ -16,6 +16,8 @@ data class Order(
     val holderId: Int,
     val departTick: Long,
     val arriveTick: Long,
+    // 경로 자동 출정(B1): to 도착 후 이어서 방문할 남은 홉(최종 목적지가 마지막). 비면 to가 최종.
+    val path: List<Int> = emptyList(),
 )
 
 data class LogEvent(
@@ -48,7 +50,7 @@ sealed interface SortieResult {
     data class Err(val code: SortieErrorCode, val message: String) : SortieResult
 }
 
-enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL }
+enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL, NO_PATH }
 
 /** 미사일 발사 결과. removed = 소모된(미사일이 얹혀 있던) 동, neutralized = 중립화된 동들. */
 data class MissileLaunch(

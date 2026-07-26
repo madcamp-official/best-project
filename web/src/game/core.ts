@@ -157,36 +157,124 @@ export function trySortie(
   s.troops[from] -= amount; // 병력은 출발과 동시에 출발지를 떠난다.
   s.dirty.add(from);
 
+  s.orders.push(makeOrder(s, from, to, amount, holderId, nowMs));
+  return { ok: true };
+}
+
+// 이동 유닛(order) 하나를 만든다. path가 있으면 경로 자동 출정(B1)의 릴레이 컬럼이 된다.
+function makeOrder(
+  s: GameState,
+  from: number,
+  to: number,
+  amount: number,
+  holderId: number,
+  nowMs: number,
+  path?: number[]
+): Order {
   const travelSec = clamp(
     centroidDistance(s, from, to) / CONFIG.UNIT_SPEED_DEG_PER_SEC,
     CONFIG.UNIT_TRAVEL_MIN_SEC,
     CONFIG.UNIT_TRAVEL_MAX_SEC
   );
-  s.orders.push({
+  return {
     from,
     to,
     amount,
     holderId,
     departTick: nowMs,
     arriveTick: nowMs + travelSec * 1000,
-  });
+    ...(path && path.length > 0 ? { path } : {}),
+  };
+}
+
+// README §B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를
+// 찾아, 출발지에서 병력을 빼고 그 경로를 통째로 지고 가는 릴레이 컬럼 1개를 띄운다.
+// 인접 제약(단일 홉)은 유지한 채 UI만 원거리 지정을 허용하는 것 — 내부 order는 여전히 홉 단위다.
+export function tryMarch(
+  s: GameState,
+  from: number,
+  finalTarget: number,
+  holderId: number,
+  nowMs: number,
+  ratio: number = CONFIG.SORTIE_RATIO
+): SortieResult {
+  if (s.ownerId[from] !== holderId) return { ok: false, reason: "본인 소유 동이 아닙니다." };
+  if (from === finalTarget) return { ok: false, reason: "같은 동입니다." };
+  if (s.ownerId[finalTarget] !== holderId)
+    return { ok: false, reason: "내 소유 동으로만 자동 행군할 수 있습니다." };
+
+  const nodes = ownedPath(s, from, finalTarget, holderId, CONFIG.MARCH_MAX_HOPS);
+  if (!nodes || nodes.length < 2) return { ok: false, reason: "연결된 내 영토 경로가 없습니다." };
+
+  const amount = Math.floor(s.troops[from] * ratio);
+  if (amount <= 0) return { ok: false, reason: "출정 가능한 병력이 없습니다." };
+
+  s.troops[from] -= amount;
+  s.dirty.add(from);
+
+  // nodes = [from, h1, h2, ..., finalTarget]. 첫 leg = from→h1, 남은 경로 = [h2..finalTarget].
+  s.orders.push(makeOrder(s, from, nodes[1], amount, holderId, nowMs, nodes.slice(2)));
   return { ok: true };
+}
+
+// from→to를 잇는 최단 경로를 BFS로 찾되, 통과 가능한 동은 holderId 소유 동만이다(내 영토 릴레이).
+// 반환 = [from, ..., to] 노드열, 도달 불가면 null. maxHops를 넘는 깊이는 탐색하지 않는다.
+function ownedPath(
+  s: GameState,
+  from: number,
+  to: number,
+  holderId: number,
+  maxHops: number
+): number[] | null {
+  const prev = new Int32Array(s.n).fill(-2); // -2=미방문, -1=출발지
+  const dist = new Int32Array(s.n);
+  prev[from] = -1;
+  const q = [from];
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h];
+    if (cur === to) break;
+    if (dist[cur] >= maxHops) continue;
+    for (const nb of s.neighborIndex[cur]) {
+      if (prev[nb] !== -2 || s.ownerId[nb] !== holderId) continue; // 내 소유 동만 밟는다
+      prev[nb] = cur;
+      dist[nb] = dist[cur] + 1;
+      q.push(nb);
+    }
+  }
+  if (prev[to] === -2) return null; // 도달 불가(내 영토로 이어지지 않음)
+  const rev: number[] = [];
+  for (let c = to; c !== -1; c = prev[c]) rev.push(c);
+  return rev.reverse();
 }
 
 // 매 프레임 호출 — 도착한 유닛의 전투/증원을 처리하고 목록에서 제거.
 // nowMs = 단조 시각(도착 판정), wallNowMs = 벽시계(함락 로그 타임스탬프).
-export function tickOrders(s: GameState, nowMs: number, wallNowMs: number) {
+// 경로 자동 출정(B1)의 릴레이가 이어지는 경우, 이번 tick에 새로 발주된 다음-홉 order들을 반환한다
+// (호출자가 DELTA newOrders에 실어 보낸다).
+export function tickOrders(s: GameState, nowMs: number, wallNowMs: number): Order[] {
+  const newLegs: Order[] = [];
   for (let i = s.orders.length - 1; i >= 0; i--) {
     if (nowMs >= s.orders[i].arriveTick) {
-      resolveArrival(s, s.orders[i], wallNowMs);
+      const leg = resolveArrival(s, s.orders[i], nowMs, wallNowMs);
       s.orders.splice(i, 1);
+      if (leg) newLegs.push(leg);
     }
   }
+  // 다음-홉 order는 루프가 끝난 뒤 추가한다(arriveTick이 미래라 이번 tick엔 재도착 판정되지 않는다).
+  for (const leg of newLegs) s.orders.push(leg);
+  return newLegs;
 }
 
 // README §4.3 — 전투 판정 (유닛 도착 시). 출발지 차감은 trySortie에서 이미 끝났다.
-function resolveArrival(s: GameState, order: Order, wallNowMs: number) {
-  const { from, to, amount, holderId } = order;
+// 릴레이 컬럼(경로 자동 출정)이면 다음-홉 order를 반환, 아니면 null.
+function resolveArrival(s: GameState, order: Order, nowMs: number, wallNowMs: number): Order | null {
+  const { from, to, amount, holderId, path } = order;
+
+  // 경로 자동 출정: 남은 경로가 있고 이 동과 다음 홉이 모두 내 소유면 '통과'만 하고 다음 홉으로 이어간다.
+  // (경로가 끊겼으면 — to를 잃었거나 다음 홉을 잃었으면 — 아래 일반 로직으로 여기서 정착한다.)
+  if (path && path.length > 0 && s.ownerId[to] === holderId && s.ownerId[path[0]] === holderId) {
+    return makeOrder(s, to, path[0], amount, holderId, nowMs, path.slice(1));
+  }
 
   if (s.ownerId[to] === holderId) {
     // 증원: 상한까지만 채우고, 넘치는 병력은 출발지로 되돌린다.
@@ -225,6 +313,7 @@ function resolveArrival(s: GameState, order: Order, wallNowMs: number) {
     }
   }
   s.dirty.add(to);
+  return null;
 }
 
 function centroidDistance(s: GameState, from: number, to: number): number {

@@ -26,6 +26,14 @@ export interface SortieCommand {
   ratio: number; // 출정 병력 비율 (0~1). 없으면 서버 기본(SORTIE_RATIO)
 }
 
+// B1 경로 자동 출정(C→S). to = 멀리 있는 내 소유 admIndex(인접 아니어도 됨). 서버가 내 영토를
+// 따라 최단 경로를 찾아 연쇄 출정(릴레이 컬럼)을 발주한다. 경로가 없으면 NO_PATH 에러로 돌아온다.
+export interface MarchCommand {
+  from: number; // 내 소유 admIndex(출발지)
+  to: number; // 내 소유 admIndex(최종 목적지). from과 인접하지 않아도 됨
+  ratio: number; // 보낼 병력 비율(0~1)
+}
+
 // 미사일 발사(C→S). center=원 중심 [lng,lat], radius=반경(도), hits=원에 겹치는 동
 // admIndex 목록(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를
 // 소모해 hits를 중립화한다.
@@ -59,7 +67,7 @@ export interface WelcomeMessage {
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
 export interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE";
+  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE" | "NO_PATH";
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;

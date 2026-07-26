@@ -31,6 +31,10 @@ data class WelcomeMessage(
 // 서버가 CONFIG.SORTIE_RATIO로 대체한다(web/src/net/protocol.ts §2.3과 동일 계약).
 data class SortieCommand(val from: Int, val to: Int, val ratio: Double? = null)
 
+// B1 경로 자동 출정(C→S, /app/march). to는 from과 인접하지 않아도 되며, 서버가 내 영토를 따라
+// 최단 경로를 찾아 연쇄 출정을 발주한다. web/src/net/protocol.ts MarchCommand과 동일 계약.
+data class MarchCommand(val from: Int, val to: Int, val ratio: Double? = null)
+
 // 미사일 발사(C→S, /app/missile). center=[lng,lat], radius=반경(도), hits=원에 겹치는 동
 // admIndex(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를 소모해 적용.
 data class LaunchMissileCommand(

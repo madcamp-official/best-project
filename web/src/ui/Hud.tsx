@@ -139,7 +139,9 @@ export function Hud() {
           </div>
           {selectedInfo.isMine && (
             <div className="hud-sortie">
-              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%, 인접 동 우클릭)
+              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
+              <br />
+              인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
             </div>
           )}
         </div>
