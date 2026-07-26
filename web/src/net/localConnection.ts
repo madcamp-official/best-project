@@ -288,11 +288,12 @@ export class LocalConnection implements Connection {
       if (spawned >= 0) this.pendingMissileAdd.push(spawned);
     }
 
-    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 전진(B2)
+    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 행군(B2)
     this.supplyTimerMs += TICK_MS;
     if (this.supplyTimerMs >= CONFIG.SUPPLY_INTERVAL_SEC * 1000) {
       this.supplyTimerMs = 0;
-      core.tickSupply(this.gs);
+      const supplyOrders = core.tickSupply(this.gs, now);
+      if (supplyOrders.length > 0) this.pendingOrders.push(...supplyOrders);
     }
 
     this.flushDelta(now);

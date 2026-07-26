@@ -317,7 +317,8 @@ object GameCore {
     }
 
     // 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진(GameLoop이 supplyIntervalSec 주기로 호출).
-    fun tickSupply(world: World, config: GameConfig) {
+    // 새 보급 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
+    fun tickSupply(world: World, config: GameConfig, nowMs: Long) {
         for (h in world.rally.indices) {
             val rallyIdx = world.rally[h]
             if (rallyIdx < 0) continue
@@ -325,13 +326,14 @@ object GameCore {
                 world.rally[h] = -1 // 집결지를 잃으면 자동 해제
                 continue
             }
-            supplyToward(world, config, h, rallyIdx)
+            supplyToward(world, config, h, rallyIdx, nowMs)
         }
     }
 
-    // 집결지에서 BFS로 홉 거리를 구하고, 가까운 동부터 '집결지에 한 칸 더 가까운' 이웃으로 병력 일부를
-    // 넘긴다. 가까운 것부터 처리해야 tick당 정확히 한 홉씩만 전진한다(먼 동이 준 병력은 다음 tick에 전진).
-    private fun supplyToward(world: World, config: GameConfig, holderId: Int, rallyIdx: Int) {
+    // 집결지에서 BFS로 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로 병력 일부를
+    // 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다. 도착 처리(증원·
+    // 상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
+    private fun supplyToward(world: World, config: GameConfig, holderId: Int, rallyIdx: Int, nowMs: Long) {
         val dist = IntArray(world.n) { -1 }
         dist[rallyIdx] = 0
         val q = ArrayList<Int>()
@@ -354,14 +356,16 @@ object GameCore {
             }
             if (j < 0) continue
             val space = world.troopCap[j] - world.troops[j]
-            if (space <= 0) continue // 앞이 가득 차면 밀지 않고 쌓아둔다(손실 없음)
+            if (space <= 0) continue // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
             var amt = floor(world.troops[i] * config.supplyRatio).toInt()
             if (amt < 1) continue
             if (amt > space) amt = space
+            // 병력은 즉시 출발지를 떠나(차감) 이웃으로 행군한다. 도착 시 tickOrders가 증원 처리(초과분 반환).
             world.troops[i] -= amt
-            world.troops[j] += amt
             world.dirty.add(i)
-            world.dirty.add(j)
+            val order = makeOrder(world, config, i, j, amt, holderId, nowMs)
+            world.orders.add(order)
+            world.pendingNewOrders.add(order)
         }
     }
 
