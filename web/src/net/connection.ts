@@ -24,8 +24,10 @@ export interface Connection {
   createRoom(name: string, nickname: string, token?: string): void;
   // 방 입장. onRoomJoined로 응답(진행 중 방이면 onWelcome도).
   joinRoom(roomId: string, nickname: string, token?: string): void;
-  // 방 안에서 라운드 시작(아무나 가능). 성공 시 onWelcome(전원) + onRoomState(PLAYING).
+  // 방 안에서 라운드 시작(방장 전용 — 방장 제외 전원 준비 시). 성공 시 onWelcome(전원) + onRoomState(PLAYING).
   startRound(): void;
+  // 대기실 준비 토글(방장 아닌 멤버). 결과는 onRoomState의 멤버 ready로 전원에 퍼진다.
+  setReady(ready: boolean): void;
   // 현재 방에서 나가 로비로.
   leaveRoom(): void;
 

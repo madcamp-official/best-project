@@ -167,7 +167,10 @@ class GameLoop(
         room.state = RoomState.ENDED
         // 다음 라운드를 위해 프레시 빈 월드로 교체하고 LOBBY로 되돌린다. 멤버는 유지(대기 후 재시작).
         room.world = createFreshWorld()
-        for (member in room.members.values) member.holderId = -1
+        for (member in room.members.values) {
+            member.holderId = -1
+            member.ready = false // 다음 라운드는 다시 준비부터(방장 제외 전원 준비 시 시작 가능)
+        }
         room.roundStartMs = 0
         room.winnerHolderId = -1
         room.tickCount = 0

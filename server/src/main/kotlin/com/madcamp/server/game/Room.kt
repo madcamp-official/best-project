@@ -20,6 +20,9 @@ class Room(
     var world: World? = null // LOBBY 동안 null, 라운드 시작 시 생성
     var roundStartMs: Long = 0L // PLAYING 시작 벽시계(ms) — 제한 시간 판정용
     var winnerHolderId: Int = -1 // 직전 라운드 승자(-1=미정)
+    // 방장(principal.name). 생성자가 방장이 되고, 이탈 시 남은 멤버 중 가장 오래된 사람에게 승계.
+    // 게임 시작 권한은 방장에게만 있다(나머지는 준비 토글).
+    var hostPrincipal: String = ""
 
     // 방 멤버(principal.name → Member). 라운드 사이에도 유지 — "방에서 대기 후 재시작".
     val members: LinkedHashMap<String, Member> = LinkedHashMap()
@@ -39,4 +42,5 @@ data class Member(
     var nickname: String,
     var token: String,
     var holderId: Int = -1,
+    var ready: Boolean = false, // 대기실 준비 상태(방장 제외 전원 준비 시 시작 가능). 라운드 종료 시 리셋.
 )

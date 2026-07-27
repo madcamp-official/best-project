@@ -37,6 +37,8 @@ interface UIState {
   rooms: RoomInfo[]; // 공개 방 목록(/topic/rooms)
   currentRoom: CurrentRoom | null; // 지금 참가 중인 방
   members: MemberInfo[]; // 현재 방의 멤버 목록
+  isRoomHost: boolean; // 내가 이 방의 방장인가(시작 권한). roomJoined의 youAreHost로 갱신(승계 포함)
+  myReady: boolean; // 내 준비 상태(방장 아닐 때, 낙관적 로컬 토글 — 서버 브로드캐스트가 최종 진실)
   roundResult: RoundEndMessage | null; // 방금 끝난 라운드 결과(결과 화면용)
   roundEndsAt: number; // 라운드 종료 로컬 시각(Date.now ms). 0=제한 없음 — HUD 타이머 표시용
   selectedIndex: number | null;
@@ -63,6 +65,8 @@ interface UIState {
   setRooms: (rooms: RoomInfo[]) => void;
   setCurrentRoom: (room: CurrentRoom | null) => void;
   setMembers: (members: MemberInfo[]) => void;
+  setIsRoomHost: (v: boolean) => void;
+  setMyReady: (v: boolean) => void;
   setRoundResult: (r: RoundEndMessage | null) => void;
   setRoundEndsAt: (t: number) => void;
   setSortieRatio: (ratio: number) => void;
@@ -94,6 +98,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   rooms: [],
   currentRoom: null,
   members: [],
+  isRoomHost: false,
+  myReady: false,
   roundResult: null,
   roundEndsAt: 0,
   selectedIndex: null,
@@ -119,6 +125,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoom: (currentRoom) => set({ currentRoom }),
   setMembers: (members) => set({ members }),
+  setIsRoomHost: (isRoomHost) => set({ isRoomHost }),
+  setMyReady: (myReady) => set({ myReady }),
   setRoundResult: (roundResult) => set({ roundResult }),
   setRoundEndsAt: (roundEndsAt) => set({ roundEndsAt }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),

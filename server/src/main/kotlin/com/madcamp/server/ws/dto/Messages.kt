@@ -101,15 +101,16 @@ data class RoomInfo(
 /** 공개 방 목록(S→C, /topic/rooms). 멤버십·상태가 바뀔 때마다 브로드캐스트. */
 data class RoomListMessage(val rooms: List<RoomInfo>)
 
-/** 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). */
-data class MemberInfo(val nickname: String, val holderId: Int)
+/** 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). host=방장, ready=대기실 준비 상태. */
+data class MemberInfo(val nickname: String, val holderId: Int, val ready: Boolean, val host: Boolean)
 
-/** 방 입장 응답(S→C, /user/queue/roomJoined). 입장한 방의 현재 상태·멤버를 알려준다. */
+/** 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용). */
 data class RoomJoinedMessage(
     val roomId: String,
     val name: String,
     val state: RoomState,
     val members: List<MemberInfo>,
+    val youAreHost: Boolean,
 )
 
 /** 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state). */
@@ -133,3 +134,6 @@ data class CreateRoomCommand(val name: String? = null, val nickname: String? = n
 
 /** 방 입장(C→S, /app/lobby/join). */
 data class JoinRoomCommand(val roomId: String = "", val nickname: String? = null, val token: String? = null)
+
+/** 대기실 준비 토글(C→S, /app/room/ready). 방장이 아닌 멤버가 사용. */
+data class SetReadyCommand(val ready: Boolean = false)

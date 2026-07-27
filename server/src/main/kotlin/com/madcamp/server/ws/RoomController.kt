@@ -7,7 +7,9 @@ import com.madcamp.server.game.RoomState
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
 import com.madcamp.server.ws.dto.ErrorMessage
+import com.madcamp.server.ws.dto.SetReadyCommand
 import org.springframework.messaging.handler.annotation.MessageMapping
+import org.springframework.messaging.handler.annotation.Payload
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import java.security.Principal
@@ -35,17 +37,40 @@ class RoomController(
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             if (room.state == RoomState.PLAYING || room.members.isEmpty()) return@submitRoomTask
+            // 시작 권한은 방장에게만. 그 외에는 전원(방장 제외) 준비 완료가 조건.
+            if (principal.name != room.hostPrincipal) {
+                sendError(principal, "NOT_HOST", "방장만 게임을 시작할 수 있습니다.")
+                return@submitRoomTask
+            }
+            if (room.members.values.any { it.principalName != room.hostPrincipal && !it.ready }) {
+                sendError(principal, "NOT_READY", "모든 플레이어가 준비를 완료해야 시작할 수 있습니다.")
+                return@submitRoomTask
+            }
             if (roomManager.playingCount() >= RoomManager.MAX_PLAYING_ROOMS) {
                 // 동시 진행 방 상한 — 시작한 사람에게 이유를 알려준다(조용히 무시하면 버튼이 "고장"처럼 보임).
-                messaging.convertAndSendToUser(
-                    principal.name,
-                    "/queue/error",
-                    ErrorMessage("ROOM_LIMIT", "동시에 진행 중인 게임이 가득 찼습니다 — 잠시 후 다시 시도하세요.", -1, -1),
-                )
+                sendError(principal, "ROOM_LIMIT", "동시에 진행 중인 게임이 가득 찼습니다 — 잠시 후 다시 시도하세요.")
                 return@submitRoomTask
             }
             startRound(room)
         }
+    }
+
+    /** 대기실 준비 토글(방장 아닌 멤버). 상태 변경은 /topic/room/{id}/state로 전원에 퍼진다. */
+    @MessageMapping("/room/ready")
+    fun ready(@Payload cmd: SetReadyCommand, principal: Principal) {
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
+        if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return
+        gameLoop.submitRoomTask {
+            val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
+            if (room.state == RoomState.PLAYING) return@submitRoomTask // 진행 중엔 무의미
+            val member = room.members[principal.name] ?: return@submitRoomTask
+            member.ready = cmd.ready
+            broadcaster.broadcastRoomState(room)
+        }
+    }
+
+    private fun sendError(principal: Principal, code: String, message: String) {
+        messaging.convertAndSendToUser(principal.name, "/queue/error", ErrorMessage(code, message, -1, -1))
     }
 
     @MessageMapping("/room/leave")
@@ -60,6 +85,11 @@ class RoomController(
             if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
                 roomManager.remove(room.id)
             } else {
+                // 방장이 나갔으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다.
+                if (principal.name == room.hostPrincipal && room.members.isNotEmpty()) {
+                    room.hostPrincipal = room.members.keys.first()
+                    broadcaster.notifyRoomJoined(room, room.hostPrincipal)
+                }
                 broadcaster.broadcastRoomState(room)
             }
             broadcaster.broadcastRoomList()

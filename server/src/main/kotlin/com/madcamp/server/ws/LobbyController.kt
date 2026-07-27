@@ -48,6 +48,7 @@ class LobbyController(
             }
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
             val room = roomManager.create(name)
+            room.hostPrincipal = principal.name // 생성자가 방장 — 시작 권한 보유
             addMemberAndReply(room, principal, cmd.nickname, cmd.token)
         }
     }
@@ -105,7 +106,7 @@ class LobbyController(
             if (token != null) member.token = token
             connectionRegistry.bind(principal.name, room.id, member.holderId) // 로비 대기(holderId=-1)
         }
-        messaging.convertAndSendToUser(principal.name, "/queue/roomJoined", broadcaster.roomJoined(room))
+        messaging.convertAndSendToUser(principal.name, "/queue/roomJoined", broadcaster.roomJoined(room, principal.name))
         broadcaster.broadcastRoomState(room)
         broadcaster.broadcastRoomList()
     }

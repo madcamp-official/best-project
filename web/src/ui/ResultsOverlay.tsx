@@ -13,6 +13,8 @@ const MEDALS = ["🥇", "🥈", "🥉"];
 export function ResultsOverlay({ connection }: Props) {
   const result = useUIStore((s) => s.roundResult);
   const myHolderId = useUIStore((s) => s.myHolderId);
+  const isRoomHost = useUIStore((s) => s.isRoomHost);
+  const members = useUIStore((s) => s.members);
   const setPhase = useUIStore((s) => s.setPhase);
   if (!result) return null;
 
@@ -21,6 +23,9 @@ export function ResultsOverlay({ connection }: Props) {
     connection.listRooms();
     setPhase("lobby");
   };
+  // 시작 권한은 방장 + 전원 준비 조건이라, 혼자인 방장만 여기서 즉시 재시작할 수 있다.
+  // 그 외에는 대기실로 돌아가 준비/시작 흐름을 거친다.
+  const soloHost = isRoomHost && members.length <= 1;
   const iWon = result.winnerHolderId === myHolderId;
   const total = result.leaderboard.reduce((sum, r) => sum + r.count, 0);
 
@@ -92,14 +97,25 @@ export function ResultsOverlay({ connection }: Props) {
         </div>
 
         <div className="io-row">
-          <button
-            className="io-btn io-btn-green io-btn-lg"
-            type="button"
-            style={{ flex: 1 }}
-            onClick={() => connection.startRound()}
-          >
-            ▶ 다시 시작
-          </button>
+          {soloHost ? (
+            <button
+              className="io-btn io-btn-green io-btn-lg"
+              type="button"
+              style={{ flex: 1 }}
+              onClick={() => connection.startRound()}
+            >
+              ▶ 다시 시작
+            </button>
+          ) : (
+            <button
+              className="io-btn io-btn-green io-btn-lg"
+              type="button"
+              style={{ flex: 1 }}
+              onClick={() => setPhase("room")}
+            >
+              대기실로
+            </button>
+          )}
           <button className="io-btn io-btn-ghost" type="button" onClick={leave}>
             로비로
           </button>

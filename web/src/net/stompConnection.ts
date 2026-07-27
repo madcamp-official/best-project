@@ -198,6 +198,10 @@ export class StompConnection implements Connection {
     this.send("/app/room/start", "{}");
   }
 
+  setReady(ready: boolean): void {
+    this.send("/app/room/ready", JSON.stringify({ ready }));
+  }
+
   leaveRoom(): void {
     this.send("/app/room/leave", "{}");
     this.unsubscribeRoom();

@@ -464,6 +464,7 @@ export class LocalConnection implements Connection {
   createRoom(_name: string, _nickname: string, _token?: string): void {}
   joinRoom(_roomId: string, _nickname: string, _token?: string): void {}
   startRound(): void {}
+  setReady(_ready: boolean): void {}
   leaveRoom(): void {}
   onRoomList(_cb: (m: RoomListMessage) => void): void {}
   onRoomJoined(_cb: (m: RoomJoinedMessage) => void): void {}

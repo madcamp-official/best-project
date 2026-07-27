@@ -100,7 +100,9 @@ export interface ErrorMessage {
     | "AIRDROP_RANGE"
     | "ROOM_NOT_FOUND" // 로비: 입장하려던 방이 없음(사라짐)
     | "ROOM_FULL" // 로비: 방 정원 초과
-    | "ROOM_LIMIT"; // 로비: 방 개수/동시 진행 상한
+    | "ROOM_LIMIT" // 로비: 방 개수/동시 진행 상한
+    | "NOT_HOST" // 대기실: 방장만 시작 가능
+    | "NOT_READY"; // 대기실: 전원 준비 전 시작 불가
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;
@@ -140,10 +142,12 @@ export interface LeaderboardMessage {
 
 export type RoomState = "LOBBY" | "PLAYING" | "ENDED";
 
-// 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정).
+// 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). host=방장, ready=대기실 준비 상태.
 export interface MemberInfo {
   nickname: string;
   holderId: number;
+  ready: boolean;
+  host: boolean;
 }
 
 // 로비 목록의 방 한 개 요약(/topic/rooms).
@@ -160,12 +164,13 @@ export interface RoomListMessage {
   rooms: RoomInfo[];
 }
 
-// 방 입장 응답(S→C, /user/queue/roomJoined). 입장한 방의 현재 상태·멤버.
+// 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
 export interface RoomJoinedMessage {
   roomId: string;
   name: string;
   state: RoomState;
   members: MemberInfo[];
+  youAreHost: boolean;
 }
 
 // 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state).

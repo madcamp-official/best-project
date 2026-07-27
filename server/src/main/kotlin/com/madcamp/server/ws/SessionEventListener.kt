@@ -31,6 +31,11 @@ class SessionEventListener(
             if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
                 roomManager.remove(room.id)
             } else {
+                // 방장이 끊겼으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다.
+                if (principalName == room.hostPrincipal && room.members.isNotEmpty()) {
+                    room.hostPrincipal = room.members.keys.first()
+                    broadcaster.notifyRoomJoined(room, room.hostPrincipal)
+                }
                 broadcaster.broadcastRoomState(room)
             }
             broadcaster.broadcastRoomList()

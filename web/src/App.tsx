@@ -87,8 +87,10 @@ function App() {
           const st = useUIStore.getState();
           st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state });
           st.setMembers(msg.members);
-          // 진행 중 방에 난입한 경우엔 곧 WELCOME이 와서 ready로 바꾸므로 여기선 대기실로 내리지 않는다.
-          if (msg.state !== "PLAYING") setPhase("room");
+          st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
+          if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
+          // 진행 중 방 난입은 곧 WELCOME이 ready로 바꾸고, 결과/게임 화면 중 승계 통지로 화면을 끌어내리지 않는다.
+          if (msg.state !== "PLAYING" && (st.phase === "lobby" || st.phase === "room")) setPhase("room");
         });
         connection.onRoomState((msg) => {
           const st = useUIStore.getState();
@@ -98,7 +100,9 @@ function App() {
           }
         });
         connection.onRoundEnd((msg) => {
-          useUIStore.getState().setRoundResult(msg);
+          const st = useUIStore.getState();
+          st.setRoundResult(msg);
+          st.setMyReady(false); // 서버가 라운드 종료 시 전원 준비를 리셋 — 로컬 상태도 맞춘다
           setPhase("results");
         });
         // 연결 끊김 → 배너 표시, 재연결 → 배너 해제(+최초 연결이 아니면 재연결 토스트).
