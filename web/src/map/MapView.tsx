@@ -537,6 +537,10 @@ export function MapView({ prepared, connection }: Props) {
             "icon-size": 1,
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
+            // 삼각형 뾰족한 꼭짓점(북쪽)을 진행 방위각만큼 시계방향 회전 → 이동 방향을 가리킨다.
+            // rotation-alignment "map": 지도 북 기준으로 회전(지도 회전/기울임과 무관하게 방향 유지).
+            "icon-rotate": ["get", "bearing"],
+            "icon-rotation-alignment": "map",
           },
         });
       } else {
@@ -1421,9 +1425,13 @@ function updateUnits(map: MaplibreMap, now: number) {
     const t = span > 0 ? Math.min(1, Math.max(0, (now - o.departTick) / span)) : 1;
     const a = world.meta[o.from].centroid;
     const b = world.meta[o.to].centroid;
+    // 진행 방위각(북 기준 시계방향, 도) — 공수 삼각형 유닛을 이동 방향으로 회전시키는 데 쓴다.
+    // 경도차는 위도에 따라 화면 폭이 줄어드므로 cosLat로 보정해야 실제 진행 방향과 일치한다.
+    const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180) || 1;
+    const bearing = (Math.atan2((b[0] - a[0]) * cosLat, b[1] - a[1]) * 180) / Math.PI;
     return {
       type: "Feature" as const,
-      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId) },
+      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId), bearing },
       geometry: {
         type: "Point" as const,
         coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],

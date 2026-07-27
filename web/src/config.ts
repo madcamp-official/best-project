@@ -47,7 +47,10 @@ export const CONFIG = {
   AIRDROP_COOLDOWN_SEC: 30, // 플레이어당 재사용 대기(초). 출발지 선택 원 반경은 미사일과 동일(MISSILE_RADIUS_DEG).
   // 사거리 상한(출발 동↔목적지 centroid 거리, 도 단위). 섬 도달이 목적이라 섬↔육지 최대 간격 기준.
   // 울릉도(1.5°)는 극단 외딴섬이라 제외하고, 나머지 72개 섬(최대 흑산도 ~0.5°)까지 닿도록 0.55.
-  AIRDROP_MAX_RANGE_DEG: 0.55, // 클라·서버 공유
+  AIRDROP_MAX_RANGE_DEG: 0.35, // 클라·서버 공유
+  // 공수 삼각형 유닛 이동 속도 — 일반 유닛(UNIT_SPEED)보다 조금 느리게 잡아 수송이 또렷이 보이게.
+  AIRDROP_SPEED_DEG_PER_SEC: 0.013, // 느릴수록 오래 보임(일반 0.02보다 느림)
+  AIRDROP_TRAVEL_MAX_SEC: 3.5, // 공수 이동 시간 상한(초) — 원거리 투하도 이 안에서 마무리
 } as const;
 
 // holderId 0 = 중립. 목업은 단일 플레이어이므로 1만 사용.

@@ -176,12 +176,14 @@ function makeOrder(
   amount: number,
   holderId: number,
   nowMs: number,
-  path?: number[]
+  path?: number[],
+  speedDegPerSec: number = CONFIG.UNIT_SPEED_DEG_PER_SEC,
+  maxSec: number = CONFIG.UNIT_TRAVEL_MAX_SEC
 ): Order {
   const travelSec = clamp(
-    centroidDistance(s, from, to) / CONFIG.UNIT_SPEED_DEG_PER_SEC,
+    centroidDistance(s, from, to) / speedDegPerSec,
     CONFIG.UNIT_TRAVEL_MIN_SEC,
-    CONFIG.UNIT_TRAVEL_MAX_SEC
+    maxSec
   );
   return {
     from,
@@ -557,7 +559,18 @@ export function tryAirdrop(
   }
   s.airdropReadyAt[holderId] = nowMs + CONFIG.AIRDROP_COOLDOWN_SEC * 1000;
 
-  const order = makeOrder(s, origin, dest, total, holderId, nowMs);
+  // 공수는 일반 유닛보다 조금 느리게(전용 속도·상한) 날아가 수송이 또렷이 보이게 한다.
+  const order = makeOrder(
+    s,
+    origin,
+    dest,
+    total,
+    holderId,
+    nowMs,
+    undefined,
+    CONFIG.AIRDROP_SPEED_DEG_PER_SEC,
+    CONFIG.AIRDROP_TRAVEL_MAX_SEC
+  );
   order.airdrop = true;
   s.orders.push(order);
   return { ok: true };

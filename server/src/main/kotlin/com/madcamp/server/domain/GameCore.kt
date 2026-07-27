@@ -89,9 +89,11 @@ object GameCore {
         holderId: Int,
         nowMs: Long,
         path: List<Int> = emptyList(),
+        speedDegPerSec: Double = config.unitSpeedDegPerSec,
+        maxSec: Double = config.unitTravelMaxSec,
     ): Order {
-        val travelSec = (centroidDistance(world, from, to) / config.unitSpeedDegPerSec)
-            .coerceIn(config.unitTravelMinSec, config.unitTravelMaxSec)
+        val travelSec = (centroidDistance(world, from, to) / speedDegPerSec)
+            .coerceIn(config.unitTravelMinSec, maxSec)
         return Order(from, to, amount, holderId, nowMs, nowMs + (travelSec * 1000).toLong(), path)
     }
 
@@ -370,7 +372,12 @@ object GameCore {
         }
         world.airdropReadyAt[holderId] = nowMs + (config.airdropCooldownSec * 1000).toLong()
 
-        val order = makeOrder(world, config, origin, dest, total, holderId, nowMs).copy(airdrop = true)
+        // 공수는 일반 유닛보다 조금 느리게(전용 속도·상한) 날아가 수송이 또렷이 보이게 한다.
+        val order = makeOrder(
+            world, config, origin, dest, total, holderId, nowMs,
+            speedDegPerSec = config.airdropSpeedDegPerSec,
+            maxSec = config.airdropTravelMaxSec,
+        ).copy(airdrop = true)
         world.orders.add(order)
         world.pendingNewOrders.add(order)
         return SortieResult.Ok
