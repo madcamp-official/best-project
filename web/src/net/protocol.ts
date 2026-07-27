@@ -34,6 +34,14 @@ export interface MarchCommand {
   ratio: number; // 보낼 병력 비율(0~1)
 }
 
+// 드래그 쓸기(C→S). 한 출발지(from)에서 여러 인접 목표(targets)로 병력을 균등 분할해 동시 출정.
+// 서버가 인접·소유를 검증하고 출정 병력(troops*ratio)을 유효 목표 수로 나눠 보낸다.
+export interface MultiSortieCommand {
+  from: number; // 내 소유 admIndex(출발지)
+  targets: number[]; // from과 인접한 목표 admIndex 목록(적·중립·내 동 혼재 가능)
+  ratio: number; // 보낼 총 병력 비율(0~1) — 목표 수로 균등 분할된다
+}
+
 // 미사일 발사(C→S). center=원 중심 [lng,lat], radius=반경(도), hits=원에 겹치는 동
 // admIndex 목록(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를
 // 소모해 hits를 중립화한다.

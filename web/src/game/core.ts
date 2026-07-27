@@ -212,6 +212,55 @@ export function trySortie(
   return { ok: true };
 }
 
+// 드래그 쓸기 — 한 출발지(from)에서 여러 인접 목표(targets)로 병력을 균등 분할해 한 번에 출정한다.
+// 출정 병력(troops*ratio)을 유효 목표 수로 나눠 목표마다 같은 몫을 보낸다(증원 목표는 상한 여유로 제한).
+// 클릭 한 번에 여러 인접 적·중립을 동시에 점령하기 위한 것 — 각 order는 여전히 단일 홉이다.
+// 반환 = 새로 출발한 order 목록(호출자가 DELTA newOrders로 실어 보낸다).
+export function tryMultiSortie(
+  s: GameState,
+  from: number,
+  targets: number[],
+  holderId: number,
+  nowMs: number,
+  ratio: number = CONFIG.SORTIE_RATIO
+): { ok: true; orders: Order[] } | { ok: false; reason: string } {
+  if (s.ownerId[from] !== holderId) return { ok: false, reason: "본인 소유 동이 아닙니다." };
+  // 유효 목표 = from과 인접 + from 아님 + 중복 제거.
+  const seen = new Set<number>();
+  const valid: number[] = [];
+  for (const t of targets) {
+    if (t === from || t < 0 || t >= s.n || seen.has(t)) continue;
+    if (!s.neighborIndex[from]?.includes(t)) continue;
+    seen.add(t);
+    valid.push(t);
+  }
+  if (valid.length === 0) return { ok: false, reason: "인접한 목표가 없습니다." };
+
+  const total = Math.floor(s.troops[from] * ratio);
+  if (total <= 0) return { ok: false, reason: "출정 가능한 병력이 없습니다." };
+  const share = Math.floor(total / valid.length);
+  if (share <= 0) return { ok: false, reason: "목표가 너무 많아 나눌 병력이 부족합니다." };
+
+  const out: Order[] = [];
+  for (const t of valid) {
+    let amt = share;
+    if (s.ownerId[t] === holderId) {
+      // 증원 목표: 상한 여유분까지만(초과분 소멸 방지). 여유가 없으면 건너뛴다.
+      const headroom = s.troopCap[t] - s.troops[t];
+      if (headroom <= 0) continue;
+      if (amt > headroom) amt = headroom;
+    }
+    if (amt <= 0) continue;
+    s.troops[from] -= amt; // 몫만큼 즉시 출발지에서 차감(총합 ≤ total ≤ 보유량이라 음수 안 됨)
+    const order = makeOrder(s, from, t, amt, holderId, nowMs);
+    s.orders.push(order);
+    out.push(order);
+  }
+  if (out.length === 0) return { ok: false, reason: "보낼 병력이 없습니다." };
+  s.dirty.add(from);
+  return { ok: true, orders: out };
+}
+
 // 이동 유닛(order) 하나를 만든다. path가 있으면 경로 자동 출정(B1)의 릴레이 컬럼이 된다.
 function makeOrder(
   s: GameState,

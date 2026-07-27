@@ -46,6 +46,10 @@ data class SortieCommand(val from: Int, val to: Int, val ratio: Double? = null)
 // 최단 경로를 찾아 연쇄 출정을 발주한다. web/src/net/protocol.ts MarchCommand과 동일 계약.
 data class MarchCommand(val from: Int, val to: Int, val ratio: Double? = null)
 
+// 드래그 쓸기(C→S, /app/sortie-multi). 한 출발지(from)에서 여러 인접 목표(targets)로 병력을 균등
+// 분할해 동시 출정한다. web/src/net/protocol.ts MultiSortieCommand과 동일 계약.
+data class MultiSortieCommand(val from: Int = -1, val targets: List<Int> = emptyList(), val ratio: Double? = null)
+
 // 미사일 발사(C→S, /app/missile). center=[lng,lat], radius=반경(도), hits=원에 겹치는 동
 // admIndex(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를 소모해 적용.
 data class LaunchMissileCommand(

@@ -35,6 +35,8 @@ export interface Connection {
   sendSortie(from: number, to: number, ratio: number): void;
   // B1 경로 자동 출정. to는 인접이 아니어도 됨 — 서버가 내 영토를 따라 최단 경로로 연쇄 출정한다.
   sendMarch(from: number, to: number, ratio: number): void;
+  // 드래그 쓸기. 한 출발지에서 여러 인접 목표로 병력을 균등 분할해 동시 출정한다.
+  sendMultiSortie(from: number, targets: number[], ratio: number): void;
   // 미사일 발사. center=원 중심[lng,lat], radius=반경(도), hits=원에 겹치는 동 admIndex(클라 계산).
   sendMissile(center: [number, number], radius: number, hits: number[]): void;
   // 전술핵 발사(사일로 소유자 전용). 인자 형식은 sendMissile과 동일하되 반경이 NUKE_RADIUS_MULT배.

@@ -202,7 +202,11 @@ export function Hud({ connection, isMock }: Props) {
           onChange={(e) => setSortieRatio(Number(e.currentTarget.value) / 100)}
           aria-label="출정 병력 비율"
         />
-        <div className="hud-ratio-hint">우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다</div>
+        <div className="hud-ratio-hint">
+          우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다
+          <br />
+          내 동에서 우클릭 드래그로 여러 인접 지역을 <strong>쓸면</strong> 병력을 나눠 한 번에 출정합니다
+        </div>
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">

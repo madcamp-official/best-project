@@ -226,6 +226,17 @@ export class LocalConnection implements Connection {
     }
   }
 
+  sendMultiSortie(from: number, targets: number[], ratio: number): void {
+    const now = performance.now();
+    const safeRatio = Number.isFinite(ratio) ? Math.min(1, Math.max(0.05, ratio)) : CONFIG.SORTIE_RATIO;
+    const res = core.tryMultiSortie(this.gs, from, targets, this.holderId, now, safeRatio);
+    if (!res.ok) {
+      this.errorCb?.({ code: this.errorCode(from, targets[0] ?? -1), message: res.reason, from, to: -1 });
+      return;
+    }
+    this.pendingOrders.push(...res.orders); // 새로 출발한 order 전부 다음 DELTA에 실어 보낸다
+  }
+
   sendMarch(from: number, to: number, ratio: number): void {
     const now = performance.now();
     const before = this.gs.orders.length;

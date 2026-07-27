@@ -263,6 +263,10 @@ export function MapView({ prepared, connection }: Props) {
     let dragSource = -1;
     let dragTargets: number[] = []; // 이번 드래그에서 갈 수 있는 동들(드래그 확정 시 1회 계산)
     let dragTargetSet = new Set<number>();
+    // 드래그 쓸기: 커서가 지나간 '인접 적·중립' 목표를 모아 놓았다 놓을 때 한 번에 출정한다.
+    let dragAdj = new Set<number>(); // 출발지에 인접한 non-소유 동(쓸기로 집을 수 있는 대상)
+    let dragPicked: number[] = []; // 이번 드래그에서 쓸어 담은 목표(순서 보존)
+    let dragPickedSet = new Set<number>();
 
     // 출발지(from)에서 커서로 이어지는 공격 화살표(본선 + 화살촉)를 그린다. from<0이면 비운다.
     const updateArrow = (from: number, cursor: [number, number] | null) => {
@@ -276,6 +280,19 @@ export function MapView({ prepared, connection }: Props) {
         type: "FeatureCollection",
         features: arrowPolygon(world.meta[from].centroid as [number, number], cursor),
       });
+    };
+
+    // 출발지(from)에서 여러 목표(targets) 중심으로 향하는 화살표들을 한꺼번에 그린다(드래그 쓸기).
+    const updateArrows = (from: number, targets: number[]) => {
+      const src = map.getSource(ATTACK_ARROW_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      if (from < 0 || from >= world.n || targets.length === 0) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      const a = world.meta[from].centroid as [number, number];
+      const features = targets.flatMap((t) => arrowPolygon(a, world.meta[t].centroid as [number, number]));
+      src.setData({ type: "FeatureCollection", features });
     };
 
     // 드래그 중 화살표가 가리킬(= 놓았을 때 실제로 보낼) 대상 동을 정한다.
@@ -1088,14 +1105,32 @@ export function MapView({ prepared, connection }: Props) {
               dragSource = rightDownDong;
               dragTargets = reachableTargets(dragSource); // 갈 수 있는 동을 이번 드래그 시작 시 1회 계산
               dragTargetSet = new Set(dragTargets);
+              // 쓸기로 집을 수 있는 대상 = 출발지에 인접한 non-소유 동(적·중립). 드래그 시작 시 1회 계산.
+              dragAdj = new Set(
+                world.neighborIndex[dragSource].filter((nb) => world.ownerId[nb] !== world.myHolderId)
+              );
+              dragPicked = [];
+              dragPickedSet = new Set();
               selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
             }
           }
-          // 갈 수 있는 대상 위면 그 동, 아니면 그 방향으로 갈 수 있는 최대치 동을 가리킨다(resolveDragTarget).
           if (dragging) {
-            const t = resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]);
-            if (t >= 0) updateArrow(dragSource, world.meta[t].centroid as [number, number]);
-            else updateArrow(-1, null);
+            // 쓸기: 커서가 인접 적·중립 위를 지나가면 그 동을 목표로 담는다(한 번 담기면 유지).
+            const hitsMove = map.queryRenderedFeatures([e.point.x, e.point.y], { layers: [FILL_LAYER] });
+            const over = hitsMove.length > 0 && hitsMove[0].id !== undefined ? Number(hitsMove[0].id) : -1;
+            if (over >= 0 && dragAdj.has(over) && !dragPickedSet.has(over)) {
+              dragPickedSet.add(over);
+              dragPicked.push(over);
+            }
+            if (dragPicked.length > 0) {
+              // 담은 목표들로 향하는 화살표를 전부 그린다(자석처럼 각 동 중심에 붙음).
+              updateArrows(dragSource, dragPicked);
+            } else {
+              // 아직 아무것도 안 담았으면 기존 단일 화살표(그 방향 최대치 동)를 보여준다.
+              const t = resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]);
+              if (t >= 0) updateArrow(dragSource, world.meta[t].centroid as [number, number]);
+              else updateArrow(-1, null);
+            }
           }
         }
       });
@@ -1144,8 +1179,11 @@ export function MapView({ prepared, connection }: Props) {
         if (e.originalEvent.button !== 2 || !rightDownPoint) return; // 우클릭 뗄 때만
         const wasDragging = dragging;
         const from = dragSource;
-        // 드래그면 화살표가 가리키던 대상(그 방향 최대치)을 그대로 쓴다 — 리셋 전에 계산.
-        const dragTarget = wasDragging ? resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]) : -1;
+        // 쓸어 담은 목표들(2개 이상이면 한 번에 균등 분할 출정). 리셋 전에 스냅샷.
+        const picked = dragPicked.slice();
+        // 아무것도 안 담았으면 화살표가 가리키던 대상(그 방향 최대치)을 그대로 쓴다 — 리셋 전에 계산.
+        const dragTarget =
+          wasDragging && picked.length === 0 ? resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]) : -1;
 
         rightDownPoint = null; // 상태 리셋
         rightDownDong = -1;
@@ -1153,10 +1191,20 @@ export function MapView({ prepared, connection }: Props) {
         dragSource = -1;
         dragTargets = [];
         dragTargetSet = new Set();
+        dragAdj = new Set();
+        dragPicked = [];
+        dragPickedSet = new Set();
         updateArrow(-1, null); // 화살표 지우기
 
         if (wasDragging) {
-          if (dragTarget >= 0) doAttack(from, dragTarget, connection); // 새: 화살표가 가리킨 동으로
+          if (picked.length >= 2) {
+            // 새: 여러 인접 목표를 쓸었으면 균등 분할해 한 번에 출정(클릭 감소).
+            connection.sendMultiSortie(from, picked, useUIStore.getState().sortieRatio);
+          } else if (picked.length === 1) {
+            doAttack(from, picked[0], connection); // 하나만 쓸었으면 단일 출정
+          } else if (dragTarget >= 0) {
+            doAttack(from, dragTarget, connection); // 아무것도 안 쓸었으면 방향이 가리킨 동(먼 내 동=행군 등)
+          }
         } else {
           const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
           const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;

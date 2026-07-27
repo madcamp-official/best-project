@@ -235,6 +235,10 @@ export class StompConnection implements Connection {
     this.client.publish({ destination: "/app/march", body: JSON.stringify({ from, to, ratio }) });
   }
 
+  sendMultiSortie(from: number, targets: number[], ratio: number): void {
+    this.client.publish({ destination: "/app/sortie-multi", body: JSON.stringify({ from, targets, ratio }) });
+  }
+
   sendMissile(center: [number, number], radius: number, hits: number[]): void {
     this.client.publish({ destination: "/app/missile", body: JSON.stringify({ center, radius, hits }) });
   }
