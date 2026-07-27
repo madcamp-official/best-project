@@ -29,6 +29,7 @@ export class LocalConnection implements Connection {
   private deltaCb: ((m: DeltaMessage) => void) | null = null;
   private errorCb: ((m: ErrorMessage) => void) | null = null;
   private leaderboardCb: ((m: LeaderboardMessage) => void) | null = null;
+  private connectionCb: ((connected: boolean) => void) | null = null;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastTickMs = 0;
@@ -55,9 +56,10 @@ export class LocalConnection implements Connection {
       Date.now(),
       prepared.borderMask // 포위 귀속 판정의 경계 동 마스크
     );
-    // 개발 편의: 포위 귀속 등 시나리오 테스트를 위해 목 서버의 권위 상태를 노출(프로덕션 제외).
+    // 개발 편의: 포위 귀속 등 시나리오 테스트를 위해 목 서버의 권위 상태·연결을 노출(프로덕션 제외).
     if (import.meta.env.DEV) {
       (globalThis as Record<string, unknown>).__mockGs = this.gs;
+      (globalThis as Record<string, unknown>).__mockConn = this;
     }
     // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
@@ -188,6 +190,7 @@ export class LocalConnection implements Connection {
     const holder = this.gs.holders.get(this.holderId);
     if (holder && nickname.trim()) holder.name = nickname.trim().slice(0, 12);
 
+    this.connectionCb?.(true); // 목 서버는 항상 연결 상태.
     this.welcomeCb?.(this.buildWelcome());
 
     // 목 서버 tick 루프 시작.
@@ -395,6 +398,14 @@ export class LocalConnection implements Connection {
   }
   onLeaderboard(cb: (m: LeaderboardMessage) => void): void {
     this.leaderboardCb = cb;
+  }
+  onConnectionChange(cb: (connected: boolean) => void): void {
+    this.connectionCb = cb;
+  }
+
+  // 개발용: 끊김/재연결 UI를 목 모드에서 테스트하기 위한 수동 트리거(프로덕션 경로 아님).
+  simulateConnection(connected: boolean): void {
+    this.connectionCb?.(connected);
   }
 
   dispose(): void {

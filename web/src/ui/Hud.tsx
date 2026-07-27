@@ -29,6 +29,7 @@ export function Hud({ connection }: Props) {
   const airdropCoolSec = Math.ceil(airdropCooldownLeft / 1000);
   const defeated = useUIStore((s) => s.defeated);
   const setDefeated = useUIStore((s) => s.setDefeated);
+  const connectionLost = useUIStore((s) => s.connectionLost);
   const setPhase = useUIStore((s) => s.setPhase);
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
@@ -209,6 +210,12 @@ export function Hud({ connection }: Props) {
               인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
             </div>
           )}
+        </div>
+      )}
+
+      {connectionLost && (
+        <div className="hud-conn-lost">
+          <span className="hud-conn-dot" /> 연결 끊김 — 재연결 중…
         </div>
       )}
 

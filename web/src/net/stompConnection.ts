@@ -38,11 +38,14 @@ export class StompConnection implements Connection {
   private deltaCb: ((m: DeltaMessage) => void) | null = null;
   private errorCb: ((m: ErrorMessage) => void) | null = null;
   private leaderboardCb: ((m: LeaderboardMessage) => void) | null = null;
+  private connectionCb: ((connected: boolean) => void) | null = null;
 
   constructor(wsUrl: string = SERVER_WS_URL) {
     this.client = new Client({
       brokerURL: wsUrl,
       reconnectDelay: 3000, // 끊기면 3초 후 자동 재연결(plan.md §6 네트워크 불안 대응)
+      // STOMP 하트비트(keep-alive) — 서버 브로커도 하트비트+TaskScheduler를 켜야 실제로 동작한다.
+      // half-open(조용히 죽은) 연결을 이 주기로 감지해 재연결을 트리거한다.
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
     });
@@ -50,7 +53,14 @@ export class StompConnection implements Connection {
     // 최초 연결이든 자동 재연결이든, 연결될 때마다 구독을 다시 걸고 JOIN을 재전송한다.
     // (재연결 = 새 WebSocket 세션 = 서버 Principal도 새로 발급되므로, 저장해둔 token으로
     //  다시 JOIN해야 같은 holderId로 복구된다 — api-spec.md §2.1 재접속 규칙 그대로.)
-    this.client.onConnect = () => this.subscribeAndJoin();
+    this.client.onConnect = () => {
+      this.subscribeAndJoin();
+      this.connectionCb?.(true); // 연결/재연결됨 → 끊김 표시 해제
+    };
+    // WebSocket이 닫히면(끊김·서버 다운 등) 알린다. stompjs가 reconnectDelay 후 자동 재시도한다.
+    this.client.onWebSocketClose = () => this.connectionCb?.(false);
+    // 서버가 STOMP ERROR 프레임을 보낸 경우(브로커 오류 등) — 곧 연결도 닫히므로 끊김으로 표시.
+    this.client.onStompError = () => this.connectionCb?.(false);
   }
 
   join(nickname: string, token?: string): void {
@@ -131,6 +141,9 @@ export class StompConnection implements Connection {
   }
   onLeaderboard(cb: (m: LeaderboardMessage) => void): void {
     this.leaderboardCb = cb;
+  }
+  onConnectionChange(cb: (connected: boolean) => void): void {
+    this.connectionCb = cb;
   }
 
   dispose(): void {
