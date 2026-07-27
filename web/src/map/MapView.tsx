@@ -908,6 +908,19 @@ export function MapView({ prepared, connection }: Props) {
       ArrowRight: "right",
     };
     const pressed = new Set<"up" | "down" | "left" | "right">();
+    // 줌(Q/E, +/-)도 팬처럼 '눌린 상태'를 모아 렌더 루프가 매 프레임 즉시 줌한다.
+    // 애니메이션 줌(zoomIn/Out)은 매 프레임 panBy(animate:false)에 취소되어 WASD와 동시에
+    // 쓸 수 없기 때문 — 즉시 줌으로 바꾸면 팬과 자연스럽게 겹쳐 동작한다.
+    const ZOOM_SPEED = 2.5; // 줌 속도(레벨/초)
+    const ZOOM: Record<string, "in" | "out"> = {
+      KeyE: "in",
+      Equal: "in",
+      NumpadAdd: "in",
+      KeyQ: "out",
+      Minus: "out",
+      NumpadSubtract: "out",
+    };
+    const zoomPressed = new Set<"in" | "out">();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
@@ -960,26 +973,24 @@ export function MapView({ prepared, connection }: Props) {
         e.preventDefault();
         return;
       }
-      // 줌은 단발.
-      switch (e.code) {
-        case "Equal":
-        case "NumpadAdd":
-        case "KeyE":
-          map.zoomIn();
-          break;
-        case "Minus":
-        case "NumpadSubtract":
-        case "KeyQ":
-          map.zoomOut();
-          break;
+      // 줌 키: 방향만 기록(연속 줌은 렌더 루프가 담당) — WASD와 동시에 눌러도 동작한다.
+      const zoom = ZOOM[e.code];
+      if (zoom) {
+        zoomPressed.add(zoom);
+        e.preventDefault();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const dir = DIR[e.code];
       if (dir) pressed.delete(dir);
+      const zoom = ZOOM[e.code];
+      if (zoom) zoomPressed.delete(zoom);
     };
     // 창이 포커스를 잃으면 keyup을 놓쳐 키가 '눌린 채' 남는 것을 방지(멈춤).
-    const onBlur = () => pressed.clear();
+    const onBlur = () => {
+      pressed.clear();
+      zoomPressed.clear();
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
@@ -1000,6 +1011,11 @@ export function MapView({ prepared, connection }: Props) {
         const dx = ((pressed.has("right") ? 1 : 0) - (pressed.has("left") ? 1 : 0)) * PAN_SPEED * dt;
         const dy = ((pressed.has("down") ? 1 : 0) - (pressed.has("up") ? 1 : 0)) * PAN_SPEED * dt;
         if (dx !== 0 || dy !== 0) map.panBy([dx, dy], { animate: false });
+      }
+      // Q/E 연속 줌 — 즉시 setZoom이라 팬과 겹쳐도 서로 취소하지 않는다(WASD 중에도 동작).
+      if (zoomPressed.size > 0) {
+        const dz = ((zoomPressed.has("in") ? 1 : 0) - (zoomPressed.has("out") ? 1 : 0)) * ZOOM_SPEED * dt;
+        if (dz !== 0) map.setZoom(map.getZoom() + dz);
       }
 
       // 소스가 아직 없으면(load 핸들러 전) 아무것도 하지 않는다 — dirty를 소진하지 않아 보존된다.
