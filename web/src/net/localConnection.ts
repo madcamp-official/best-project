@@ -43,6 +43,7 @@ export class LocalConnection implements Connection {
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
+  private lastEnclosedKey = ""; // 직전에 보낸 포위 동 집합의 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -346,18 +347,37 @@ export class LocalConnection implements Connection {
     this.pendingMissileRemove = [];
     this.pendingMissileImpacts = [];
 
+    // 현재 포위(귀속 대기) 동 집합 — enclosedBy>=0인 동. 직전과 다를 때만 enclosed를 싣는다
+    // (매 tick 전송 방지). 집합이 바뀌면 다른 변경이 없어도 DELTA를 강제해 반짝임이 즉시 갱신되게.
+    const enclosedList: number[] = [];
+    for (let i = 0; i < this.gs.n; i++) if (this.gs.enclosedBy[i] >= 0) enclosedList.push(i);
+    const enclosedKey = enclosedList.join(",");
+    const enclosedChanged = enclosedKey !== this.lastEnclosedKey;
+
     if (
       cells.length === 0 &&
       newOrders.length === 0 &&
       events.length === 0 &&
       missileAdd.length === 0 &&
       missileRemove.length === 0 &&
-      missileImpacts.length === 0
+      missileImpacts.length === 0 &&
+      !enclosedChanged
     ) {
       return;
     }
+    this.lastEnclosedKey = enclosedKey;
     // 목 서버는 단일 로컬 플레이어라 접속 중 새 holder가 생기는 시나리오가 없다 — 항상 빈 배열.
-    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders: [] });
+    this.deltaCb?.({
+      serverTimeMs: now,
+      cells,
+      newOrders,
+      events,
+      missileAdd,
+      missileRemove,
+      missileImpacts,
+      newHolders: [],
+      ...(enclosedChanged ? { enclosed: enclosedList } : {}),
+    });
   }
 
   private flushLeaderboard(): void {

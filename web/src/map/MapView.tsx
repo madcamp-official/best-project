@@ -14,6 +14,8 @@ import {
   drainRallyTouched,
   drainRespawnCell,
   setMyRally,
+  enclosedSet,
+  drainEnclosedTouched,
 } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
@@ -32,6 +34,7 @@ const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
 const FLASH_LAYER = "dong-flash";
 const FLASH_MS = 600; // 함락 플래시 지속 시간
+const ENCLOSED_LAYER = "dong-enclosed-blink"; // 포위(귀속 대기)된 동의 반짝임 채움
 const ARC_SOURCE = "arcs";
 const FRONTIER_GLOW = "frontier-glow";
 const FRONTIER_LAYER = "frontier";
@@ -436,6 +439,17 @@ export function MapView({ prepared, connection }: Props) {
         paint: {
           "fill-color": "#ffffff",
           "fill-opacity": ["coalesce", ["feature-state", "flash"], 0],
+        },
+      });
+      // 포위(귀속 대기)된 동의 반짝임 — feature-state "enclosed"(0~1)를 rAF가 펄스로 흔든다.
+      // 곧 흡수됨을 경고하는 앰버 채움. 흰 함락 플래시·조준과 색으로 구분된다.
+      map.addLayer({
+        id: ENCLOSED_LAYER,
+        type: "fill",
+        source: SOURCE_ID,
+        paint: {
+          "fill-color": "#ffcc33",
+          "fill-opacity": ["coalesce", ["feature-state", "enclosed"], 0],
         },
       });
 
@@ -1003,6 +1017,7 @@ export function MapView({ prepared, connection }: Props) {
     let hadUnits = false;
     let lastPanNow = 0; // WASD 연속 패닝용 직전 프레임 시각
     const flashing = new Map<number, number>(); // admIndex → 플래시 시작 시각
+    const enclosedRendered = new Set<number>(); // 지금 반짝임(enclosed feature-state)을 켠 동
     const loop = (now: number) => {
       // WASD/화살표 연속 패닝 — 눌린 방향으로 매 프레임 dt(초)만큼 부드럽게 이동.
       const dt = lastPanNow ? Math.min(0.05, (now - lastPanNow) / 1000) : 0; // dt 상한: 탭 복귀 시 급점프 방지
@@ -1049,6 +1064,23 @@ export function MapView({ prepared, connection }: Props) {
           flashing.delete(idx);
         } else {
           map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: a * 0.6 });
+        }
+      }
+
+      // 포위(귀속 대기) 동 반짝임 — 집합이 바뀌면 빠진 동의 반짝임을 끄고, 현재 집합을 앰버로 펄스.
+      if (drainEnclosedTouched()) {
+        for (const idx of enclosedRendered) {
+          if (!enclosedSet.has(idx)) {
+            map.setFeatureState({ source: SOURCE_ID, id: idx }, { enclosed: 0 });
+            enclosedRendered.delete(idx);
+          }
+        }
+        for (const idx of enclosedSet) enclosedRendered.add(idx);
+      }
+      if (enclosedRendered.size > 0) {
+        const ePulse = 0.15 + 0.4 * (0.5 + 0.5 * Math.sin(now / 180)); // 0.15~0.55 사이로 깜빡
+        for (const idx of enclosedRendered) {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { enclosed: ePulse });
         }
       }
 
