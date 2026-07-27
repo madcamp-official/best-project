@@ -94,6 +94,9 @@ data class DeltaMessage(
     // 클라가 이 동들을 반짝이게 한다(worldView.ts enclosed와 대응).
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val enclosed: List<Int>? = null,
+    // 전술핵 발사로 사일로 쿨다운이 바뀐 tick에만 실린다(NUKE_SILO_CODES 순서, serverTimeMs 시간축).
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val nukeReadyAtMs: List<Long>? = null,
 )
 
 data class LeaderboardMessage(

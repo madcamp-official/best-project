@@ -215,9 +215,12 @@ class GameLoop(
         val enclosedKey = enclosedList.joinToString(",")
         val enclosedChanged = enclosedKey != room.lastEnclosedKey
 
+        val nukeChanged = world.nukeDirty
+        world.nukeDirty = false
+
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
             missileAdd.isEmpty() && missileRemove.isEmpty() && missileImpacts.isEmpty() &&
-            newHolders.isEmpty() && shieldUpdates.isEmpty() && !enclosedChanged
+            newHolders.isEmpty() && shieldUpdates.isEmpty() && !enclosedChanged && !nukeChanged
         ) {
             return
         }
@@ -228,6 +231,7 @@ class GameLoop(
             nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders,
             shieldUpdates,
             enclosed = if (enclosedChanged) enclosedList else null,
+            nukeReadyAtMs = if (nukeChanged) world.nukeReadyAt.toList() else null,
         )
         messagingTemplate.convertAndSend(worldTopic(room.id), msg)
         if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_WORLD_TOPIC, msg)

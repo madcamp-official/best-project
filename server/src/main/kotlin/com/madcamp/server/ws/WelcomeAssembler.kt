@@ -38,6 +38,7 @@ class WelcomeAssembler(private val configService: ConfigService) {
                 val until = world.shieldUntil[hid]
                 if (until > nowMs) ShieldInfo(hid, until) else null
             },
+            nukeReadyAtMs = world.nukeReadyAt.toList(),
         )
     }
 }
