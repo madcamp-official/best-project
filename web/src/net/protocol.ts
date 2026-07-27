@@ -66,6 +66,7 @@ export type RestartCommand = Record<string, never>;
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
 export interface WelcomeMessage {
   roomId: string; // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
+  roundEndsAtMs: number; // 라운드 제한 시각(서버 epoch ms). 0=제한 없음(브리지/목업)
   holderId: number;
   token: string; // 재접속용. 클라는 localStorage에 저장
   serverTimeMs: number; // 시간 동기화용
@@ -96,7 +97,10 @@ export interface ErrorMessage {
     | "NO_MISSILE"
     | "NO_PATH"
     | "AIRDROP_COOLDOWN"
-    | "AIRDROP_RANGE";
+    | "AIRDROP_RANGE"
+    | "ROOM_NOT_FOUND" // 로비: 입장하려던 방이 없음(사라짐)
+    | "ROOM_FULL" // 로비: 방 정원 초과
+    | "ROOM_LIMIT"; // 로비: 방 개수/동시 진행 상한
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;

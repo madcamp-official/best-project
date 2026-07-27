@@ -49,9 +49,17 @@ function App() {
         connection.onWelcome((msg) => {
           applyWelcome(msg);
           localStorage.setItem("token", msg.token); // 재접속용
+          const st = useUIStore.getState();
           // 첫 LEADERBOARD 메시지(최대 1s 뒤) 전 빈 순위표 깜빡임 방지용 시드.
-          useUIStore.getState().setLeaderboard(getLeaderboard(), envCellCount(), world.n);
-          useUIStore.getState().setRoundResult(null); // 새 라운드 — 이전 결과 화면 정리
+          st.setLeaderboard(getLeaderboard(), envCellCount(), world.n);
+          // 새 라운드 진입 — 지난 라운드의 잔여 UI 상태(결과·패배 오버레이·조준/수송 모드)를 전부 정리.
+          // 안 하면 지난 라운드에서 패배한 채 새 라운드를 시작할 때 GAME OVER가 즉시 다시 뜬다.
+          st.setRoundResult(null);
+          st.setDefeated(false);
+          st.setAiming(false);
+          st.setTransporting(false);
+          // 라운드 타이머: 서버 시각(roundEndsAtMs - serverTimeMs = 남은 시간)을 로컬 시계로 환산.
+          st.setRoundEndsAt(msg.roundEndsAtMs > 0 ? Date.now() + (msg.roundEndsAtMs - msg.serverTimeMs) : 0);
           setPrepared(map); // 스냅샷 반영 후 지도 렌더 시작
           setPhase("ready"); // WELCOME = 라운드 진행 중 → 지도로 전환
         });
@@ -61,7 +69,15 @@ function App() {
           // 재시작은 유저가 오버레이 버튼으로 직접 선택한다(더 이상 자동 재배정 없음).
           if (drainDefeat()) useUIStore.getState().setDefeated(true);
         });
-        connection.onError((msg) => useUIStore.getState().showToast(msg.message));
+        connection.onError((msg) => {
+          useUIStore.getState().showToast(msg.message);
+          // 입장하려던 방이 사라진 경우(마지막 멤버 이탈로 폐기 등)엔 로비로 돌려보낸다.
+          if (msg.code === "ROOM_NOT_FOUND") {
+            useUIStore.getState().setCurrentRoom(null);
+            setPhase("lobby");
+            connection.listRooms();
+          }
+        });
         connection.onLeaderboard((msg) =>
           useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)
         );

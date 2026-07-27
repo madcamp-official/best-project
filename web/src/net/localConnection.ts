@@ -406,6 +406,7 @@ export class LocalConnection implements Connection {
   private buildWelcome(): WelcomeMessage {
     return {
       roomId: SOLO_ROOM_ID,
+      roundEndsAtMs: 0, // 목업 솔로는 라운드 제한 없음
       holderId: this.holderId,
       token: this.token,
       serverTimeMs: performance.now(),
