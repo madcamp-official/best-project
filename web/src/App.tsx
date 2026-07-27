@@ -28,6 +28,7 @@ import { useUIStore } from "./store/uiStore";
 function App() {
   const [prepared, setPrepared] = useState<PreparedMap | null>(null);
   const connectionRef = useRef<Connection | null>(null);
+  const everConnectedRef = useRef(false); // 재연결 토스트를 최초 연결 때는 안 띄우기 위한 플래그
   const phase = useUIStore((s) => s.phase);
   const setPhase = useUIStore((s) => s.setPhase);
 
@@ -59,6 +60,14 @@ function App() {
         connection.onLeaderboard((msg) =>
           useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)
         );
+        // 연결 끊김 → 배너 표시, 재연결 → 배너 해제(+최초 연결이 아니면 재연결 토스트).
+        connection.onConnectionChange((connected) => {
+          useUIStore.getState().setConnectionLost(!connected);
+          if (connected) {
+            if (everConnectedRef.current) useUIStore.getState().showToast("서버에 재연결되었습니다");
+            everConnectedRef.current = true;
+          }
+        });
         connectionRef.current = connection;
 
         // 데이터 준비 완료 → 접속 화면(닉네임 입력)으로.

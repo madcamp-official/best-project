@@ -134,12 +134,15 @@ class GameLoop(
         world.pendingMissileAdd.clear()
         val missileRemove = world.pendingMissileRemove.toList()
         world.pendingMissileRemove.clear()
+        val missileImpacts = world.pendingMissileImpacts.toList()
+        world.pendingMissileImpacts.clear()
         val newHolders = world.pendingNewHolders.toList()
         world.pendingNewHolders.clear()
         val shieldUpdates = world.pendingShields.toList()
         world.pendingShields.clear()
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
-            missileAdd.isEmpty() && missileRemove.isEmpty() && newHolders.isEmpty() && shieldUpdates.isEmpty()
+            missileAdd.isEmpty() && missileRemove.isEmpty() && missileImpacts.isEmpty() &&
+            newHolders.isEmpty() && shieldUpdates.isEmpty()
         ) {
             return
         }
@@ -147,7 +150,7 @@ class GameLoop(
         val cells = dirty.map { intArrayOf(it, world.ownerId[it], world.troops[it]) }
         messagingTemplate.convertAndSend(
             "/topic/world",
-            DeltaMessage(nowMs, cells, newOrders, events, missileAdd, missileRemove, newHolders, shieldUpdates),
+            DeltaMessage(nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders, shieldUpdates),
         )
     }
 

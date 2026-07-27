@@ -603,7 +603,9 @@ export function MapView({ prepared, connection }: Props) {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      const triangleIcon = makeTriangleIcon(22);
+      // 끝점을 캔버스 정중앙에 두는 도안이라 삼각형이 아래 절반만 차지한다 → 실제 크기 유지를 위해
+      // 캔버스를 키운다(위 절반은 투명 여백, 앵커=중앙=끝점을 위한 것).
+      const triangleIcon = makeTriangleIcon(32);
       if (triangleIcon) {
         if (!map.hasImage(TRIANGLE_IMAGE_ID)) {
           map.addImage(TRIANGLE_IMAGE_ID, triangleIcon.data, { pixelRatio: triangleIcon.pixelRatio });
@@ -617,6 +619,11 @@ export function MapView({ prepared, connection }: Props) {
             "icon-size": 1,
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
+            // 끝점(= 앵커·정중앙)을 진행 방위각만큼 시계방향 회전 → 끝이 이동 방향을 가리키고,
+            // 회전 피벗이 끝점이라 보간 위치(=끝점)가 목적지에 정확히 안착한다.
+            // rotation-alignment "map": 지도 북 기준으로 회전(지도 회전/기울임과 무관하게 방향 유지).
+            "icon-rotate": ["get", "bearing"],
+            "icon-rotation-alignment": "map",
           },
         });
       } else {
@@ -640,7 +647,7 @@ export function MapView({ prepared, connection }: Props) {
         layout: {
           "text-field": ["get", "amount"],
           "text-size": 13,
-          "text-offset": [0, 1.2], // 삼각형 아래에 병력 수
+          "text-offset": [0, 1.5], // 끝점 앵커 아래로 뻗은 삼각형 몸통을 지나 병력 수 표시
           "text-anchor": "top",
           "text-allow-overlap": true,
           "text-ignore-placement": true,
@@ -1012,6 +1019,19 @@ export function MapView({ prepared, connection }: Props) {
       ArrowRight: "right",
     };
     const pressed = new Set<"up" | "down" | "left" | "right">();
+    // 줌(Q/E, +/-)도 팬처럼 '눌린 상태'를 모아 렌더 루프가 매 프레임 즉시 줌한다.
+    // 애니메이션 줌(zoomIn/Out)은 매 프레임 panBy(animate:false)에 취소되어 WASD와 동시에
+    // 쓸 수 없기 때문 — 즉시 줌으로 바꾸면 팬과 자연스럽게 겹쳐 동작한다.
+    const ZOOM_SPEED = 2.5; // 줌 속도(레벨/초)
+    const ZOOM: Record<string, "in" | "out"> = {
+      KeyE: "in",
+      Equal: "in",
+      NumpadAdd: "in",
+      KeyQ: "out",
+      Minus: "out",
+      NumpadSubtract: "out",
+    };
+    const zoomPressed = new Set<"in" | "out">();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
@@ -1064,26 +1084,24 @@ export function MapView({ prepared, connection }: Props) {
         e.preventDefault();
         return;
       }
-      // 줌은 단발.
-      switch (e.code) {
-        case "Equal":
-        case "NumpadAdd":
-        case "KeyE":
-          map.zoomIn();
-          break;
-        case "Minus":
-        case "NumpadSubtract":
-        case "KeyQ":
-          map.zoomOut();
-          break;
+      // 줌 키: 방향만 기록(연속 줌은 렌더 루프가 담당) — WASD와 동시에 눌러도 동작한다.
+      const zoom = ZOOM[e.code];
+      if (zoom) {
+        zoomPressed.add(zoom);
+        e.preventDefault();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const dir = DIR[e.code];
       if (dir) pressed.delete(dir);
+      const zoom = ZOOM[e.code];
+      if (zoom) zoomPressed.delete(zoom);
     };
     // 창이 포커스를 잃으면 keyup을 놓쳐 키가 '눌린 채' 남는 것을 방지(멈춤).
-    const onBlur = () => pressed.clear();
+    const onBlur = () => {
+      pressed.clear();
+      zoomPressed.clear();
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
@@ -1104,6 +1122,11 @@ export function MapView({ prepared, connection }: Props) {
         const dx = ((pressed.has("right") ? 1 : 0) - (pressed.has("left") ? 1 : 0)) * PAN_SPEED * dt;
         const dy = ((pressed.has("down") ? 1 : 0) - (pressed.has("up") ? 1 : 0)) * PAN_SPEED * dt;
         if (dx !== 0 || dy !== 0) map.panBy([dx, dy], { animate: false });
+      }
+      // Q/E 연속 줌 — 즉시 setZoom이라 팬과 겹쳐도 서로 취소하지 않는다(WASD 중에도 동작).
+      if (zoomPressed.size > 0) {
+        const dz = ((zoomPressed.has("in") ? 1 : 0) - (zoomPressed.has("out") ? 1 : 0)) * ZOOM_SPEED * dt;
+        if (dz !== 0) map.setZoom(map.getZoom() + dz);
       }
 
       // 소스가 아직 없으면(load 핸들러 전) 아무것도 하지 않는다 — dirty를 소진하지 않아 보존된다.
@@ -1487,14 +1510,17 @@ function makeTriangleIcon(sizePx: number): { data: ImageData; pixelRatio: number
   canvas.height = px;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
+  // 뾰족한 꼭짓점을 캔버스 정중앙(= 아이콘 앵커·회전 피벗)에 둔다. 그래야 이동 보간 위치에
+  // '삼각형 끝점'이 정확히 놓여, 가까운 동으로 수송해도 끝이 목적지에 딱 맞는다(끝이 목적지를
+  // 지나쳐 보이던 문제 해소). 몸통은 중앙 아래로 뻗어, 방위각 회전 시 출발지 쪽으로 꼬리처럼 끌린다.
   ctx.beginPath();
-  ctx.moveTo(px / 2, px * 0.14);
-  ctx.lineTo(px * 0.9, px * 0.86);
-  ctx.lineTo(px * 0.1, px * 0.86);
+  ctx.moveTo(px * 0.5, px * 0.5); // 끝(뾰족한 꼭짓점) = 정중앙
+  ctx.lineTo(px * 0.8, px * 0.96); // 오른쪽 밑
+  ctx.lineTo(px * 0.2, px * 0.96); // 왼쪽 밑
   ctx.closePath();
   ctx.fillStyle = "#ffffff";
   ctx.fill();
-  ctx.lineWidth = Math.max(1, px * 0.07);
+  ctx.lineWidth = Math.max(1, px * 0.06);
   ctx.strokeStyle = "#1b2430";
   ctx.stroke();
   return { data: ctx.getImageData(0, 0, px, px), pixelRatio: ratio };
@@ -1535,9 +1561,13 @@ function updateUnits(map: MaplibreMap, now: number) {
     const t = span > 0 ? Math.min(1, Math.max(0, (now - o.departTick) / span)) : 1;
     const a = world.meta[o.from].centroid;
     const b = world.meta[o.to].centroid;
+    // 진행 방위각(북 기준 시계방향, 도) — 공수 삼각형 유닛을 이동 방향으로 회전시키는 데 쓴다.
+    // 경도차는 위도에 따라 화면 폭이 줄어드므로 cosLat로 보정해야 실제 진행 방향과 일치한다.
+    const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180) || 1;
+    const bearing = (Math.atan2((b[0] - a[0]) * cosLat, b[1] - a[1]) * 180) / Math.PI;
     return {
       type: "Feature" as const,
-      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId) },
+      properties: { amount: o.amount, paletteIdx: paletteIdxOf(o.holderId), bearing },
       geometry: {
         type: "Point" as const,
         coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],

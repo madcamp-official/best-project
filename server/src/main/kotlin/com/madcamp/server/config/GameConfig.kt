@@ -62,6 +62,10 @@ data class GameConfig(
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)
     @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 0.55, // 사거리 상한(출발↔목적지 centroid 도 단위)
 
+    // 공수 삼각형 유닛 이동 속도 — 일반 유닛보다 조금 느리게(수송이 또렷이 보이게). 클라 config.ts와 동기.
+    @JsonProperty("AIRDROP_SPEED_DEG_PER_SEC") var airdropSpeedDegPerSec: Double = 0.013,
+    @JsonProperty("AIRDROP_TRAVEL_MAX_SEC") var airdropTravelMaxSec: Double = 3.5,
+
     // 스폰 방어막 — 신규 참가·재시작 직후 이 시간(초) 동안 내 동은 공격/미사일/포위/공수로부터
     // 보호된다(자기 자신의 SORTIE 등 능동 행동은 제한 없음). "시작하자마자 죽는" 문제 대응.
     @JsonProperty("SPAWN_SHIELD_SEC") var spawnShieldSec: Double = 120.0,

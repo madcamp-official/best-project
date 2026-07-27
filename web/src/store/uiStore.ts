@@ -42,6 +42,7 @@ interface UIState {
   airdropReadyAt: number; // B3 — 공수 재사용 가능 시각(Date.now ms). 0=준비됨
   airdropCooldownLeft: number; // B3 — 남은 쿨타임(ms). refreshSummary가 갱신(버튼 표시용)
   defeated: boolean; // 내 영토를 전부 잃어 패배 오버레이를 표시 중
+  connectionLost: boolean; // 실서버 연결이 끊겨 재연결 중(끊김 배너 표시)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
   setSortieRatio: (ratio: number) => void;
@@ -49,6 +50,7 @@ interface UIState {
   setTransporting: (v: boolean) => void;
   startAirdropCooldown: (ms: number) => void;
   setDefeated: (v: boolean) => void;
+  setConnectionLost: (v: boolean) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
   // 서버 LEADERBOARD 메시지 반영 (rows는 중립·E 제외된 플레이어 순위).
@@ -86,6 +88,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   airdropReadyAt: 0,
   airdropCooldownLeft: 0,
   defeated: false,
+  connectionLost: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
@@ -96,6 +99,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(v ? { isTransporting: true, isAiming: false } : { isTransporting: false }),
   startAirdropCooldown: (ms) => set({ airdropReadyAt: Date.now() + ms }),
   setDefeated: (v) => set({ defeated: v }),
+  setConnectionLost: (v) => set({ connectionLost: v }),
 
   select: (index) => {
     set({ selectedIndex: index });

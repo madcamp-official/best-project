@@ -30,6 +30,9 @@ export interface Connection {
   onDelta(cb: (msg: DeltaMessage) => void): void;
   onError(cb: (msg: ErrorMessage) => void): void;
   onLeaderboard(cb: (msg: LeaderboardMessage) => void): void;
+  // 연결 상태 변화(true=연결/재연결됨, false=끊김). 실서버(STOMP)만 실제로 끊김을 알린다.
+  // 목 서버는 항상 연결 상태라 join 시 true만 통지한다.
+  onConnectionChange(cb: (connected: boolean) => void): void;
 
   // 연결 종료(타이머·리스너 정리).
   dispose(): void;

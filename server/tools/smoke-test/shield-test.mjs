@@ -66,24 +66,28 @@ async function main() {
     for (const i of d.missileRemove) aState.missiles.delete(i);
   });
 
-  const acquireDeadline = Date.now() + 40000;
-  let firstMissile = -1;
-  while (Date.now() < acquireDeadline) {
-    for (const i of aState.missiles) {
-      if (aState.ownerId[i] === a.welcome.holderId) { firstMissile = i; break; }
+  // A 소유 동 중 미사일 있는 곳을 찾을 때까지 미사일이 새로 뜬 만큼 프런티어 공격도 계속한다
+  // (BFS 확장은 이미 충분히 컸다면 새로 보낼 프런티어가 줄어들 수 있어, 매번 다시 계산).
+  async function acquireMissile(label) {
+    const deadline = Date.now() + 40000;
+    while (Date.now() < deadline) {
+      for (const i of aState.missiles) {
+        if (aState.ownerId[i] === a.welcome.holderId) return i;
+      }
+      const mine = [];
+      for (let i = 0; i < aState.n; i++) if (aState.ownerId[i] === a.welcome.holderId) mine.push(i);
+      const frontier = new Set();
+      for (const i of mine) for (const nb of aState.neighborIndex[i]) if (aState.ownerId[nb] !== a.welcome.holderId) frontier.add(`${i}>${nb}`);
+      for (const edge of frontier) {
+        const [from, to] = edge.split(">").map(Number);
+        a.client.publish({ destination: "/app/sortie", body: JSON.stringify({ from, to, ratio: 0.9 }) });
+      }
+      await new Promise((r) => setTimeout(r, 1200));
     }
-    if (firstMissile >= 0) break;
-    const mine = [];
-    for (let i = 0; i < aState.n; i++) if (aState.ownerId[i] === a.welcome.holderId) mine.push(i);
-    const frontier = new Set();
-    for (const i of mine) for (const nb of aState.neighborIndex[i]) if (aState.ownerId[nb] !== a.welcome.holderId) frontier.add(`${i}>${nb}`);
-    for (const edge of frontier) {
-      const [from, to] = edge.split(">").map(Number);
-      a.client.publish({ destination: "/app/sortie", body: JSON.stringify({ from, to, ratio: 0.9 }) });
-    }
-    await new Promise((r) => setTimeout(r, 1200));
+    fail(`A가 미사일을 못 구함(40초 초과, ${label})`);
   }
-  if (firstMissile < 0) fail("A가 미사일을 못 구함(40초 초과)");
+
+  const firstMissile = await acquireMissile("1차");
   console.log(`  A 미사일 확보: admIndex=${firstMissile}`);
 
   console.log(`[3] A가 방어막 살아있는 B의 유일한 동(Y=${Y})을 겨냥해 발사 — 막혀야 함...`);
@@ -113,6 +117,10 @@ async function main() {
     for (const [idx, owner] of d.cells) cState.ownerId[idx] = owner;
   });
   await new Promise((r) => setTimeout(r, 2500));
+
+  console.log("  방어막에 막힌 1차 발사로 미사일이 이미 소모됐으니(막혔어도 '소모'는 됨) 2차 확보...");
+  const secondMissile = await acquireMissile("2차");
+  console.log(`  A 미사일 재확보: admIndex=${secondMissile}`);
 
   console.log(`[5] A가 방어막 만료된 C의 유일한 동(Z=${Z})을 겨냥해 발사 — 이번엔 중립화돼야 함...`);
   let launchError2 = null;

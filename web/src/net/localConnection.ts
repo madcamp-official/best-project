@@ -29,6 +29,7 @@ export class LocalConnection implements Connection {
   private deltaCb: ((m: DeltaMessage) => void) | null = null;
   private errorCb: ((m: ErrorMessage) => void) | null = null;
   private leaderboardCb: ((m: LeaderboardMessage) => void) | null = null;
+  private connectionCb: ((connected: boolean) => void) | null = null;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastTickMs = 0;
@@ -42,6 +43,7 @@ export class LocalConnection implements Connection {
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
+  private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -56,9 +58,10 @@ export class LocalConnection implements Connection {
       Date.now(),
       prepared.borderMask // 포위 귀속 판정의 경계 동 마스크
     );
-    // 개발 편의: 포위 귀속 등 시나리오 테스트를 위해 목 서버의 권위 상태를 노출(프로덕션 제외).
+    // 개발 편의: 포위 귀속 등 시나리오 테스트를 위해 목 서버의 권위 상태·연결을 노출(프로덕션 제외).
     if (import.meta.env.DEV) {
       (globalThis as Record<string, unknown>).__mockGs = this.gs;
+      (globalThis as Record<string, unknown>).__mockConn = this;
     }
     // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
@@ -189,6 +192,7 @@ export class LocalConnection implements Connection {
     const holder = this.gs.holders.get(this.holderId);
     if (holder && nickname.trim()) holder.name = nickname.trim().slice(0, 12);
 
+    this.connectionCb?.(true); // 목 서버는 항상 연결 상태.
     this.welcomeCb?.(this.buildWelcome());
 
     // 목 서버 tick 루프 시작.
@@ -235,6 +239,8 @@ export class LocalConnection implements Connection {
       return;
     }
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
+    // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
+    this.pendingMissileImpacts.push(...res.neutralized);
   }
 
   sendRally(index: number): void {
@@ -337,8 +343,10 @@ export class LocalConnection implements Connection {
 
     const missileAdd = this.pendingMissileAdd;
     const missileRemove = this.pendingMissileRemove;
+    const missileImpacts = this.pendingMissileImpacts;
     this.pendingMissileAdd = [];
     this.pendingMissileRemove = [];
+    this.pendingMissileImpacts = [];
 
     const shieldUpdates = this.pendingShields;
     this.pendingShields = [];
@@ -349,6 +357,7 @@ export class LocalConnection implements Connection {
       events.length === 0 &&
       missileAdd.length === 0 &&
       missileRemove.length === 0 &&
+      missileImpacts.length === 0 &&
       shieldUpdates.length === 0
     ) {
       return;
@@ -361,6 +370,7 @@ export class LocalConnection implements Connection {
       events,
       missileAdd,
       missileRemove,
+      missileImpacts,
       newHolders: [],
       shieldUpdates,
     });
@@ -423,6 +433,14 @@ export class LocalConnection implements Connection {
   }
   onLeaderboard(cb: (m: LeaderboardMessage) => void): void {
     this.leaderboardCb = cb;
+  }
+  onConnectionChange(cb: (connected: boolean) => void): void {
+    this.connectionCb = cb;
+  }
+
+  // 개발용: 끊김/재연결 UI를 목 모드에서 테스트하기 위한 수동 트리거(프로덕션 경로 아님).
+  simulateConnection(connected: boolean): void {
+    this.connectionCb?.(connected);
   }
 
   dispose(): void {

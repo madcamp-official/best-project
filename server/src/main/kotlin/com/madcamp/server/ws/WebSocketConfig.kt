@@ -1,8 +1,10 @@
 package com.madcamp.server.ws
 
+import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.server.ServerHttpRequest
 import org.springframework.messaging.simp.config.MessageBrokerRegistry
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler
 import org.springframework.web.socket.WebSocketHandler
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry
@@ -28,9 +30,24 @@ class WebSocketConfig : WebSocketMessageBrokerConfigurer {
     }
 
     override fun configureMessageBroker(registry: MessageBrokerRegistry) {
+        // 하트비트(keep-alive)를 서버도 켠다 — SimpleBroker는 TaskScheduler가 있어야 실제로
+        // 하트비트를 주고받는다(없으면 0,0으로 협상돼 클라의 10초 설정도 무력화됨).
+        // 10초 주기로 half-open(조용히 죽은) 연결을 감지 → 클라가 재연결한다.
         registry.enableSimpleBroker("/topic", "/queue")
+            .setHeartbeatValue(longArrayOf(10000, 10000))
+            .setTaskScheduler(heartbeatScheduler())
         registry.setApplicationDestinationPrefixes("/app")
         registry.setUserDestinationPrefix("/user")
+    }
+
+    // SimpleBroker 하트비트 전송용 스케줄러. (@Configuration 프록시로 싱글턴 반환)
+    @Bean
+    fun heartbeatScheduler(): ThreadPoolTaskScheduler {
+        val scheduler = ThreadPoolTaskScheduler()
+        scheduler.poolSize = 1
+        scheduler.setThreadNamePrefix("ws-heartbeat-")
+        scheduler.initialize()
+        return scheduler
     }
 }
 

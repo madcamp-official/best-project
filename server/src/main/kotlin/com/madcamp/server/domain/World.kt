@@ -51,6 +51,7 @@ class World(
     val pendingEvents: MutableList<LogEvent> = mutableListOf()
     val pendingMissileAdd: MutableList<Int> = mutableListOf()
     val pendingMissileRemove: MutableList<Int> = mutableListOf()
+    val pendingMissileImpacts: MutableList<Int> = mutableListOf() // 이번 구간 미사일 착탄 동(폭발 연출용)
     val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
     val pendingShields: MutableList<ShieldInfo> = mutableListOf() // 새로 생기거나 갱신된 방어막
 
