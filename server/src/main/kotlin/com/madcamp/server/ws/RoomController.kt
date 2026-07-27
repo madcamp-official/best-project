@@ -82,8 +82,9 @@ class RoomController(
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             val leaving = room.members.remove(principal.name)
             connectionRegistry.unbind(principal.name)
-            // 빈 방은 정리(단, PLAYING 중이면 유지 — 재접속·잔여 처리).
-            if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
+            // 빈 방은 상태 불문 즉시 정리한다 — PLAYING이어도 아무도 없으면 아무도 못 보는 방을
+            // 라운드 타임아웃까지 서버가 계속 tick할 이유가 없다(플레이어들이 다 나가면 방이 사라져야 함).
+            if (room.members.isEmpty()) {
                 roomManager.remove(room.id)
             } else {
                 // 방장이 나갔으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다.
