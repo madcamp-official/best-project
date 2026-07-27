@@ -27,14 +27,17 @@ class SessionEventListener(
         if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 멤버 목록을 안 쓴다
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
-            room.members.remove(principalName)
+            // 이 principal의 멤버만 제거한다. 재접속으로 같은 clientId 멤버의 principal이 이미 새 값으로
+            // 갱신됐다면 여기서 지워지지 않아(키 불일치) 방장 자리가 유지된다.
+            val leaving = room.members.remove(principalName)
             if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
                 roomManager.remove(room.id)
             } else {
-                // 방장이 끊겼으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다.
-                if (principalName == room.hostPrincipal && room.members.isNotEmpty()) {
-                    room.hostPrincipal = room.members.keys.first()
-                    broadcaster.notifyRoomJoined(room, room.hostPrincipal)
+                // 방장이 끊겼으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다(clientId 기준).
+                if (leaving != null && leaving.clientId == room.hostClientId && room.members.isNotEmpty()) {
+                    val newHost = room.members.values.first()
+                    room.hostClientId = newHost.clientId
+                    broadcaster.notifyRoomJoined(room, newHost.principalName, newHost.clientId)
                 }
                 broadcaster.broadcastRoomState(room)
             }

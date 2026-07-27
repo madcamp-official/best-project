@@ -37,12 +37,13 @@ class RoomController(
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             if (room.state == RoomState.PLAYING || room.members.isEmpty()) return@submitRoomTask
-            // 시작 권한은 방장에게만. 그 외에는 전원(방장 제외) 준비 완료가 조건.
-            if (principal.name != room.hostPrincipal) {
+            // 시작 권한은 방장(clientId 기준)에게만. 그 외에는 전원(방장 제외) 준비 완료가 조건.
+            val me = room.members[principal.name]
+            if (me == null || me.clientId != room.hostClientId) {
                 sendError(principal, "NOT_HOST", "방장만 게임을 시작할 수 있습니다.")
                 return@submitRoomTask
             }
-            if (room.members.values.any { it.principalName != room.hostPrincipal && !it.ready }) {
+            if (room.members.values.any { it.clientId != room.hostClientId && !it.ready }) {
                 sendError(principal, "NOT_READY", "모든 플레이어가 준비를 완료해야 시작할 수 있습니다.")
                 return@submitRoomTask
             }
@@ -79,16 +80,17 @@ class RoomController(
         if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 로비 대상 아님
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
-            room.members.remove(principal.name)
+            val leaving = room.members.remove(principal.name)
             connectionRegistry.unbind(principal.name)
             // 빈 방은 정리(단, PLAYING 중이면 유지 — 재접속·잔여 처리).
             if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
                 roomManager.remove(room.id)
             } else {
                 // 방장이 나갔으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다.
-                if (principal.name == room.hostPrincipal && room.members.isNotEmpty()) {
-                    room.hostPrincipal = room.members.keys.first()
-                    broadcaster.notifyRoomJoined(room, room.hostPrincipal)
+                if (leaving != null && leaving.clientId == room.hostClientId && room.members.isNotEmpty()) {
+                    val newHost = room.members.values.first()
+                    room.hostClientId = newHost.clientId
+                    broadcaster.notifyRoomJoined(room, newHost.principalName, newHost.clientId)
                 }
                 broadcaster.broadcastRoomState(room)
             }

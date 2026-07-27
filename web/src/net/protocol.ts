@@ -194,6 +194,7 @@ export interface CreateRoomCommand {
   name: string;
   nickname: string;
   token?: string;
+  clientId?: string; // 영속 클라 신원(방장 판정용)
 }
 
 // 방 입장(C→S, /app/lobby/join).
@@ -201,4 +202,5 @@ export interface JoinRoomCommand {
   roomId: string;
   nickname: string;
   token?: string;
+  clientId?: string; // 영속 클라 신원(재접속 시 방장·멤버 동일성 유지용)
 }

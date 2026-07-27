@@ -48,16 +48,16 @@ class RoomBroadcaster(
         )
     }
 
-    fun roomJoined(room: Room, forPrincipal: String) =
-        RoomJoinedMessage(room.id, room.name, room.state, memberInfos(room), youAreHost = forPrincipal == room.hostPrincipal)
+    fun roomJoined(room: Room, forClientId: String) =
+        RoomJoinedMessage(room.id, room.name, room.state, memberInfos(room), youAreHost = forClientId == room.hostClientId)
 
     /** 방장 승계 등으로 특정 멤버의 방장 여부가 바뀌었을 때 개인 통지(roomJoined 재전송). */
-    fun notifyRoomJoined(room: Room, principalName: String) {
-        messaging.convertAndSendToUser(principalName, "/queue/roomJoined", roomJoined(room, principalName))
+    fun notifyRoomJoined(room: Room, principalName: String, clientId: String) {
+        messaging.convertAndSendToUser(principalName, "/queue/roomJoined", roomJoined(room, clientId))
     }
 
     private fun memberInfos(room: Room) =
-        room.members.values.map { MemberInfo(it.nickname, it.holderId, it.ready, it.principalName == room.hostPrincipal) }
+        room.members.values.map { MemberInfo(it.nickname, it.holderId, it.ready, it.clientId == room.hostClientId) }
 
     companion object {
         const val ROOMS_TOPIC = "/topic/rooms"

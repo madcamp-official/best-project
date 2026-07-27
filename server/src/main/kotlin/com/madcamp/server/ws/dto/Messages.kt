@@ -129,11 +129,21 @@ data class RoundEndMessage(
     val leaderboard: List<LeaderboardRow>,
 )
 
-/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. */
-data class CreateRoomCommand(val name: String? = null, val nickname: String? = null, val token: String? = null)
+/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. clientId=영속 클라 신원(방장용). */
+data class CreateRoomCommand(
+    val name: String? = null,
+    val nickname: String? = null,
+    val token: String? = null,
+    val clientId: String? = null,
+)
 
-/** 방 입장(C→S, /app/lobby/join). */
-data class JoinRoomCommand(val roomId: String = "", val nickname: String? = null, val token: String? = null)
+/** 방 입장(C→S, /app/lobby/join). clientId=영속 클라 신원(재접속 시 방장·멤버 동일성 유지용). */
+data class JoinRoomCommand(
+    val roomId: String = "",
+    val nickname: String? = null,
+    val token: String? = null,
+    val clientId: String? = null,
+)
 
 /** 대기실 준비 토글(C→S, /app/room/ready). 방장이 아닌 멤버가 사용. */
 data class SetReadyCommand(val ready: Boolean = false)

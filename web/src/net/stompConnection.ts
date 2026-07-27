@@ -36,10 +36,22 @@ function defaultWsUrl(): string {
 export const SERVER_WS_URL: string =
   (import.meta.env.VITE_WS_URL as string | undefined) ?? defaultWsUrl();
 
+// 연결과 무관한 영속 클라 신원(localStorage). 서버가 방장·멤버 동일성을 이걸로 판정해,
+// 재접속(새 STOMP principal)해도 방장 자리가 유지된다. 게임 토큰과 별개(토큰은 라운드 시작 시 발급).
+function getClientId(): string {
+  let id = localStorage.getItem("clientId");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("clientId", id);
+  }
+  return id;
+}
+
 export class StompConnection implements Connection {
   private client: Client;
   private nickname = "";
   private token: string | undefined;
+  private readonly clientId = getClientId(); // 영속 클라 신원(방장·재접속 동일성 판정용)
 
   // 접속 의도(재접속 시 복구용): 레거시 브리지(join)인지, 특정 방(joinRoom)인지.
   private bridgeMode = false;
@@ -159,7 +171,12 @@ export class StompConnection implements Connection {
       this.subscribeRoom(this.currentRoomId);
       this.client.publish({
         destination: "/app/lobby/join",
-        body: JSON.stringify({ roomId: this.currentRoomId, nickname: this.nickname, token: this.token }),
+        body: JSON.stringify({
+          roomId: this.currentRoomId,
+          nickname: this.nickname,
+          token: this.token,
+          clientId: this.clientId,
+        }),
       });
     }
   }
@@ -182,7 +199,7 @@ export class StompConnection implements Connection {
     this.nickname = nickname;
     this.token = token;
     this.bridgeMode = false;
-    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token }));
+    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token, clientId: this.clientId }));
   }
 
   joinRoom(roomId: string, nickname: string, token?: string): void {

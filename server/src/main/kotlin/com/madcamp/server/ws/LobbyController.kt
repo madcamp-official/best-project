@@ -48,8 +48,8 @@ class LobbyController(
             }
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
             val room = roomManager.create(name)
-            room.hostPrincipal = principal.name // 생성자가 방장 — 시작 권한 보유
-            addMemberAndReply(room, principal, cmd.nickname, cmd.token)
+            room.hostClientId = clientIdOf(cmd.clientId, principal) // 생성자가 방장 — 시작 권한 보유
+            addMemberAndReply(room, principal, cmd.nickname, cmd.token, cmd.clientId)
         }
     }
 
@@ -66,24 +66,36 @@ class LobbyController(
                 broadcaster.broadcastRoomList() // 클라가 로비 목록을 최신으로 유지
                 return@submitRoomTask
             }
-            val already = room.members.containsKey(principal.name)
+            val cid = clientIdOf(cmd.clientId, principal)
+            val already = room.members.values.any { it.clientId == cid }
             if (!already && room.members.size >= RoomManager.MAX_MEMBERS_PER_ROOM) {
                 sendRoomError(principal, "ROOM_FULL", "방 정원이 가득 찼습니다.")
                 broadcaster.broadcastRoomList()
                 return@submitRoomTask
             }
-            addMemberAndReply(room, principal, cmd.nickname, cmd.token)
+            addMemberAndReply(room, principal, cmd.nickname, cmd.token, cmd.clientId)
         }
     }
+
+    // 영속 clientId(없으면 이번 연결 principal로 폴백 — clientId 미전송 클라·스모크테스트 호환).
+    private fun clientIdOf(clientId: String?, principal: Principal): String =
+        clientId?.takeUnless { it.isBlank() } ?: principal.name
 
     private fun sendRoomError(principal: Principal, code: String, message: String) {
         messaging.convertAndSendToUser(principal.name, "/queue/error", ErrorMessage(code, message, -1, -1))
     }
 
     // 멤버 등록 + 입장 응답 + 브로드캐스트. (executor 스레드에서만 호출)
-    private fun addMemberAndReply(room: Room, principal: Principal, nickname: String?, token: String?) {
+    private fun addMemberAndReply(room: Room, principal: Principal, nickname: String?, token: String?, clientId: String?) {
         val name = nickname?.trim()?.takeUnless { it.isEmpty() }?.take(12) ?: "player"
-        val member = room.members.getOrPut(principal.name) { Member(principal.name, name, token ?: "") }
+        val cid = clientIdOf(clientId, principal)
+        // 재접속 유령 제거: 같은 clientId의 이전 principal 멤버가 남아 있으면(연결 해제 이벤트 지연) 지운다.
+        // 이게 없으면 재접속 시 옛 principal이 방장 자리를 쥔 채 새 principal이 비방장 멤버로 붙는다.
+        room.members.entries.filter { it.value.clientId == cid && it.key != principal.name }
+            .forEach { room.members.remove(it.key); connectionRegistry.unbind(it.key) }
+        val member = room.members.getOrPut(principal.name) { Member(principal.name, name, token ?: "", clientId = cid) }
+        member.principalName = principal.name
+        member.clientId = cid
         member.nickname = name
 
         val world = room.world
@@ -106,7 +118,7 @@ class LobbyController(
             if (token != null) member.token = token
             connectionRegistry.bind(principal.name, room.id, member.holderId) // 로비 대기(holderId=-1)
         }
-        messaging.convertAndSendToUser(principal.name, "/queue/roomJoined", broadcaster.roomJoined(room, principal.name))
+        messaging.convertAndSendToUser(principal.name, "/queue/roomJoined", broadcaster.roomJoined(room, cid))
         broadcaster.broadcastRoomState(room)
         broadcaster.broadcastRoomList()
     }
