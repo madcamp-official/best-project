@@ -24,7 +24,7 @@ class SessionEventListener(
         val principalName = event.user?.name ?: return
         val binding = connectionRegistry.bindingOf(principalName) ?: return
         connectionRegistry.unbind(principalName)
-        if (binding.roomId == GameLoop.DEFAULT_ROOM_ID) return // 브리지 방은 멤버 목록을 안 쓴다
+        if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 멤버 목록을 안 쓴다
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             room.members.remove(principalName)

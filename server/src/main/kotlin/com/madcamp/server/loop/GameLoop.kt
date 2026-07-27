@@ -10,6 +10,7 @@ import com.madcamp.server.domain.World
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
+import com.madcamp.server.ws.RoomBroadcaster
 import com.madcamp.server.ws.dto.DeltaMessage
 import com.madcamp.server.ws.dto.LeaderboardMessage
 import jakarta.annotation.PreDestroy
@@ -26,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * 모든 방(Room)의 월드를 만지는 유일한 스레드. plan.md §3/§6 — 명령(JOIN/SORTIE…)도 tick도,
  * 그리고 방 생명주기 전환(월드 생성/시작/종료)도 전부 이 단일 executor 위에서 순서대로 실행되므로
  * 어떤 방의 World에도 락이 필요 없다. 매 tick PLAYING 방을 순회하며 각 방의 accumulator로
- * 진행한다(방별 시계 분리).
+ * 진행하고, 라운드 종료(51% 지배 또는 제한 시간)를 판정한다.
  *
  * 다중 방 전환 과도기(브리지): 서버 시작 시 기본 방 1개를 PLAYING으로 띄우고, 그 방의
  * 브로드캐스트를 레거시 전역 토픽(/topic/world, /topic/leaderboard)에도 미러링해 기존 클라가
@@ -37,6 +38,7 @@ class GameLoop(
     private val boundaryDataLoader: BoundaryDataLoader,
     private val configService: ConfigService,
     private val roomManager: RoomManager,
+    private val roomBroadcaster: RoomBroadcaster,
     private val messagingTemplate: SimpMessagingTemplate,
 ) {
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
@@ -48,7 +50,7 @@ class GameLoop(
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
         // 과도기 브리지: 기본 방을 PLAYING으로 띄운다(레거시 클라 호환).
-        val room = roomManager.createWithId(DEFAULT_ROOM_ID, "기본 방")
+        val room = roomManager.createWithId(RoomManager.DEFAULT_ROOM_ID, "기본 방")
         room.world = createFreshWorld()
         room.state = RoomState.PLAYING
         room.roundStartMs = System.currentTimeMillis()
@@ -128,6 +130,47 @@ class GameLoop(
         broadcastDelta(room, wallNow)
         room.tickCount++
         if (room.tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) broadcastLeaderboard(room)
+        checkRoundEnd(room, config, wallNow)
+    }
+
+    // 라운드 종료 판정. 시간 종료(제한 시간)는 매 tick 저렴하게, 지배(51%) 판정은 1Hz에만.
+    // 기본 브리지 방은 라운드 개념이 없어 종료하지 않는다.
+    private fun checkRoundEnd(room: Room, config: GameConfig, wallNow: Long) {
+        if (room.id == RoomManager.DEFAULT_ROOM_ID) return
+        val world = room.world ?: return
+        val timedOut = wallNow - room.roundStartMs >= config.roundDurationSec * 1000L
+        val dominator =
+            if (room.tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) GameCore.dominationHolder(world, config) else -1
+        if (dominator < 0 && !timedOut) return
+
+        val reason = if (dominator >= 0) "DOMINATION" else "TIMEOUT"
+        val winnerId = if (dominator >= 0) dominator else GameCore.getLeaderboard(world).firstOrNull()?.holderId ?: -1
+        endRound(room, winnerId, reason)
+    }
+
+    // 라운드 종료 → 결과 브로드캐스트 → 프레시 빈 월드로 재생성하고 LOBBY 복귀(멤버 유지, holderId 리셋).
+    private fun endRound(room: Room, winnerHolderId: Int, reason: String) {
+        val world = room.world
+        val leaderboard = world?.let { GameCore.getLeaderboard(it) } ?: emptyList()
+        val winnerName = world?.holders?.get(winnerHolderId)?.name
+        roomBroadcaster.broadcastRoundEnd(room, reason, winnerHolderId, winnerName, leaderboard)
+        log.info("Room {} round ended ({}), winner={}", room.id, reason, winnerName)
+
+        room.state = RoomState.ENDED
+        // 다음 라운드를 위해 프레시 빈 월드로 교체하고 LOBBY로 되돌린다. 멤버는 유지(대기 후 재시작).
+        room.world = createFreshWorld()
+        for (member in room.members.values) member.holderId = -1
+        room.roundStartMs = 0
+        room.winnerHolderId = -1
+        room.tickCount = 0
+        room.state = RoomState.LOBBY
+
+        if (room.members.isEmpty()) {
+            roomManager.remove(room.id) // 아무도 안 남은 방은 정리
+        } else {
+            roomBroadcaster.broadcastRoomState(room)
+        }
+        roomBroadcaster.broadcastRoomList()
     }
 
     private fun broadcastDelta(room: Room, nowMs: Long) {
@@ -169,7 +212,7 @@ class GameLoop(
             enclosed = if (enclosedChanged) enclosedList else null,
         )
         messagingTemplate.convertAndSend(worldTopic(room.id), msg)
-        if (room.id == DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_WORLD_TOPIC, msg)
+        if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_WORLD_TOPIC, msg)
     }
 
     private fun broadcastLeaderboard(room: Room) {
@@ -178,11 +221,10 @@ class GameLoop(
         val envCells = GameCore.ownedCount(world, HolderIds.ENV)
         val msg = LeaderboardMessage(rows, envCells, world.n)
         messagingTemplate.convertAndSend(leaderboardTopic(room.id), msg)
-        if (room.id == DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_LEADERBOARD_TOPIC, msg)
+        if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_LEADERBOARD_TOPIC, msg)
     }
 
     companion object {
-        const val DEFAULT_ROOM_ID = "default"
         private const val TICK_MS = 200L // 5Hz
         private const val LEADERBOARD_EVERY_N_TICKS = 5L // 1Hz
         private const val LEGACY_WORLD_TOPIC = "/topic/world"

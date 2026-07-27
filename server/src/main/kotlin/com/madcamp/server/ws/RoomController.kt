@@ -1,32 +1,56 @@
 package com.madcamp.server.ws
 
+import com.madcamp.server.config.ConfigService
+import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
 import com.madcamp.server.loop.GameLoop
+import com.madcamp.server.session.SessionService
 import org.springframework.messaging.handler.annotation.MessageMapping
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
 import java.security.Principal
 
 /**
- * 방 나가기(다중 세션). 라운드 시작(start)·생명주기는 Phase 4에서 이 컨트롤러에 추가한다.
- * 멤버십 조작은 GameLoop 단일 스레드에서(월드 무락 불변식).
+ * 방 시작/나가기(다중 세션). start는 LOBBY→PLAYING: 프레시 월드 생성·멤버 스폰·WELCOME.
+ * 종료(51%/시간)와 LOBBY 복귀는 GameLoop.tickRoom이 처리한다. 멤버십·월드 조작은 전부
+ * GameLoop 단일 스레드에서(월드 무락 불변식).
  */
 @Controller
 class RoomController(
     private val gameLoop: GameLoop,
     private val roomManager: RoomManager,
     private val connectionRegistry: ConnectionRegistry,
+    private val sessionService: SessionService,
+    private val configService: ConfigService,
+    private val welcomeAssembler: WelcomeAssembler,
     private val broadcaster: RoomBroadcaster,
+    private val messaging: SimpMessagingTemplate,
 ) {
+    @MessageMapping("/room/start")
+    fun start(principal: Principal) {
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
+        if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return
+        gameLoop.submitRoomTask {
+            val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
+            if (room.state == RoomState.PLAYING || room.members.isEmpty()) return@submitRoomTask
+            if (roomManager.playingCount() >= RoomManager.MAX_PLAYING_ROOMS) {
+                broadcaster.broadcastRoomList() // 동시 진행 방 상한
+                return@submitRoomTask
+            }
+            startRound(room)
+        }
+    }
+
     @MessageMapping("/room/leave")
     fun leave(principal: Principal) {
         val binding = connectionRegistry.bindingOf(principal.name) ?: return
-        if (binding.roomId == GameLoop.DEFAULT_ROOM_ID) return // 브리지 방은 로비 대상 아님
+        if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 로비 대상 아님
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             room.members.remove(principal.name)
             connectionRegistry.unbind(principal.name)
-            // 빈 방은 정리(단, PLAYING 중이면 유지 — 재접속·잔여 처리는 Phase 4).
+            // 빈 방은 정리(단, PLAYING 중이면 유지 — 재접속·잔여 처리).
             if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
                 roomManager.remove(room.id)
             } else {
@@ -34,5 +58,37 @@ class RoomController(
             }
             broadcaster.broadcastRoomList()
         }
+    }
+
+    // 라운드 시작: 프레시 월드 생성 → 멤버 스폰 → accumulator·타이머 리셋 → PLAYING → 각 멤버 WELCOME.
+    // (executor 스레드에서만 호출)
+    private fun startRound(room: Room) {
+        val config = configService.current
+        val world = gameLoop.createFreshWorld()
+        room.world = world
+        for (member in room.members.values) {
+            // 새 라운드 = 새 월드라 항상 새 holder를 배정한다(기존 토큰으로 복구하지 않음).
+            val (tok, session) = sessionService.joinOrRestore(room.id, world, config, member.nickname, null)
+            member.holderId = session.holderId
+            member.token = tok
+            connectionRegistry.bind(member.principalName, room.id, session.holderId)
+        }
+        room.tickCount = 0
+        room.missileAccumSec = 0.0
+        room.supplyAccumSec = 0.0
+        room.lastEnclosedKey = ""
+        room.lastTickNanos = System.nanoTime()
+        room.roundStartMs = System.currentTimeMillis()
+        room.winnerHolderId = -1
+        room.state = RoomState.PLAYING
+        for (member in room.members.values) {
+            messaging.convertAndSendToUser(
+                member.principalName,
+                "/queue/welcome",
+                welcomeAssembler.build(room.id, world, member.holderId, member.token),
+            )
+        }
+        broadcaster.broadcastRoomState(room)
+        broadcaster.broadcastRoomList()
     }
 }

@@ -29,6 +29,7 @@ class RoomManager {
     fun playingCount(): Int = rooms.values.count { it.state == RoomState.PLAYING }
 
     companion object {
+        const val DEFAULT_ROOM_ID = "default" // 과도기 브리지(레거시 단일 월드) 방의 well-known id
         const val MAX_ROOMS = 32 // 동시 존재 방 수 상한
         const val MAX_PLAYING_ROOMS = 8 // 동시에 tick하는 방 수 상한(전국 맵 × N방 tick 비용 보호)
         const val MAX_MEMBERS_PER_ROOM = 8 // 방당 인원(색 슬롯 5 순환, holderId 공간 254)
