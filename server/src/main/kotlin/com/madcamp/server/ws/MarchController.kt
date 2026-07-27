@@ -27,13 +27,13 @@ class MarchController(
 ) {
     @MessageMapping("/march")
     fun march(@Payload cmd: MarchCommand, principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
-        gameLoop.submitOnLoop { world ->
+        gameLoop.submitOnRoom(binding.roomId) { world ->
             val config = configService.current
             // 클라 입력(ratio)은 신뢰하지 않고 안전 범위로 클램프한다(SortieController와 동일).
             val safeRatio = cmd.ratio?.takeIf { it.isFinite() }?.coerceIn(0.05, 1.0) ?: config.sortieRatio
-            val result = GameCore.tryMarch(world, config, cmd.from, cmd.to, holderId, System.currentTimeMillis(), safeRatio)
+            val result = GameCore.tryMarch(world, config, cmd.from, cmd.to, binding.holderId, System.currentTimeMillis(), safeRatio)
             if (result is SortieResult.Err) {
                 messagingTemplate.convertAndSendToUser(
                     principal.name,

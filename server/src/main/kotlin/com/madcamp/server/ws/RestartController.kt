@@ -20,10 +20,10 @@ class RestartController(
 ) {
     @MessageMapping("/restart")
     fun restart(principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
         val config = configService.current
-        gameLoop.submitOnLoop { world ->
-            GameCore.respawnPlayer(world, config, holderId, System.currentTimeMillis())
+        gameLoop.submitOnRoom(binding.roomId) { world ->
+            GameCore.respawnPlayer(world, config, binding.holderId, System.currentTimeMillis())
         }
     }
 }

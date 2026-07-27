@@ -23,10 +23,10 @@ class JoinController(
 ) {
     @MessageMapping("/join")
     fun join(@Payload msg: JoinMessage, principal: Principal) {
-        val welcome = gameLoop.runOnLoop { world ->
+        val welcome = gameLoop.runOnRoom(GameLoop.DEFAULT_ROOM_ID) { world ->
             val config = configService.current
             val (token, session) = sessionService.joinOrRestore(world, config, msg.nickname, msg.token)
-            connectionRegistry.bind(principal.name, session.holderId)
+            connectionRegistry.bind(principal.name, GameLoop.DEFAULT_ROOM_ID, session.holderId)
             val holder = world.holders.getValue(session.holderId)
             val nowMs = System.currentTimeMillis()
 
@@ -50,7 +50,7 @@ class JoinController(
                     if (until > nowMs) ShieldInfo(hid, until) else null
                 },
             )
-        }
+        } ?: return
         messagingTemplate.convertAndSendToUser(principal.name, "/queue/welcome", welcome)
     }
 }
