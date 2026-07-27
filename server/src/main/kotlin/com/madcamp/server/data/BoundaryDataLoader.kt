@@ -1,5 +1,6 @@
 package com.madcamp.server.data
 
+import com.madcamp.server.config.GameConfig
 import tools.jackson.databind.ObjectMapper
 import org.springframework.core.io.ClassPathResource
 import org.springframework.stereotype.Component
@@ -39,17 +40,43 @@ object MapCatalog {
     private val RESOURCE_PATHS: Map<String, String> = mapOf(
         "kr-dong" to "data/nationwide-dong.json", // 전국 법정동(~5,065개)
         "kr-sgg" to "data/kr-sgg-cells.json", // 시/군/구(~250개, "한국지리" 모드)
+        "world" to "data/world-cells.json", // 세계 국가(177개, "세계지도" 모드)
     )
 
     val DISPLAY_NAMES: Map<String, String> = mapOf(
         "kr-dong" to "전국 법정동",
         "kr-sgg" to "시/군/구",
+        "world" to "세계지도",
     )
 
     fun resourcePathOf(mapId: String): String = RESOURCE_PATHS[mapId] ?: RESOURCE_PATHS.getValue(DEFAULT)
 
     /** 알 수 없는 mapId는 기본 지도로 대체(오래된 클라·오타 방어). */
     fun normalize(mapId: String?): String = mapId?.takeIf { RESOURCE_PATHS.containsKey(it) } ?: DEFAULT
+
+    /**
+     * 지도별 거리 기반 물리 상수 오버라이드. 미사일/공수 범위는 실제 지리 거리(centroid 도 단위)에
+     * 하한 클램프 없이 그대로 비교되므로(GameCore.tryAirdrop/MissileController.withinRadius),
+     * 한국 동/시군구 지도 기준으로 튜닝된 기본값을 세계지도(전 지구 위경도 범위, 국가 하나가
+     * 동 지도 전체 폭에 맞먹는 규모)에 그대로 쓰면 미사일이 사실상 안 보이고 공수는 항상 사거리
+     * 밖이 된다. 유닛 이동 속도(UNIT_SPEED_DEG_PER_SEC)는 건드리지 않는다 — 이동 시간이
+     * UNIT_TRAVEL_MAX_SEC로 이미 클램프돼 거리가 커도 자연히 상한에서 멈춘다.
+     *
+     * 아래 값은 국가 크기 편차(바티칸~러시아)를 감안한 1차 추정치 — 플레이테스트로 조정 예정.
+     */
+    private val MISSILE_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 3.0)
+    private val MISSILE_MAX_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 6.0)
+    private val MISSILE_HIT_MARGIN_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 1.5)
+    private val AIRDROP_MAX_RANGE_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 60.0)
+
+    /** 방의 mapId에 맞춰 거리 기반 필드만 덮어쓴 GameConfig 사본을 만든다. 나머지(생산·전투 비율
+     * 등 지도 무관 튜닝값)는 admin 설정 그대로 유지한다. */
+    fun applyProfile(base: GameConfig, mapId: String): GameConfig = base.copy(
+        missileRadiusDeg = MISSILE_RADIUS_DEG_OVERRIDES[mapId] ?: base.missileRadiusDeg,
+        missileMaxRadiusDeg = MISSILE_MAX_RADIUS_DEG_OVERRIDES[mapId] ?: base.missileMaxRadiusDeg,
+        missileHitMarginDeg = MISSILE_HIT_MARGIN_DEG_OVERRIDES[mapId] ?: base.missileHitMarginDeg,
+        airdropMaxRangeDeg = AIRDROP_MAX_RANGE_DEG_OVERRIDES[mapId] ?: base.airdropMaxRangeDeg,
+    )
 }
 
 @Component

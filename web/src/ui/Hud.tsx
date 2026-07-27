@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
 import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
+import { displayRank } from "../game/rankLabels";
 import type { Connection } from "../net/connection";
 
 interface Props {
@@ -96,7 +97,7 @@ export function Hud({ connection, isMock }: Props) {
         <div className="hud-panel">
           <div className="hud-title">{currentRoom?.name ?? "동대장 시뮬레이터"}</div>
           <div className="hud-rank">
-            내 계급: <strong>{myRank ?? "무소속"}</strong>
+            내 계급: <strong>{displayRank(myRank, world.mapId) ?? "무소속"}</strong>
           </div>
           {shieldSecLeft > 0 && (
             <div

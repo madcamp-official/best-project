@@ -9,9 +9,12 @@ import * as core from "../game/core";
 import type { GameState } from "../game/core";
 import type { DeltaMessage, WelcomeMessage } from "../net/protocol";
 import { CONFIG } from "../config";
+import { applyServerConfig } from "../game/runtimeConfig";
+import { DEFAULT_MAP_ID } from "../data/loadMapData";
 
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
+  mapId: string; // 이 방이 쓰는 지도(data/loadMapData.ts MAP_ASSETS 키). game/rankLabels.ts가 참조.
   myOffensive: number; // 내 공세 목표 admIndex(-1=없음). 렌더러가 목표 마커를 그린다.
   // 전술핵 사일로별 재발사 가능 시각을 로컬 시계(Date.now)로 환산한 값 — Hud 쿨다운 표시용.
   // (서버 nukeReadyAtMs는 serverTimeMs 시간축이라 받은 시점에 로컬로 번역해 둔다.)
@@ -22,6 +25,7 @@ export interface WorldView extends GameState {
 // (MapView·uiStore가 이 참조를 들고 world.ownerId 처럼 직접 읽는다.)
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
+  mapId: DEFAULT_MAP_ID,
   myOffensive: -1,
   nukeReadyLocal: [] as number[],
 });
@@ -33,6 +37,8 @@ let offensiveTouched = false;
 
 // WELCOME 적용 — 전체 스냅샷을 1회 반영. 이후 변경은 applyDelta로만.
 export function applyWelcome(msg: WelcomeMessage) {
+  applyServerConfig(msg.config); // 지도별 오버라이드가 반영된 서버 원본 설정(runtimeConfig.ts 참조)
+  world.mapId = msg.mapId;
   const n = msg.meta.length;
   world.n = n;
   world.ownerId = Uint8Array.from(msg.ownerId);
@@ -222,6 +228,11 @@ export function myNukeStatus(): { owned: boolean; cooldownLeftMs: number } {
 }
 
 // 공수 사거리 판정(렌더러 UX용) — 지금 선택한 출발 동들에서 dest가 사거리 이내인가.
+// 주의: core.ts는 순수 로직 규칙(docs/convention.md §2.3, 전역 mutable state 금지)상
+// RUNTIME_CONFIG를 참조하지 않고 정적 CONFIG.AIRDROP_MAX_RANGE_DEG를 쓴다 — 세계지도처럼
+// 오버라이드된 지도에서는 이 클라이언트 측 사전 판정이 서버 판정(GameCore.tryAirdrop, 지도별
+// 오버라이드 적용됨)과 약간 어긋날 수 있다(최종 판정은 항상 서버). 화면(map/MapView.tsx)의
+// 실제 사거리 원 렌더링은 RUNTIME_CONFIG를 써서 서버와 일치한다.
 export const airdropInRange = (sources: number[], dest: number) =>
   core.airdropInRange(world, sources, dest, world.myHolderId);
 

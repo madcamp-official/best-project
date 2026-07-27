@@ -1,8 +1,10 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.World
+import com.madcamp.server.game.RoomManager
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.ws.dto.ErrorMessage
 import com.madcamp.server.ws.dto.LaunchNukeCommand
@@ -24,6 +26,7 @@ class NukeController(
     private val gameLoop: GameLoop,
     private val connectionRegistry: ConnectionRegistry,
     private val configService: ConfigService,
+    private val roomManager: RoomManager,
     private val messagingTemplate: SimpMessagingTemplate,
 ) {
     @MessageMapping("/nuke")
@@ -31,7 +34,8 @@ class NukeController(
         val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
         gameLoop.submitOnRoom(binding.roomId) { world ->
-            val config = configService.current
+            val mapId = roomManager.get(binding.roomId)?.mapId ?: MapCatalog.DEFAULT
+            val config = MapCatalog.applyProfile(configService.current, mapId)
             // 전술핵 반경은 서버가 결정(일반 미사일 × 배수). hit centroid 근접 검증은 미사일과 동일.
             val radius = config.missileRadiusDeg * config.nukeRadiusMult
             val lim = radius + config.missileHitMarginDeg

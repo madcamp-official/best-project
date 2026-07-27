@@ -90,6 +90,25 @@ const MAP_ASSETS: Record<string, MapAsset> = {
       };
     },
   },
+  // 세계 국가(177개, "세계지도" 모드). 소스: web/public/world-countries.geojson
+  // (world-atlas countries-110m + world-countries에서 fetch-world-geojson.mjs로 1회 추출).
+  // kr-sgg와 같은 설계로 sggcd=자기 자신 코드(국가), sidocd=대륙 — 최하위 계급 생략 후
+  // 대륙 장악→도지사 상당, 세계 지배→대통령 상당으로 이어진다(GameCore.computeRank 재사용).
+  world: {
+    geojsonUrl: `${import.meta.env.BASE_URL}world-countries.geojson`,
+    extractMeta: (props) => {
+      const code = props.code as string | undefined;
+      if (!code) return null;
+      return {
+        code,
+        name: props.name as string,
+        sggcd: code,
+        sggnm: props.name as string,
+        sidocd: props.region as string,
+        sidonm: props.regionKo as string,
+      };
+    },
+  },
 };
 
 export const DEFAULT_MAP_ID = "kr-dong";
@@ -97,6 +116,7 @@ export const DEFAULT_MAP_ID = "kr-dong";
 export const MAP_DISPLAY_NAMES: Record<string, string> = {
   "kr-dong": "전국 법정동",
   "kr-sgg": "시/군/구",
+  world: "세계지도",
 };
 
 export function mapDisplayName(mapId: string): string {

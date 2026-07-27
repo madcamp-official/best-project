@@ -1,8 +1,10 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.World
+import com.madcamp.server.game.RoomManager
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.ws.dto.ErrorMessage
 import com.madcamp.server.ws.dto.LaunchMissileCommand
@@ -24,6 +26,7 @@ class MissileController(
     private val gameLoop: GameLoop,
     private val connectionRegistry: ConnectionRegistry,
     private val configService: ConfigService,
+    private val roomManager: RoomManager,
     private val messagingTemplate: SimpMessagingTemplate,
 ) {
     @MessageMapping("/missile")
@@ -31,7 +34,8 @@ class MissileController(
         val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
         gameLoop.submitOnRoom(binding.roomId) { world ->
-            val config = configService.current
+            val mapId = roomManager.get(binding.roomId)?.mapId ?: MapCatalog.DEFAULT
+            val config = MapCatalog.applyProfile(configService.current, mapId)
             // 클라가 보낸 반경은 신뢰하지 않고 상한으로 클램프하고, 각 hit 동 centroid가
             // 원 중심에서 (반경 + 여유) 안인지 검증한다 — 폴리곤이 없는 서버의 근사 검증.
             val radius = cmd.radius.coerceIn(0.0, config.missileMaxRadiusDeg)
