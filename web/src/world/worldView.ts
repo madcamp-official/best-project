@@ -58,6 +58,9 @@ export const missileImpacts: number[] = [];
 // 내 영토가 이번 delta에 전부 사라진 순간(패배) 신호 — App이 소진해 GAME OVER 오버레이를 띄운다.
 // 재시작은 더 이상 자동이 아니라 유저가 오버레이에서 직접 선택해야 한다(connection.sendRestart).
 let defeatFlag = false;
+// 재시작으로 새로 배정받은 시작 동의 admIndex 큐 — MapView가 꺼내 그 동으로 카메라를 옮긴다.
+// (죽어있던 상태(소유 동 0개)에서만 채워지므로, 적 동을 뺏어 얻은 경우와 헷갈리지 않는다.)
+export const respawnCellQueue: number[] = [];
 
 // DELTA 적용 — 변경된 동만 갱신하고 dirty에 모은다(렌더러가 배치 반영).
 export function applyDelta(msg: DeltaMessage) {
@@ -73,6 +76,7 @@ export function applyDelta(msg: DeltaMessage) {
     if (prev !== owner) {
       captureFlashes.push(admIndex); // 소유권 변경 = 함락
       if (owner === 0 && prev !== 0) missileImpacts.push(admIndex); // non-중립→중립 = 미사일 착탄
+      if (!wasAlive && owner === me) respawnCellQueue.push(admIndex); // 재시작으로 받은 새 동
     }
     world.ownerId[admIndex] = owner;
     world.troops[admIndex] = troops;
@@ -111,6 +115,13 @@ export function drainDefeat(): boolean {
   if (!defeatFlag) return false;
   defeatFlag = false;
   return true;
+}
+
+// 재시작으로 새로 배정받은 시작 동의 admIndex를 반환한다(없으면 null). MapView가 카메라를 옮긴다.
+export function drainRespawnCell(): number | null {
+  if (respawnCellQueue.length === 0) return null;
+  const drained = respawnCellQueue.splice(0, respawnCellQueue.length);
+  return drained[drained.length - 1] ?? null; // 보통 1개뿐이지만, 혹시 여럿 쌓였으면 가장 최근 것
 }
 
 // 도착 시각이 지난 이동 유닛을 시각적으로 제거한다(api-spec §2.5).

@@ -12,6 +12,7 @@ import {
   drainMissilesTouched,
   drainMissileImpacts,
   drainRallyTouched,
+  drainRespawnCell,
   setMyRally,
 } from "../world/worldView";
 import type { Connection } from "../net/connection";
@@ -999,6 +1000,12 @@ export function MapView({ prepared, connection }: Props) {
       if (drainMissilesTouched()) updateMissileMarkers(map);
       // 집결지 깃발(지정/해제 시 갱신)
       if (drainRallyTouched()) updateRallyMarker(map);
+
+      // 재시작으로 새 시작 동을 배정받으면 그 동으로 카메라를 옮긴다(어디서 시작했는지 안 보이던 문제).
+      const respawnCell = drainRespawnCell();
+      if (respawnCell !== null) {
+        map.flyTo({ center: world.meta[respawnCell].centroid as [number, number], zoom: 11, duration: 1200 });
+      }
 
       // 미사일 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스
       const aimingNow = useUIStore.getState().isAiming;
