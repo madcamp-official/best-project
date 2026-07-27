@@ -201,19 +201,10 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
+            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-primary" : "io-btn-ghost"}`}
+            style={{ marginTop: 6 }}
             disabled={missileCount === 0 && !isAiming}
             onClick={() => setAiming(!isAiming)}
-            style={{
-              width: "100%",
-              marginTop: 4,
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #ffffff55",
-              background: isAiming ? "#c0392b" : missileCount === 0 ? "#2a3340" : "#3a4a5e",
-              color: "#fff",
-              cursor: missileCount === 0 && !isAiming ? "not-allowed" : "pointer",
-              fontSize: 13,
-            }}
           >
             {isAiming ? "조준 중… (Esc 취소)" : "미사일 발사 (Space)"}
           </button>
@@ -247,19 +238,10 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
+            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-ghost"}`}
+            style={{ marginTop: 6 }}
             disabled={airdropCooldownLeft > 0 && !isTransporting}
             onClick={() => setTransporting(!isTransporting)}
-            style={{
-              width: "100%",
-              marginTop: 4,
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #ffffff55",
-              background: isTransporting ? "#b8860b" : airdropCooldownLeft > 0 ? "#2a3340" : "#3a4a5e",
-              color: "#fff",
-              cursor: airdropCooldownLeft > 0 && !isTransporting ? "not-allowed" : "pointer",
-              fontSize: 13,
-            }}
           >
             {isTransporting
               ? "수송 중… (Esc 취소)"

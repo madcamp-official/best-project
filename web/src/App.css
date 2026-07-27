@@ -432,6 +432,15 @@
   box-shadow: 0 1px 0 #1a6b3b;
 }
 
+.io-btn-amber {
+  background: #c78a1e;
+  box-shadow: 0 4px 0 #8a5e10;
+}
+
+.io-btn-amber:not(:disabled):active {
+  box-shadow: 0 1px 0 #8a5e10;
+}
+
 .io-btn-ghost {
   background: rgba(148, 163, 184, 0.14);
   border: 1px solid rgba(148, 163, 184, 0.35);
