@@ -650,20 +650,21 @@ object GameCore {
 
     // ── 궤멸 후 재시작 ────────────────────────────────────────────────
     // 미사일 직격(내 유일한 동이 중립화)이나 전투 패배로 플레이어가 소유 동 0개가 되면
-    // 두 번 다시 아무것도 할 수 없는 영구 탈락 상태가 된다(SORTIE는 내 소유 동에서만
-    // 가능하므로). README/plan.md 어디에도 "영구 제거" 규칙은 없고 지속형 캔버스
-    // 컨셉이므로, 새 시작 동을 자동 배정해 계속 플레이하게 한다. E(255)는 예외 —
-    // README §4.6대로 소탕되면 재스폰 없음(맵 장악 못 하는 조연이라는 정체성 유지).
-    fun respawnEliminatedPlayers(world: World, wallNowMs: Long) {
-        for (holder in world.holders.values) {
-            if (!isRealPlayer(holder.id)) continue
-            if (ownedCount(world, holder.id) > 0) continue
+    // 두 번 다시 아무것도 할 수 없는 궤멸 상태가 된다(SORTIE는 내 소유 동에서만 가능하므로).
+    // 클라가 이 순간을 감지해 GAME OVER 오버레이를 띄우고, 유저가 "재시작" 버튼을 누르면
+    // RestartController가 이 함수를 호출한다 — 예전엔 매 tick 자동으로 재배정했지만, 그러면
+    // 게임오버 순간 자체가 안 보여서(바로 다음 tick에 이미 부활해 있음) 유저 요청 시로 바꿨다.
+    // 아직 살아있으면(소유 동 > 0) 무시. E(255)는 대상 아님(재스폰 없음, README §4.6).
+    fun respawnPlayer(world: World, holderId: Int, wallNowMs: Long): Boolean {
+        val holder = world.holders[holderId] ?: return false
+        if (!isRealPlayer(holderId)) return false
+        if (ownedCount(world, holderId) > 0) return false // 아직 안 죽음 — 무시
 
-            val newCell = StartCellAssigner.pick(world) ?: continue // 빈 중립 동이 없으면 다음 tick 재시도
-            world.ownerId[newCell] = holder.id
-            world.troops[newCell] = world.troopCap[newCell]
-            world.dirty.add(newCell)
-            pushLog(world, "${holder.name}님이 궤멸 후 ${world.meta[newCell].name}에서 재시작합니다.", wallNowMs)
-        }
+        val newCell = StartCellAssigner.pick(world) ?: return false // 빈 중립 동이 없음
+        world.ownerId[newCell] = holderId
+        world.troops[newCell] = world.troopCap[newCell]
+        world.dirty.add(newCell)
+        pushLog(world, "${holder.name}님이 재시작해 ${world.meta[newCell].name}에서 다시 시작합니다.", wallNowMs)
+        return true
     }
 }

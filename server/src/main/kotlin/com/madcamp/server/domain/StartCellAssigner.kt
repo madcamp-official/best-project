@@ -4,7 +4,7 @@ import com.madcamp.server.config.HolderIds
 
 /**
  * 시작 동(또는 재시작 동) 배정. 신규 참가자(SessionService)와 궤멸 후 재시작
- * (GameCore.respawnEliminatedPlayers) 둘 다 이걸 쓴다 — "빈손이 된 플레이어에게
+ * (GameCore.respawnPlayer) 둘 다 이걸 쓴다 — "빈손이 된 플레이어에게
  * 새 땅을 준다"는 같은 문제이기 때문(plan.md Day 3 "기존 영토와 겹치지 않는 중립 동, 전국에 분산").
  * `internal`로 둬서 domain 밖(session 패키지)에서도 쓸 수 있게 한다.
  */

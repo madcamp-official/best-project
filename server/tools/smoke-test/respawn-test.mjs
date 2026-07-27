@@ -1,10 +1,12 @@
 // 사용자가 실제로 겪은 문제 재현: 갓 접속한 플레이어(동 1개)가 미사일에 직격당해
-// 소유 동 0개가 됐을 때, 서버가 자동으로 새 시작 동을 배정해 계속 플레이 가능한지 확인.
+// 소유 동 0개가 됐을 때 GAME OVER 흐름이 맞게 도는지 확인.
 //
 // 1) B(피해자) 접속 → 시작 동 Y 하나만 보유.
 // 2) A(공격자)를 /admin/config로 잠깐 빠르게 확장시켜 미사일을 확보.
 // 3) A가 정확히 Y를 겨냥해 발사 → Y 중립화 → B는 소유 동 0개.
-// 4) 서버가 다음 tick(들) 안에 B에게 새 동을 자동 배정하는지 확인(로그 메시지 "궤멸" 포함).
+// 4) 자동으로는 재시작되지 않아야 한다(예전엔 자동이었지만, GAME OVER 오버레이가 뜰 틈이
+//    없어져서 유저 명시 요청(/app/restart)으로 바꿨다) — 몇 초 기다려도 그대로 0개인지 확인.
+// 5) B가 /app/restart를 보내면 그때 새 동을 받는지 확인(로그 메시지 "재시작해" 포함).
 
 import { Client } from "@stomp/stompjs";
 import WebSocket from "ws";
@@ -42,11 +44,11 @@ async function main() {
   console.log(`  B holderId=${b.welcome.holderId}, 시작 동 Y=${Y}(${meta[Y].name})`);
 
   const bState = { ownerId: b.welcome.ownerId.slice() };
-  const respawnLogs = [];
+  const restartLogs = [];
   b.client.subscribe("/topic/world", (msg) => {
     const d = JSON.parse(msg.body);
     for (const [idx, owner] of d.cells) bState.ownerId[idx] = owner;
-    for (const e of d.events) if (e.message.includes("궤멸")) respawnLogs.push(e.message);
+    for (const e of d.events) if (e.message.includes("재시작해")) restartLogs.push(e.message);
   });
   b.client.subscribe("/user/queue/error", () => {});
 
@@ -101,10 +103,17 @@ async function main() {
   if (bState.ownerId[Y] !== 0) fail(`Y가 중립화 안 됨(owner=${bState.ownerId[Y]})`);
   console.log(`  확인: Y(${Y}) 중립화됨 — B는 이제 소유 동 0개`);
 
-  console.log("[4] 자동 재시작 대기(최대 5초, 다음 tick 안에 일어나야 함)...");
-  const wait2 = Date.now() + 5000;
-  while (Date.now() < wait2 && respawnLogs.length === 0) {
-    await new Promise((r) => setTimeout(r, 300));
+  console.log("[4] 자동으로는 재시작되지 않아야 함(3초 대기)...");
+  await new Promise((r) => setTimeout(r, 3000));
+  if (restartLogs.length > 0) fail("아직 재시작 요청 안 보냈는데 이미 재시작됨 — 자동 재배정이 남아있는 듯");
+  if (bState.ownerId.some((o) => o === b.welcome.holderId)) fail("재시작 요청 전인데 B가 이미 동을 소유함");
+  console.log("  확인: 자동 재시작 없음 — 소유 동 0개 유지됨(GAME OVER 상태)");
+
+  console.log("[5] B가 재시작 요청(/app/restart) 전송...");
+  b.client.publish({ destination: "/app/restart", body: "{}" });
+  const wait2 = Date.now() + 3000;
+  while (Date.now() < wait2 && restartLogs.length === 0) {
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   console.log("설정 원복...");
@@ -118,11 +127,11 @@ async function main() {
   a.client.deactivate();
   b.client.deactivate();
 
-  if (respawnLogs.length === 0) fail("궤멸 재시작 로그가 안 옴 — respawnEliminatedPlayers가 안 도는 듯");
+  if (restartLogs.length === 0) fail("재시작 요청을 보냈는데 재시작 로그가 안 옴 — RestartController/respawnPlayer 확인 필요");
   if (!bOwnsAny) fail("재시작 로그는 왔는데 실제로 B가 소유한 동이 없음");
 
-  console.log("  [LOG]", respawnLogs[0]);
-  console.log(`  확인: B가 다시 동을 소유하고 있음`);
+  console.log("  [LOG]", restartLogs[0]);
+  console.log(`  확인: 재시작 요청 후 B가 다시 동을 소유하고 있음`);
   console.log("RESPAWN TEST OK");
   process.exit(0);
 }

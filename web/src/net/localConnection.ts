@@ -240,6 +240,11 @@ export class LocalConnection implements Connection {
     core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
   }
 
+  // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
+  sendRestart(): void {
+    core.respawnPlayer(this.gs, this.holderId, Date.now()); // 다음 tick의 flushDelta로 dirty 전파
+  }
+
   sendAirdrop(sources: number[], dest: number): void {
     const now = performance.now();
     const before = this.gs.orders.length;
@@ -284,7 +289,6 @@ export class LocalConnection implements Connection {
     const relayLegs = core.tickOrders(this.gs, now, wall);
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
-    core.respawnEliminatedPlayers(this.gs, wall); // 미사일 등으로 소유 동 0개가 된 플레이어 재시작
 
     // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
     this.envTimerMs += TICK_MS;

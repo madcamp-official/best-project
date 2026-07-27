@@ -13,7 +13,6 @@ import {
   applyDelta,
   getLeaderboard,
   envCellCount,
-  drainRespawnEvents,
   drainDefeat,
   world,
 } from "./world/worldView";
@@ -52,8 +51,8 @@ function App() {
         });
         connection.onDelta((msg) => {
           applyDelta(msg);
-          drainRespawnEvents(); // 큐 소진(누수 방지) — 안내는 아래 패배 오버레이가 대신한다
-          // 내 영토가 이번 delta에 전부 사라지면(미사일·점령) 패배 오버레이를 띄운다.
+          // 내 영토가 이번 delta에 전부 사라지면(미사일·점령) GAME OVER 오버레이를 띄운다.
+          // 재시작은 유저가 오버레이 버튼으로 직접 선택한다(더 이상 자동 재배정 없음).
           if (drainDefeat()) useUIStore.getState().setDefeated(true);
         });
         connection.onError((msg) => useUIStore.getState().showToast(msg.message));
@@ -97,7 +96,7 @@ function App() {
       {prepared && connectionRef.current && (
         <MapView prepared={prepared} connection={connectionRef.current} />
       )}
-      <Hud />
+      <Hud connection={connectionRef.current} />
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
     </div>
   );
