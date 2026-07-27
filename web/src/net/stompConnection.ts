@@ -199,12 +199,15 @@ export class StompConnection implements Connection {
     this.send("/app/lobby/list", "{}");
   }
 
-  createRoom(name: string, nickname: string, token?: string, idToken?: string): void {
+  createRoom(name: string, nickname: string, token?: string, idToken?: string, isPrivate?: boolean): void {
     this.nickname = nickname;
     this.token = token;
     this.idToken = idToken;
     this.bridgeMode = false;
-    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token, idToken, clientId: this.clientId }));
+    this.send(
+      "/app/lobby/create",
+      JSON.stringify({ name, nickname, token, idToken, clientId: this.clientId, private: isPrivate ?? false }),
+    );
   }
 
   joinRoom(roomId: string, nickname: string, token?: string, idToken?: string): void {
@@ -215,6 +218,17 @@ export class StompConnection implements Connection {
     this.currentRoomId = roomId;
     this.ensureActive();
     if (this.client.connected) this.reestablish();
+  }
+
+  joinByCode(code: string, nickname: string, token?: string, idToken?: string): void {
+    this.nickname = nickname;
+    this.token = token;
+    this.idToken = idToken;
+    this.bridgeMode = false;
+    this.send(
+      "/app/lobby/joinByCode",
+      JSON.stringify({ code, nickname, token, idToken, clientId: this.clientId }),
+    );
   }
 
   startRound(): void {

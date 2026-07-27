@@ -25,6 +25,11 @@ class Room(
     // clientId로 두어야 재접속(새 principal)해도 방장 자리가 유지된다.
     var hostClientId: String = ""
 
+    // 비공개 방(친구 초대) — true면 로비 공개 목록(/topic/rooms)에서 빠지고, joinCode를 아는 사람만
+    // /lobby/joinByCode로 입장할 수 있다. RoomManager.create가 생성 시점에 정한다(이후 안 바뀜).
+    var private: Boolean = false
+    var joinCode: String = "" // private=false면 빈 문자열
+
     // 방 멤버(principal.name → Member). 라운드 사이에도 유지 — "방에서 대기 후 재시작".
     val members: LinkedHashMap<String, Member> = LinkedHashMap()
 

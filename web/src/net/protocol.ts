@@ -188,12 +188,14 @@ export interface RoomListMessage {
 }
 
 // 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
+// joinCode는 비공개 방일 때만 온다(방장이 친구에게 공유할 초대 코드).
 export interface RoomJoinedMessage {
   roomId: string;
   name: string;
   state: RoomState;
   members: MemberInfo[];
   youAreHost: boolean;
+  joinCode?: string;
 }
 
 // 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state).
@@ -213,12 +215,14 @@ export interface RoundEndMessage {
 }
 
 // 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. idToken은 JoinMessage 참고.
+// private=true면 로비 목록에 안 뜨는 친구 초대 전용 방 — 서버가 초대 코드를 발급해 roomJoined로 돌려준다.
 export interface CreateRoomCommand {
   name: string;
   nickname: string;
   token?: string;
   idToken?: string;
   clientId?: string; // 영속 클라 신원(방장 판정용)
+  private?: boolean;
 }
 
 // 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고.
@@ -228,4 +232,13 @@ export interface JoinRoomCommand {
   token?: string;
   idToken?: string;
   clientId?: string; // 영속 클라 신원(재접속 시 방장·멤버 동일성 유지용)
+}
+
+// 초대 코드로 비공개 방 입장(C→S, /app/lobby/joinByCode).
+export interface JoinByCodeCommand {
+  code: string;
+  nickname: string;
+  token?: string;
+  idToken?: string;
+  clientId?: string;
 }

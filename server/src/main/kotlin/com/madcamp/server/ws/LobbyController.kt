@@ -12,6 +12,7 @@ import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
 import com.madcamp.server.ws.dto.CreateRoomCommand
 import com.madcamp.server.ws.dto.ErrorMessage
+import com.madcamp.server.ws.dto.JoinByCodeCommand
 import com.madcamp.server.ws.dto.JoinRoomCommand
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.Payload
@@ -52,8 +53,28 @@ class LobbyController(
                 return@submitRoomTask
             }
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
-            val room = roomManager.create(name)
+            val room = roomManager.create(name, cmd.private)
             room.hostClientId = clientIdOf(cmd.clientId, principal) // 생성자가 방장 — 시작 권한 보유
+            addMemberAndReply(room, principal, resolved, cmd.token, cmd.clientId)
+        }
+    }
+
+    /** 초대 코드로 비공개 방 입장 — 로비 목록엔 안 뜨지만 코드를 아는 사람은 바로 들어올 수 있다. */
+    @MessageMapping("/lobby/joinByCode")
+    fun joinByCode(@Payload cmd: JoinByCodeCommand, principal: Principal) {
+        val resolved = resolveNicknameOrNotify(principal, cmd.nickname, cmd.idToken) ?: return
+        gameLoop.submitRoomTask {
+            val room = roomManager.findByJoinCode(cmd.code)
+            if (room == null) {
+                sendRoomError(principal, "ROOM_NOT_FOUND", "코드가 올바르지 않습니다 — 다시 확인해주세요.")
+                return@submitRoomTask
+            }
+            val cid = clientIdOf(cmd.clientId, principal)
+            val already = room.members.values.any { it.clientId == cid }
+            if (!already && room.members.size >= RoomManager.MAX_MEMBERS_PER_ROOM) {
+                sendRoomError(principal, "ROOM_FULL", "방 정원이 가득 찼습니다.")
+                return@submitRoomTask
+            }
             addMemberAndReply(room, principal, resolved, cmd.token, cmd.clientId)
         }
     }

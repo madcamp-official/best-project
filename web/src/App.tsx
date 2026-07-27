@@ -13,6 +13,7 @@ import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
 import { fetchMyProfile, type AccountProfile } from "./auth/api";
+import { signOutGoogle } from "./auth/firebase";
 import {
   applyWelcome,
   applyDelta,
@@ -95,7 +96,7 @@ function App() {
         connection.onRoomList((msg) => useUIStore.getState().setRooms(msg.rooms));
         connection.onRoomJoined((msg) => {
           const st = useUIStore.getState();
-          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state });
+          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state, joinCode: msg.joinCode });
           st.setMembers(msg.members);
           st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
           if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
@@ -161,6 +162,13 @@ function App() {
     }
     enterLobby();
   };
+  // 로그아웃 — 구글 세션 종료 + 로그인 상태 초기화 후 선택 관문으로 되돌린다(게스트로 이어할지 다시 고름).
+  const handleLogout = async () => {
+    await signOutGoogle();
+    setIdToken(null);
+    setProfile(null);
+    setPhase("authChoice");
+  };
 
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
@@ -187,7 +195,12 @@ function App() {
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
       {phase === "authChoice" && <AuthChoiceScreen onGuest={handleGuest} onLoggedIn={handleLoggedIn} />}
       {phase === "lobby" && connectionRef.current && (
-        <LobbyScreen connection={connectionRef.current} idToken={idToken} profile={profile} />
+        <LobbyScreen
+          connection={connectionRef.current}
+          idToken={idToken}
+          profile={profile}
+          onLogout={handleLogout}
+        />
       )}
       {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
       {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}

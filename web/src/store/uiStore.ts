@@ -8,6 +8,7 @@ export interface CurrentRoom {
   roomId: string;
   name: string;
   state: RoomState;
+  joinCode?: string; // 비공개 방일 때만 — 대기실 화면이 방장에게 보여주는 친구 초대 코드.
 }
 
 export interface SelectedInfo {

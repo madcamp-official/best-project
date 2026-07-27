@@ -8,7 +8,8 @@ interface Props {
 }
 
 // 진입 관문 — 로비(닉네임/방 목록)로 가기 전에 로그인할지 게스트로 갈지부터 고른다.
-// 이미 구글 세션이 남아 있으면(새로고침 등) 팝업 없이 "OO님으로 계속하기"로 한 번에 이어간다.
+// 이미 구글 세션이 남아 있으면(새로고침 등) 팝업 없이 한 번에 이어간다 — 버튼 문구는 닉네임을
+// 굳이 박제하지 않고 "구글로 계속하기"로 통일(개인정보를 화면에 그대로 노출하지 않는 편이 낫다).
 export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
   const [existingUser, setExistingUser] = useState<User | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,11 +53,7 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
             onClick={handleGoogle}
             style={{ marginTop: 18 }}
           >
-            {busy
-              ? "로그인 중…"
-              : existingUser
-                ? `${existingUser.displayName ?? "구글 Google 계정"}으로 계속하기`
-                : "구글 Google로 로그인"}
+            {busy ? "로그인 중…" : existingUser ? "구글로 계속하기" : "구글 Google로 로그인"}
           </button>
         )}
 

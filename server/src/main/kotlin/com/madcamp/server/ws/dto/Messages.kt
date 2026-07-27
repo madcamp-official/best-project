@@ -124,13 +124,18 @@ data class RoomListMessage(val rooms: List<RoomInfo>)
 /** 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). host=방장, ready=대기실 준비 상태. */
 data class MemberInfo(val nickname: String, val holderId: Int, val ready: Boolean, val host: Boolean)
 
-/** 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용). */
+/**
+ * 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
+ * joinCode는 비공개 방일 때만 값이 있다(방장이 친구에게 공유할 초대 코드).
+ */
 data class RoomJoinedMessage(
     val roomId: String,
     val name: String,
     val state: RoomState,
     val members: List<MemberInfo>,
     val youAreHost: Boolean,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val joinCode: String? = null,
 )
 
 /** 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state). */
@@ -152,6 +157,7 @@ data class RoundEndMessage(
 /**
  * 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
  * idToken은 JoinMessage 참고. clientId=영속 클라 신원(방장용).
+ * private=true면 로비 목록에 안 뜨는 친구 초대 전용 방 — 서버가 초대 코드를 발급해 roomJoined로 돌려준다.
  */
 data class CreateRoomCommand(
     val name: String? = null,
@@ -159,6 +165,7 @@ data class CreateRoomCommand(
     val token: String? = null,
     val idToken: String? = null,
     val clientId: String? = null,
+    val private: Boolean = false,
 )
 
 /**
@@ -167,6 +174,15 @@ data class CreateRoomCommand(
  */
 data class JoinRoomCommand(
     val roomId: String = "",
+    val nickname: String? = null,
+    val token: String? = null,
+    val idToken: String? = null,
+    val clientId: String? = null,
+)
+
+/** 초대 코드로 비공개 방 입장(C→S, /app/lobby/joinByCode). 나머지 필드는 JoinRoomCommand와 동일 의미. */
+data class JoinByCodeCommand(
+    val code: String = "",
     val nickname: String? = null,
     val token: String? = null,
     val idToken: String? = null,

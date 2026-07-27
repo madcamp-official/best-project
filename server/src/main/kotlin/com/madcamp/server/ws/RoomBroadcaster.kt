@@ -21,10 +21,11 @@ class RoomBroadcaster(
     private val messaging: SimpMessagingTemplate,
     private val roomManager: RoomManager,
 ) {
-    /** 공개 방 목록(브리지 기본 방 제외)을 /topic/rooms로 브로드캐스트. */
+    /** 공개 방 목록(브리지 기본 방·비공개 방 제외)을 /topic/rooms로 브로드캐스트. 비공개 방은
+     * joinCode를 아는 사람만 /lobby/joinByCode로 들어올 수 있어 여기 실릴 필요가 없다. */
     fun broadcastRoomList() {
         val rooms = roomManager.list()
-            .filter { it.id != RoomManager.DEFAULT_ROOM_ID }
+            .filter { it.id != RoomManager.DEFAULT_ROOM_ID && !it.private }
             .map { RoomInfo(it.id, it.name, it.state, it.members.size, RoomManager.MAX_MEMBERS_PER_ROOM) }
         messaging.convertAndSend(ROOMS_TOPIC, RoomListMessage(rooms))
     }
@@ -49,7 +50,11 @@ class RoomBroadcaster(
     }
 
     fun roomJoined(room: Room, forClientId: String) =
-        RoomJoinedMessage(room.id, room.name, room.state, memberInfos(room), youAreHost = forClientId == room.hostClientId)
+        RoomJoinedMessage(
+            room.id, room.name, room.state, memberInfos(room),
+            youAreHost = forClientId == room.hostClientId,
+            joinCode = room.joinCode.takeUnless { it.isEmpty() },
+        )
 
     /** 방장 승계 등으로 특정 멤버의 방장 여부가 바뀌었을 때 개인 통지(roomJoined 재전송). */
     fun notifyRoomJoined(room: Room, principalName: String, clientId: String) {

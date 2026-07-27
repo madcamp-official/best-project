@@ -45,6 +45,34 @@ export function RoomWaitScreen({ connection }: Props) {
             : "준비를 누르면 방장이 게임을 시작할 수 있어요"}
         </p>
 
+        {currentRoom?.joinCode && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              margin: "4px 0 14px",
+              padding: "8px 14px",
+              borderRadius: 8,
+              background: "rgba(255,210,74,0.1)",
+              border: "1px solid rgba(255,210,74,0.4)",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#ffd24a" }}>초대 코드</span>
+            <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: 3, color: "#fff" }}>
+              {currentRoom.joinCode}
+            </span>
+            <button
+              className="io-btn io-btn-sm"
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(currentRoom.joinCode ?? "")}
+            >
+              복사
+            </button>
+          </div>
+        )}
+
         <div className="io-slots">
           {slots.map((m, i) =>
             m ? (
