@@ -185,12 +185,12 @@ export function Hud({ connection }: Props) {
               ? "수송 중… (Esc 취소)"
               : airdropCooldownLeft > 0
                 ? `재사용 대기 ${airdropCoolSec}초`
-                : "병력 수송"}
+                : "병력 수송 (Shift)"}
           </button>
           <div className="hud-ratio-hint">
             {isTransporting
               ? "① 원으로 내 동 선택(클릭) → ② 목적지 클릭 (섬도 가능)"
-              : "원으로 고른 내 동 병력을 목적지에 투하 — 넘치면 주변으로 점령"}
+              : "Shift로 조준 · 원으로 고른 내 동 병력을 목적지에 투하 — 넘치면 주변으로 점령"}
           </div>
         </div>
       </div>

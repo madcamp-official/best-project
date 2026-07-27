@@ -102,6 +102,8 @@ export function MapView({ prepared, connection }: Props) {
     // 우클릭을 병력 이동/공격에 쓰므로 우클릭 드래그 회전을 끈다 (평면 톱다운 유지).
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
+    // Shift는 공수부대 토글 단축키로 쓰므로 Shift+드래그 박스줌을 끈다(충돌 방지).
+    map.boxZoom.disable();
     // 개발 편의용 디버그 훅 (프로덕션 빌드에선 제외됨).
     if (import.meta.env.DEV) {
       Object.assign(window, { __map: map, __world: world });
@@ -927,6 +929,21 @@ export function MapView({ prepared, connection }: Props) {
         const next = !st.isAiming;
         st.setAiming(next);
         if (next && st.isTransporting) st.setTransporting(false); // 공수 중이었으면 해제하고 조준으로
+        return;
+      }
+      // Left Shift = 공수부대(병력 수송) 모드 토글 (오른쪽 아래 버튼과 동일 동작).
+      if (e.code === "ShiftLeft") {
+        if (e.repeat) return; // 키를 누르고 있을 때의 리핏으로 반복 토글되지 않게.
+        e.preventDefault();
+        const st = useUIStore.getState();
+        if (st.isTransporting) {
+          st.setTransporting(false);
+        } else if (st.airdropCooldownLeft > 0) {
+          // 진입 차단은 버튼 disabled(쿨다운 중 && 비수송)과 동일.
+          st.showToast(`공수 재사용까지 ${Math.ceil(st.airdropCooldownLeft / 1000)}초`);
+        } else {
+          st.setTransporting(true); // aiming은 setTransporting이 알아서 끈다.
+        }
         return;
       }
       // 이동 키: 방향만 기록(연속 패닝은 렌더 루프가 담당). 화살표 기본 스크롤 방지.
