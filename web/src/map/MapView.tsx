@@ -264,14 +264,16 @@ export function MapView({ prepared, connection }: Props) {
       useUIStore.getState().setAiming(false);
     };
 
-    // 공수 사거리 원(반경 = AIRDROP_MAX_RANGE_DEG)을 origin 중심으로 그린다. 거리 판정이 raw 도 단위
-    // (centroidDistance, cosLat 보정 없음)라 원도 raw 도로 그려 판정 경계와 정확히 일치시킨다.
+    // 공수 사거리 원(반경 = AIRDROP_MAX_RANGE_DEG)을 origin 중심으로 그린다. 거리 판정은 raw 도
+    // (centroidDistance)지만, 표시는 화면상 원형이 자연스러워 경도를 cosLat로 보정해 그린다
+    // (미사일 조준 원과 동일 방식 — Mercator 위도 늘어남 상쇄). 판정 경계와 미세하게 다를 수 있다.
     const drawAirdropRange = (center: [number, number]) => {
       const r = CONFIG.AIRDROP_MAX_RANGE_DEG;
+      const rLng = r / Math.cos((center[1] * Math.PI) / 180); // 경도 반경 보정 → 화면상 원형
       const ring: [number, number][] = [];
       for (let i = 0; i <= 64; i++) {
         const a = (i / 64) * 2 * Math.PI;
-        ring.push([center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r]);
+        ring.push([center[0] + Math.cos(a) * rLng, center[1] + Math.sin(a) * r]);
       }
       (map.getSource(AIRDROP_RANGE_SOURCE) as GeoJSONSource | undefined)?.setData({
         type: "FeatureCollection",
