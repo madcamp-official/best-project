@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
-import { world, setMyAggressive } from "../world/worldView";
+import { world } from "../world/worldView";
 import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import type { Connection } from "../net/connection";
 
@@ -29,10 +29,7 @@ export function Hud({ connection, isMock }: Props) {
   const nukeOwned = useUIStore((s) => s.nukeOwned);
   const nukeCooldownLeft = useUIStore((s) => s.nukeCooldownLeft);
   const nukeCoolSec = Math.ceil(nukeCooldownLeft / 1000);
-  const rallyIndex = useUIStore((s) => s.rallyIndex);
-  const aggressive = useUIStore((s) => s.aggressive);
-  const setAggressive = useUIStore((s) => s.setAggressive);
-  const showToast = useUIStore((s) => s.showToast);
+  const offensiveIndex = useUIStore((s) => s.offensiveIndex);
   const isTransporting = useUIStore((s) => s.isTransporting);
   const setTransporting = useUIStore((s) => s.setTransporting);
   const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
@@ -47,7 +44,8 @@ export function Hud({ connection, isMock }: Props) {
   const roundEndsAt = useUIStore((s) => s.roundEndsAt);
   const totalCells = useUIStore((s) => s.totalCells);
   const sortiePct = Math.round(sortieRatio * 100);
-  const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
+  const offensiveName =
+    offensiveIndex >= 0 && offensiveIndex < world.n ? world.meta[offensiveIndex].name : null;
 
   // 방어막 카운트다운 — world.shieldUntil은 rAF 루프가 아니라 여기서 직접 읽으므로,
   // 표시를 갱신하려면 0.5초마다 리렌더를 스스로 트리거해야 한다(전투 로직과는 무관, 표시 전용).
@@ -260,53 +258,15 @@ export function Hud({ connection, isMock }: Props) {
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
-            <span className="hud-title">집결지 (보급)</span>
+            <span className="hud-title">공세 목표 ⚔️</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-              {rallyName ?? "없음"}
+              {offensiveName ?? "없음"}
             </strong>
           </div>
           <div className="hud-ratio-hint">
-            내 동을 <strong>더블클릭</strong>해 집결지 지정 (같은 동 더블클릭 = 해제).
+            적·중립 동을 <strong>더블클릭</strong>해 공세 목표 지정 (같은 곳 더블클릭 = 해제).
             <br />
-            후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다.
-          </div>
-        </div>
-
-        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
-          <div className="hud-ratio-head">
-            <span className="hud-title">자동 공세</span>
-            <strong
-              className="hud-ratio-value"
-              style={{ fontSize: 12, color: aggressive ? "#ff9a3c" : undefined }}
-            >
-              {aggressive ? "ON" : "OFF"}
-            </strong>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !aggressive;
-              connection?.sendAggro(next);
-              setMyAggressive(next); // 낙관적 반영(서버 WELCOME이 최종 진실)
-              setAggressive(next);
-              showToast(next ? "자동 공세 ON — 최전선이 인접 적·중립을 자동 점령" : "자동 공세 OFF");
-            }}
-            style={{
-              width: "100%",
-              marginTop: 4,
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #ffffff55",
-              background: aggressive ? "#c0632b" : "#3a4a5e",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            {aggressive ? "자동 공세 끄기 (G)" : "자동 공세 켜기 (G)"}
-          </button>
-          <div className="hud-ratio-hint">
-            켜면 최전선 내 동이 매 주기 이길 만한 인접 적·중립을 자동 출정합니다(클릭 없이 확장).
+            그 목표를 향해 최전선 병력이 매 초 자동 전진합니다.
           </div>
         </div>
 

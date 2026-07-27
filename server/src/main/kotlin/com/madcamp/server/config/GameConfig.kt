@@ -55,15 +55,10 @@ data class GameConfig(
     // 경로 자동 출정(B1) — 멀리 있는 내 동으로 내 영토를 따라 최단 경로 연쇄 출정.
     @JsonProperty("MARCH_MAX_HOPS") var marchMaxHops: Int = 60, // 자동 경로 최대 홉
 
-    // 보급선(B2) — 집결지를 향해 후방 병력을 매 주기 한 홉씩 자동 전진(내 영토 경사 흐름).
-    @JsonProperty("SUPPLY_INTERVAL_SEC") var supplyIntervalSec: Double = 1.5,
-    @JsonProperty("SUPPLY_RATIO") var supplyRatio: Double = 0.34,
-    @JsonProperty("SUPPLY_MIN_TROOPS") var supplyMinTroops: Int = 5,
-
-    // 자동 공세 스탠스 — 켜면 최전선 동이 매 주기 이길 만한 인접 적·중립을 자동 출정(클라 config.ts와 동기).
-    @JsonProperty("AGGRO_INTERVAL_SEC") var aggroIntervalSec: Double = 1.2,
-    @JsonProperty("AGGRO_RATIO") var aggroRatio: Double = 0.5,
-    @JsonProperty("AGGRO_MIN_TROOPS") var aggroMinTroops: Int = 8,
+    // 공세 목표 — 적·중립 동을 목표로 지정하면 그 목표를 향한 최전선이 매 주기 전진(클라 config.ts와 동기).
+    @JsonProperty("OFFENSIVE_INTERVAL_SEC") var offensiveIntervalSec: Double = 1.0,
+    @JsonProperty("OFFENSIVE_RATIO") var offensiveRatio: Double = 0.5,
+    @JsonProperty("OFFENSIVE_MIN_TROOPS") var offensiveMinTroops: Int = 8,
 
     // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)

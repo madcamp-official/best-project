@@ -128,18 +128,11 @@ class GameLoop(
             if (spawned >= 0) world.pendingMissileAdd.add(spawned)
         }
 
-        // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기)
-        room.supplyAccumSec += dtSec
-        if (room.supplyAccumSec >= config.supplyIntervalSec) {
-            room.supplyAccumSec = 0.0
-            GameCore.tickSupply(world, config, wallNow)
-        }
-
-        // 자동 공세 (AGGRO_INTERVAL_SEC 주기) — 켜진 플레이어의 최전선이 인접 적·중립을 자동 출정
-        room.aggroAccumSec += dtSec
-        if (room.aggroAccumSec >= config.aggroIntervalSec) {
-            room.aggroAccumSec = 0.0
-            GameCore.tickAggro(world, config, wallNow)
+        // 공세 전진 (OFFENSIVE_INTERVAL_SEC 주기) — 공세 목표를 향해 최전선이 한 걸음 전진
+        room.offensiveAccumSec += dtSec
+        if (room.offensiveAccumSec >= config.offensiveIntervalSec) {
+            room.offensiveAccumSec = 0.0
+            GameCore.tickOffensive(world, config, wallNow)
         }
 
         broadcastDelta(room, wallNow)

@@ -559,112 +559,96 @@ object GameCore {
         pushLog(world, "공수 착륙 — ${captured}개 동 점령, ${reinforced}개 동 증원", wallNowMs)
     }
 
-    // ── 보급선 (B2, web/src/game/core.ts setRally/tickSupply 대응) ────────
-    // 집결지를 향해 후방 병력을 매 주기 한 홉씩 자동 전진시킨다(내 소유 동 사이 흐름, 전투 없음).
+    // ── 공세 목표 (web/src/game/core.ts setOffensive/tickOffensive 대응) ──
+    // 적·중립 동을 공세 목표로 지정하면, 그 목표를 향한 최전선 동들이 매 주기 '이길 만할 때만' 전진한다.
 
-    fun setRally(world: World, holderId: Int, index: Int) {
-        if (index < 0) {
-            world.rally[holderId] = -1
+    // 공세 목표 지정/해제. index<0 이거나 내 동이면 해제, 같은 목표 재지정도 해제(토글), 아니면 등록.
+    fun setOffensive(world: World, holderId: Int, index: Int) {
+        if (!isRealPlayer(holderId)) return
+        if (index < 0 || index >= world.n) {
+            world.offensive[holderId] = -1
             return
         }
-        if (index >= world.n || world.ownerId[index] != holderId) return
-        world.rally[holderId] = index
+        if (world.offensive[holderId] == index || world.ownerId[index] == holderId) {
+            world.offensive[holderId] = -1 // 같은 목표 재지정 or 내 동 = 해제
+            return
+        }
+        world.offensive[holderId] = index
     }
 
-    // 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진(GameLoop이 supplyIntervalSec 주기로 호출).
-    // 새 보급 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
-    fun tickSupply(world: World, config: GameConfig, nowMs: Long) {
-        for (h in world.rally.indices) {
-            val rallyIdx = world.rally[h]
-            if (rallyIdx < 0) continue
-            if (world.ownerId[rallyIdx] != h) {
-                world.rally[h] = -1 // 집결지를 잃으면 자동 해제
+    // 공세 목표를 가진 모든 holder를 목표 방향으로 한 걸음 전진시킨다(GameLoop이 offensiveIntervalSec 주기로 호출).
+    // 새 공세 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
+    fun tickOffensive(world: World, config: GameConfig, nowMs: Long) {
+        for (h in world.offensive.indices) {
+            val target = world.offensive[h]
+            if (target < 0) continue
+            if (world.ownerId[target] == h) {
+                world.offensive[h] = -1 // 목표를 점령했으면 공세 종료
                 continue
             }
-            supplyToward(world, config, h, rallyIdx, nowMs)
+            offensiveAdvance(world, config, h, target, nowMs)
         }
     }
 
-    // 집결지에서 BFS로 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로 병력 일부를
-    // 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다. 도착 처리(증원·
-    // 상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
-    private fun supplyToward(world: World, config: GameConfig, holderId: Int, rallyIdx: Int, nowMs: Long) {
-        val dist = IntArray(world.n) { -1 }
-        dist[rallyIdx] = 0
-        val q = ArrayList<Int>()
-        q.add(rallyIdx)
-        var k = 0
-        while (k < q.size) {
-            val cur = q[k]; k++
-            for (nb in world.neighborIndex[cur]) {
-                if (dist[nb] != -1 || world.ownerId[nb] != holderId) continue
-                dist[nb] = dist[cur] + 1
-                q.add(nb)
-            }
+    // 목표(target)의 '지리적' 방향으로 경사를 만들어(목표 중심까지의 거리) holderId의 동들을 그 방향으로
+    // 움직인다 — 홉 최단경로가 아니라 물이 목표 쪽으로 흘러내리듯 실제 방향으로 전진한다:
+    //  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
+    //  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
+    // 즉 후방 병력도 예전 집결지 보급처럼 목표 방향으로 전방에 계속 모인다.
+    private fun offensiveAdvance(world: World, config: GameConfig, holderId: Int, target: Int, nowMs: Long) {
+        // 목표 중심까지의 지리적 제곱거리(경도는 cosLat로 보정). 작을수록 목표에 가깝다.
+        val tc = world.meta[target].centroid
+        val cosLat = cos(tc[1] * Math.PI / 180.0).let { if (it == 0.0) 1.0 else it }
+        fun distToTarget(idx: Int): Double {
+            val c = world.meta[idx].centroid
+            val dx = (c[0] - tc[0]) * cosLat
+            val dy = c[1] - tc[1]
+            return dx * dx + dy * dy
         }
-        for (idx in 1 until q.size) {
-            val i = q[idx]
-            if (world.troops[i] <= config.supplyMinTroops) continue
-            var j = -1 // 집결지에 한 칸 더 가까운 이웃
-            for (nb in world.neighborIndex[i]) {
-                if (dist[nb] == dist[i] - 1) { j = nb; break }
-            }
-            if (j < 0) continue
-            val space = world.troopCap[j] - world.troops[j]
-            if (space <= 0) continue // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
-            var amt = floor(world.troops[i] * config.supplyRatio).toInt()
-            if (amt < 1) continue
-            if (amt > space) amt = space
-            // 병력은 즉시 출발지를 떠나(차감) 이웃으로 행군한다. 도착 시 tickOrders가 증원 처리(초과분 반환).
-            world.troops[i] -= amt
-            world.dirty.add(i)
-            val order = makeOrder(world, config, i, j, amt, holderId, nowMs)
-            world.orders.add(order)
-            world.pendingNewOrders.add(order)
-        }
-    }
-
-    // ── 자동 공세 스탠스 (web/src/game/core.ts setAggressive/tickAggro 대응) ──
-    // 켜진 holder의 최전선 동이 매 공세 주기마다 '이길 만한' 인접 적·중립을 자동 출정한다.
-
-    fun setAggressive(world: World, holderId: Int, on: Boolean) {
-        if (!isRealPlayer(holderId)) return
-        world.aggressive[holderId] = if (on) 1 else 0
-    }
-
-    // 자동 공세가 켜진 모든 holder를 전진시킨다(GameLoop이 aggroIntervalSec 주기로 호출).
-    // 새 공세 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
-    fun tickAggro(world: World, config: GameConfig, nowMs: Long) {
-        for (h in world.aggressive.indices) {
-            if (world.aggressive[h] != 1) continue
-            if (!isRealPlayer(h)) continue
-            aggroExpand(world, config, h, nowMs)
-        }
-    }
-
-    // holderId의 각 최전선 동에서 병력이 가장 적은(가장 이기기 쉬운) 인접 non-소유 동을 골라,
-    // 보낼 병력이 그 방어 병력을 넘길 때만 출정한다(못 이길 싸움은 피해 피딩 방지). 병력은 즉시 차감·행군.
-    private fun aggroExpand(world: World, config: GameConfig, holderId: Int, nowMs: Long) {
         for (i in 0 until world.n) {
             if (world.ownerId[i] != holderId) continue
-            if (world.troops[i] < config.aggroMinTroops) continue
-            var target = -1
-            var weakest = Int.MAX_VALUE
+            if (world.troops[i] < config.offensiveMinTroops) continue
+            val myDist = distToTarget(i)
+            // 목표에 지리적으로 더 가까운 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+            var atk = -1
+            var atkDist = myDist
+            var sup = -1
+            var supDist = myDist
             for (nb in world.neighborIndex[i]) {
-                if (world.ownerId[nb] == holderId) continue // 내 동은 목표 아님(공세는 확장만)
-                if (world.troops[nb] < weakest) {
-                    weakest = world.troops[nb]
-                    target = nb
+                val d = distToTarget(nb)
+                if (d >= myDist) continue // 목표에 더 가까운 이웃만(전방)
+                if (world.ownerId[nb] == holderId) {
+                    if (d < supDist) { supDist = d; sup = nb }
+                } else if (d < atkDist) {
+                    atkDist = d; atk = nb
                 }
             }
-            if (target < 0) continue // 최전선이 아님(인접이 전부 내 동)
-            val amount = floor(world.troops[i] * config.aggroRatio).toInt()
-            if (amount <= weakest) continue // 이길 수 없으면 보류(다음 주기에 병력이 더 쌓이면 재시도)
-            world.troops[i] -= amount
-            world.dirty.add(i)
-            val order = makeOrder(world, config, i, target, amount, holderId, nowMs)
-            world.orders.add(order)
-            world.pendingNewOrders.add(order)
+            // 최전선: 이길 만하면 전방 적·중립을 출정. (성공하면 이 동은 이번 주기 소임을 다한 것.)
+            if (atk >= 0) {
+                val amount = floor(world.troops[i] * config.offensiveRatio).toInt()
+                if (amount > world.troops[atk]) {
+                    world.troops[i] -= amount
+                    world.dirty.add(i)
+                    val order = makeOrder(world, config, i, atk, amount, holderId, nowMs)
+                    world.orders.add(order)
+                    world.pendingNewOrders.add(order)
+                    continue
+                }
+                // 못 이기면(병력 부족) 아래 보급으로 떨어져, 전방 내 동이 있으면 그쪽으로 병력을 넘긴다.
+            }
+            // 후방 보급: 목표에 더 가까운 내 동으로 병력을 흘려보낸다(전투 없음, 상한 여유만큼).
+            if (sup >= 0) {
+                val space = world.troopCap[sup] - world.troops[sup]
+                if (space <= 0) continue // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
+                var amt = floor(world.troops[i] * config.offensiveRatio).toInt()
+                if (amt < 1) continue
+                if (amt > space) amt = space
+                world.troops[i] -= amt
+                world.dirty.add(i)
+                val order = makeOrder(world, config, i, sup, amt, holderId, nowMs)
+                world.orders.add(order)
+                world.pendingNewOrders.add(order)
+            }
         }
     }
 
