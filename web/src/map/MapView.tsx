@@ -523,7 +523,9 @@ export function MapView({ prepared, connection }: Props) {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      const triangleIcon = makeTriangleIcon(22);
+      // 끝점을 캔버스 정중앙에 두는 도안이라 삼각형이 아래 절반만 차지한다 → 실제 크기 유지를 위해
+      // 캔버스를 키운다(위 절반은 투명 여백, 앵커=중앙=끝점을 위한 것).
+      const triangleIcon = makeTriangleIcon(32);
       if (triangleIcon) {
         if (!map.hasImage(TRIANGLE_IMAGE_ID)) {
           map.addImage(TRIANGLE_IMAGE_ID, triangleIcon.data, { pixelRatio: triangleIcon.pixelRatio });
@@ -537,7 +539,8 @@ export function MapView({ prepared, connection }: Props) {
             "icon-size": 1,
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
-            // 삼각형 뾰족한 꼭짓점(북쪽)을 진행 방위각만큼 시계방향 회전 → 이동 방향을 가리킨다.
+            // 끝점(= 앵커·정중앙)을 진행 방위각만큼 시계방향 회전 → 끝이 이동 방향을 가리키고,
+            // 회전 피벗이 끝점이라 보간 위치(=끝점)가 목적지에 정확히 안착한다.
             // rotation-alignment "map": 지도 북 기준으로 회전(지도 회전/기울임과 무관하게 방향 유지).
             "icon-rotate": ["get", "bearing"],
             "icon-rotation-alignment": "map",
@@ -564,7 +567,7 @@ export function MapView({ prepared, connection }: Props) {
         layout: {
           "text-field": ["get", "amount"],
           "text-size": 13,
-          "text-offset": [0, 1.2], // 삼각형 아래에 병력 수
+          "text-offset": [0, 1.5], // 끝점 앵커 아래로 뻗은 삼각형 몸통을 지나 병력 수 표시
           "text-anchor": "top",
           "text-allow-overlap": true,
           "text-ignore-placement": true,
@@ -1377,14 +1380,17 @@ function makeTriangleIcon(sizePx: number): { data: ImageData; pixelRatio: number
   canvas.height = px;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
+  // 뾰족한 꼭짓점을 캔버스 정중앙(= 아이콘 앵커·회전 피벗)에 둔다. 그래야 이동 보간 위치에
+  // '삼각형 끝점'이 정확히 놓여, 가까운 동으로 수송해도 끝이 목적지에 딱 맞는다(끝이 목적지를
+  // 지나쳐 보이던 문제 해소). 몸통은 중앙 아래로 뻗어, 방위각 회전 시 출발지 쪽으로 꼬리처럼 끌린다.
   ctx.beginPath();
-  ctx.moveTo(px / 2, px * 0.14);
-  ctx.lineTo(px * 0.9, px * 0.86);
-  ctx.lineTo(px * 0.1, px * 0.86);
+  ctx.moveTo(px * 0.5, px * 0.5); // 끝(뾰족한 꼭짓점) = 정중앙
+  ctx.lineTo(px * 0.8, px * 0.96); // 오른쪽 밑
+  ctx.lineTo(px * 0.2, px * 0.96); // 왼쪽 밑
   ctx.closePath();
   ctx.fillStyle = "#ffffff";
   ctx.fill();
-  ctx.lineWidth = Math.max(1, px * 0.07);
+  ctx.lineWidth = Math.max(1, px * 0.06);
   ctx.strokeStyle = "#1b2430";
   ctx.stroke();
   return { data: ctx.getImageData(0, 0, px, px), pixelRatio: ratio };
