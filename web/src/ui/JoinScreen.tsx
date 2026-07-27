@@ -20,8 +20,10 @@ export function JoinScreen({ onJoin }: Props) {
   return (
     <div className="join-overlay">
       <div className="join-card">
-        <h1 className="join-title">영토 점령</h1>
-        <p className="join-sub">실제 전국 법정동 지도 위에서 벌이는 영토 점령전</p>
+        <h1 className="io-logo">
+          <span className="accent">동대장</span> 시뮬레이터
+        </h1>
+        <p className="io-tagline">실제 전국 법정동 지도 위에서 벌이는 영토 점령전</p>
         <input
           className="join-input"
           type="text"
@@ -34,8 +36,14 @@ export function JoinScreen({ onJoin }: Props) {
             if (e.key === "Enter") submit();
           }}
         />
-        <button className="join-button" type="button" disabled={nickname.trim().length === 0} onClick={submit}>
-          시작하기
+        <button
+          className="io-btn io-btn-primary io-btn-lg io-btn-block"
+          type="button"
+          style={{ marginTop: 12 }}
+          disabled={nickname.trim().length === 0}
+          onClick={submit}
+        >
+          ▶ 시작하기
         </button>
         <p className="join-hint">좌클릭으로 내 동 선택 · 우클릭으로 인접 동 이동/공격</p>
       </div>

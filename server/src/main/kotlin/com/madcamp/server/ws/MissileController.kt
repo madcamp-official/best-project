@@ -28,9 +28,9 @@ class MissileController(
 ) {
     @MessageMapping("/missile")
     fun missile(@Payload cmd: LaunchMissileCommand, principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
-        gameLoop.submitOnLoop { world ->
+        gameLoop.submitOnRoom(binding.roomId) { world ->
             val config = configService.current
             // 클라가 보낸 반경은 신뢰하지 않고 상한으로 클램프하고, 각 hit 동 centroid가
             // 원 중심에서 (반경 + 여유) 안인지 검증한다 — 폴리곤이 없는 서버의 근사 검증.
@@ -40,7 +40,7 @@ class MissileController(
                 if (cmd.center.size < 2) emptyList()
                 else cmd.hits.filter { withinRadius(world, it, cmd.center, lim) }
 
-            val res = GameCore.launchMissile(world, holderId, valid, System.currentTimeMillis())
+            val res = GameCore.launchMissile(world, binding.holderId, valid, System.currentTimeMillis())
             if (!res.ok) {
                 messagingTemplate.convertAndSendToUser(
                     principal.name,

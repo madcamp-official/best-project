@@ -20,9 +20,9 @@ class RallyController(
 ) {
     @MessageMapping("/rally")
     fun rally(@Payload cmd: SetRallyCommand, principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
-        gameLoop.submitOnLoop { world ->
-            GameCore.setRally(world, holderId, cmd.index)
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
+        gameLoop.submitOnRoom(binding.roomId) { world ->
+            GameCore.setRally(world, binding.holderId, cmd.index)
         }
     }
 }

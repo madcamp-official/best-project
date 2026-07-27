@@ -1,10 +1,23 @@
 // 실서버(Spring Boot/STOMP) 연결. docs/api-spec.md의 destination/메시지 그대로 사용한다.
 // localConnection.ts(브라우저 내 목 서버)와 같은 Connection 계약을 구현하므로
 // App.tsx에서 생성자만 바꿔 끼우면 된다(architecture.md §2.3 "실서버 전환").
+//
+// 다중 방(로비): 방 목록/생성/입장은 로비 채널로, 라운드 진행은 룸 스코프 토픽으로 받는다.
+// 룸 구독은 currentRoomId 하나로 결정적으로 관리하고(중복 구독 가드), 재접속 시 그 방을 다시
+// 구독하고 재입장을 재발행해 원래 방으로 복구한다.
 
-import { Client, type IMessage } from "@stomp/stompjs";
+import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import type { Connection } from "./connection";
-import type { DeltaMessage, ErrorMessage, LeaderboardMessage, WelcomeMessage } from "./protocol";
+import type {
+  DeltaMessage,
+  ErrorMessage,
+  LeaderboardMessage,
+  RoomJoinedMessage,
+  RoomListMessage,
+  RoomStateMessage,
+  RoundEndMessage,
+  WelcomeMessage,
+} from "./protocol";
 import type { Order } from "../game/types";
 
 // 서버 WebSocketConfig가 .withSockJS()로 등록했지만, /ws/websocket 서브패스는
@@ -28,9 +41,15 @@ export class StompConnection implements Connection {
   private nickname = "";
   private token: string | undefined;
 
+  // 접속 의도(재접속 시 복구용): 레거시 브리지(join)인지, 특정 방(joinRoom)인지.
+  private bridgeMode = false;
+  private currentRoomId: string | null = null;
+  private roomSubs: StompSubscription[] = [];
+  private subscribedRoomId: string | null = null;
+  // 연결 전에 쌓인 일회성 명령(list/create/start/leave 등) — 연결되면 한 번 흘려보낸다.
+  private pending: { destination: string; body: string }[] = [];
+
   // api-spec.md §3 — 서버 epoch(ms) 기준 시각과 로컬 performance.now()의 1회 추정 오프셋.
-  // serverTime ≈ localPerfNow + offsetMs. Order.departTick/arriveTick(서버 값)을 클라의
-  // rAF 시간축(performance.now() 기반, MapView.tsx loop의 now)으로 맞추는 데만 쓴다.
   private offsetMs = 0;
   private offsetReady = false;
 
@@ -38,57 +57,159 @@ export class StompConnection implements Connection {
   private deltaCb: ((m: DeltaMessage) => void) | null = null;
   private errorCb: ((m: ErrorMessage) => void) | null = null;
   private leaderboardCb: ((m: LeaderboardMessage) => void) | null = null;
+  private roomListCb: ((m: RoomListMessage) => void) | null = null;
+  private roomJoinedCb: ((m: RoomJoinedMessage) => void) | null = null;
+  private roomStateCb: ((m: RoomStateMessage) => void) | null = null;
+  private roundEndCb: ((m: RoundEndMessage) => void) | null = null;
   private connectionCb: ((connected: boolean) => void) | null = null;
 
   constructor(wsUrl: string = SERVER_WS_URL) {
     this.client = new Client({
       brokerURL: wsUrl,
       reconnectDelay: 3000, // 끊기면 3초 후 자동 재연결(plan.md §6 네트워크 불안 대응)
-      // STOMP 하트비트(keep-alive) — 서버 브로커도 하트비트+TaskScheduler를 켜야 실제로 동작한다.
-      // half-open(조용히 죽은) 연결을 이 주기로 감지해 재연결을 트리거한다.
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
     });
 
-    // 최초 연결이든 자동 재연결이든, 연결될 때마다 구독을 다시 걸고 JOIN을 재전송한다.
-    // (재연결 = 새 WebSocket 세션 = 서버 Principal도 새로 발급되므로, 저장해둔 token으로
-    //  다시 JOIN해야 같은 holderId로 복구된다 — api-spec.md §2.1 재접속 규칙 그대로.)
     this.client.onConnect = () => {
-      this.subscribeAndJoin();
-      this.connectionCb?.(true); // 연결/재연결됨 → 끊김 표시 해제
+      // 재연결 = 새 세션이라 기존 구독 핸들은 죽었다 — 상태를 비우고 처음부터 다시 건다.
+      this.roomSubs = [];
+      this.subscribedRoomId = null;
+      this.subscribeCommon();
+      this.flushPending();
+      this.reestablish(); // 접속 의도(브리지/방)를 서버에 재확립
+      this.connectionCb?.(true);
     };
-    // WebSocket이 닫히면(끊김·서버 다운 등) 알린다. stompjs가 reconnectDelay 후 자동 재시도한다.
     this.client.onWebSocketClose = () => this.connectionCb?.(false);
-    // 서버가 STOMP ERROR 프레임을 보낸 경우(브로커 오류 등) — 곧 연결도 닫히므로 끊김으로 표시.
     this.client.onStompError = () => this.connectionCb?.(false);
   }
 
+  // ── 공통/로비 구독 ──
+  private subscribeCommon(): void {
+    this.client.subscribe("/user/queue/welcome", (m: IMessage) =>
+      this.handleWelcome(JSON.parse(m.body) as WelcomeMessage),
+    );
+    this.client.subscribe("/user/queue/error", (m: IMessage) =>
+      this.errorCb?.(JSON.parse(m.body) as ErrorMessage),
+    );
+    this.client.subscribe("/user/queue/roomJoined", (m: IMessage) =>
+      this.handleRoomJoined(JSON.parse(m.body) as RoomJoinedMessage),
+    );
+    this.client.subscribe("/topic/rooms", (m: IMessage) =>
+      this.roomListCb?.(JSON.parse(m.body) as RoomListMessage),
+    );
+  }
+
+  // 방 스코프 토픽(world/leaderboard/state) 구독 — 같은 방이면 재구독하지 않는다.
+  private subscribeRoom(roomId: string): void {
+    if (this.subscribedRoomId === roomId) return;
+    this.unsubscribeRoom();
+    this.roomSubs = [
+      this.client.subscribe(`/topic/room/${roomId}/world`, (m: IMessage) =>
+        this.handleDelta(JSON.parse(m.body) as DeltaMessage),
+      ),
+      this.client.subscribe(`/topic/room/${roomId}/leaderboard`, (m: IMessage) =>
+        this.leaderboardCb?.(JSON.parse(m.body) as LeaderboardMessage),
+      ),
+      this.client.subscribe(`/topic/room/${roomId}/state`, (m: IMessage) =>
+        this.handleRoomState(JSON.parse(m.body)),
+      ),
+    ];
+    this.subscribedRoomId = roomId;
+  }
+
+  private unsubscribeRoom(): void {
+    for (const s of this.roomSubs) {
+      try {
+        s.unsubscribe();
+      } catch {
+        // 죽은 세션의 핸들 — 무시
+      }
+    }
+    this.roomSubs = [];
+    this.subscribedRoomId = null;
+  }
+
+  private ensureActive(): void {
+    if (!this.client.active) this.client.activate();
+  }
+
+  private flushPending(): void {
+    const queued = this.pending;
+    this.pending = [];
+    for (const p of queued) this.client.publish(p);
+  }
+
+  // 연결됐으면 즉시 발행, 아니면 큐에 쌓아 다음 연결에서 한 번 흘려보낸다(일회성 명령용).
+  private send(destination: string, body: string): void {
+    this.ensureActive();
+    if (this.client.connected) this.client.publish({ destination, body });
+    else this.pending.push({ destination, body });
+  }
+
+  // 접속 의도를 서버에 (재)확립 — 재연결 시 원래 방으로 복구되게 한다.
+  private reestablish(): void {
+    if (this.bridgeMode) {
+      if (this.currentRoomId) this.subscribeRoom(this.currentRoomId);
+      this.client.publish({
+        destination: "/app/join",
+        body: JSON.stringify({ nickname: this.nickname, token: this.token }),
+      });
+    } else if (this.currentRoomId) {
+      this.subscribeRoom(this.currentRoomId);
+      this.client.publish({
+        destination: "/app/lobby/join",
+        body: JSON.stringify({ roomId: this.currentRoomId, nickname: this.nickname, token: this.token }),
+      });
+    }
+  }
+
+  // ── Connection: 접속/로비 ──
   join(nickname: string, token?: string): void {
     this.nickname = nickname;
     this.token = token;
-    if (this.client.active) return; // 이미 활성화됨(재연결은 onConnect가 알아서 처리)
-    this.client.activate();
+    this.bridgeMode = true;
+    this.currentRoomId = null;
+    this.ensureActive();
+    if (this.client.connected) this.reestablish();
   }
 
-  private subscribeAndJoin(): void {
-    this.client.subscribe("/user/queue/welcome", (msg: IMessage) => {
-      this.handleWelcome(JSON.parse(msg.body) as WelcomeMessage);
-    });
-    this.client.subscribe("/user/queue/error", (msg: IMessage) => {
-      this.errorCb?.(JSON.parse(msg.body) as ErrorMessage);
-    });
-    this.client.subscribe("/topic/world", (msg: IMessage) => {
-      this.handleDelta(JSON.parse(msg.body) as DeltaMessage);
-    });
-    this.client.subscribe("/topic/leaderboard", (msg: IMessage) => {
-      this.leaderboardCb?.(JSON.parse(msg.body) as LeaderboardMessage);
-    });
-    this.client.publish({
-      destination: "/app/join",
-      body: JSON.stringify({ nickname: this.nickname, token: this.token }),
-    });
+  listRooms(): void {
+    this.send("/app/lobby/list", "{}");
   }
 
+  createRoom(name: string, nickname: string, token?: string): void {
+    this.nickname = nickname;
+    this.token = token;
+    this.bridgeMode = false;
+    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token }));
+  }
+
+  joinRoom(roomId: string, nickname: string, token?: string): void {
+    this.nickname = nickname;
+    this.token = token;
+    this.bridgeMode = false;
+    this.currentRoomId = roomId;
+    this.ensureActive();
+    if (this.client.connected) this.reestablish();
+  }
+
+  startRound(): void {
+    this.send("/app/room/start", "{}");
+  }
+
+  setReady(ready: boolean): void {
+    this.send("/app/room/ready", JSON.stringify({ ready }));
+  }
+
+  leaveRoom(): void {
+    this.send("/app/room/leave", "{}");
+    this.unsubscribeRoom();
+    this.currentRoomId = null;
+    this.bridgeMode = false;
+  }
+
+  // ── Connection: 게임 액션(방 진행 중, 항상 연결 상태 전제) ──
   sendSortie(from: number, to: number, ratio: number): void {
     this.client.publish({ destination: "/app/sortie", body: JSON.stringify({ from, to, ratio }) });
   }
@@ -113,8 +234,11 @@ export class StompConnection implements Connection {
     this.client.publish({ destination: "/app/restart", body: "{}" });
   }
 
+  // ── 서버 → 클라 핸들러 ──
   private handleWelcome(raw: WelcomeMessage): void {
-    this.token = raw.token; // 재접속(자동 재연결 포함) 시 서버가 발급한 최신 토큰을 계속 사용
+    this.token = raw.token; // 재접속 시 서버가 발급한 최신 토큰을 계속 사용
+    this.currentRoomId = raw.roomId; // 권위 있는 현재 방 — 룸 토픽 구독의 기준
+    this.subscribeRoom(raw.roomId);
     this.offsetMs = raw.serverTimeMs - performance.now();
     this.offsetReady = true;
     this.welcomeCb?.({ ...raw, orders: raw.orders.map((o) => this.toLocalOrder(o)) });
@@ -124,12 +248,25 @@ export class StompConnection implements Connection {
     this.deltaCb?.({ ...raw, newOrders: raw.newOrders.map((o) => this.toLocalOrder(o)) });
   }
 
+  private handleRoomJoined(raw: RoomJoinedMessage): void {
+    this.currentRoomId = raw.roomId;
+    this.subscribeRoom(raw.roomId); // 대기 중에도 /state를 받기 위해 미리 구독
+    this.roomJoinedCb?.(raw);
+  }
+
+  // /topic/room/{id}/state 채널로 RoomStateMessage와 RoundEndMessage가 함께 온다 — reason 유무로 구분.
+  private handleRoomState(raw: unknown): void {
+    if (raw && typeof raw === "object" && "reason" in raw) this.roundEndCb?.(raw as RoundEndMessage);
+    else this.roomStateCb?.(raw as RoomStateMessage);
+  }
+
   // 서버 epoch(ms) → 로컬 performance.now() 시간축. 오프셋 계산 전(이례적 케이스)엔 그대로 통과.
   private toLocalOrder(o: Order): Order {
     if (!this.offsetReady) return o;
     return { ...o, departTick: o.departTick - this.offsetMs, arriveTick: o.arriveTick - this.offsetMs };
   }
 
+  // ── 콜백 등록 ──
   onWelcome(cb: (m: WelcomeMessage) => void): void {
     this.welcomeCb = cb;
   }
@@ -141,6 +278,18 @@ export class StompConnection implements Connection {
   }
   onLeaderboard(cb: (m: LeaderboardMessage) => void): void {
     this.leaderboardCb = cb;
+  }
+  onRoomList(cb: (m: RoomListMessage) => void): void {
+    this.roomListCb = cb;
+  }
+  onRoomJoined(cb: (m: RoomJoinedMessage) => void): void {
+    this.roomJoinedCb = cb;
+  }
+  onRoomState(cb: (m: RoomStateMessage) => void): void {
+    this.roomStateCb = cb;
+  }
+  onRoundEnd(cb: (m: RoundEndMessage) => void): void {
+    this.roundEndCb = cb;
   }
   onConnectionChange(cb: (connected: boolean) => void): void {
     this.connectionCb = cb;

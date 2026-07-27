@@ -65,6 +65,8 @@ export type RestartCommand = Record<string, never>;
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
 export interface WelcomeMessage {
+  roomId: string; // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
+  roundEndsAtMs: number; // 라운드 제한 시각(서버 epoch ms). 0=제한 없음(브리지/목업)
   holderId: number;
   token: string; // 재접속용. 클라는 localStorage에 저장
   serverTimeMs: number; // 시간 동기화용
@@ -95,7 +97,12 @@ export interface ErrorMessage {
     | "NO_MISSILE"
     | "NO_PATH"
     | "AIRDROP_COOLDOWN"
-    | "AIRDROP_RANGE";
+    | "AIRDROP_RANGE"
+    | "ROOM_NOT_FOUND" // 로비: 입장하려던 방이 없음(사라짐)
+    | "ROOM_FULL" // 로비: 방 정원 초과
+    | "ROOM_LIMIT" // 로비: 방 개수/동시 진행 상한
+    | "NOT_HOST" // 대기실: 방장만 시작 가능
+    | "NOT_READY"; // 대기실: 전원 준비 전 시작 불가
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;
@@ -129,4 +136,69 @@ export interface LeaderboardMessage {
   rows: { holderId: number; name: string; count: number }[];
   envCells: number;
   totalCells: number;
+}
+
+// ── 로비/방(다중 세션) ─────────────────────────────────────────────────
+
+export type RoomState = "LOBBY" | "PLAYING" | "ENDED";
+
+// 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). host=방장, ready=대기실 준비 상태.
+export interface MemberInfo {
+  nickname: string;
+  holderId: number;
+  ready: boolean;
+  host: boolean;
+}
+
+// 로비 목록의 방 한 개 요약(/topic/rooms).
+export interface RoomInfo {
+  roomId: string;
+  name: string;
+  state: RoomState;
+  memberCount: number;
+  maxMembers: number;
+}
+
+// 공개 방 목록(S→C, /topic/rooms). 멤버십·상태가 바뀔 때마다 브로드캐스트.
+export interface RoomListMessage {
+  rooms: RoomInfo[];
+}
+
+// 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
+export interface RoomJoinedMessage {
+  roomId: string;
+  name: string;
+  state: RoomState;
+  members: MemberInfo[];
+  youAreHost: boolean;
+}
+
+// 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state).
+export interface RoomStateMessage {
+  roomId: string;
+  state: RoomState;
+  members: MemberInfo[];
+}
+
+// 라운드 종료 결과(S→C, /topic/room/{id}/state, RoomStateMessage와 같은 채널). reason으로 구분.
+export interface RoundEndMessage {
+  roomId: string;
+  reason: "DOMINATION" | "TIMEOUT";
+  winnerHolderId: number;
+  winnerName: string | null;
+  leaderboard: { holderId: number; name: string; count: number }[];
+}
+
+// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+export interface CreateRoomCommand {
+  name: string;
+  nickname: string;
+  token?: string;
+}
+
+// 방 입장(C→S, /app/lobby/join).
+export interface JoinRoomCommand {
+  roomId: string;
+  nickname: string;
+  token?: string;
 }

@@ -3,6 +3,9 @@ import "./App.css";
 import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
 import { JoinScreen } from "./ui/JoinScreen";
+import { LobbyScreen } from "./ui/LobbyScreen";
+import { RoomWaitScreen } from "./ui/RoomWaitScreen";
+import { ResultsOverlay } from "./ui/ResultsOverlay";
 import { loadDong } from "./data/loadDong";
 import type { PreparedMap } from "./data/loadDong";
 import { LocalConnection } from "./net/localConnection";
@@ -32,6 +35,8 @@ function App() {
   const everConnectedRef = useRef(false); // 재연결 토스트를 최초 연결 때는 안 띄우기 위한 플래그
   const phase = useUIStore((s) => s.phase);
   const setPhase = useUIStore((s) => s.setPhase);
+  // 목업(브라우저 내 목 서버)은 로비가 없어 join()으로 솔로 진행, 실서버는 로비 흐름.
+  const isMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
 
   useEffect(() => {
     let cancelled = false;
@@ -41,28 +46,70 @@ function App() {
         if (cancelled) return;
 
         // Connection 생성(기본: 실서버 STOMP) + 서버→클라 메시지 배선.
-        const useLocalMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
-        const connection: Connection = useLocalMock ? new LocalConnection(map) : new StompConnection();
+        const connection: Connection = isMock ? new LocalConnection(map) : new StompConnection();
         connection.onWelcome((msg) => {
           applyWelcome(msg);
           localStorage.setItem("token", msg.token); // 재접속용
+          const st = useUIStore.getState();
           // 첫 LEADERBOARD 메시지(최대 1s 뒤) 전 빈 순위표 깜빡임 방지용 시드.
-          useUIStore.getState().setLeaderboard(getLeaderboard(), envCellCount(), world.n);
+          st.setLeaderboard(getLeaderboard(), envCellCount(), world.n);
+          // 새 라운드 진입 — 지난 라운드의 잔여 UI 상태(결과·패배 오버레이·조준/수송 모드)를 전부 정리.
+          // 안 하면 지난 라운드에서 패배한 채 새 라운드를 시작할 때 GAME OVER가 즉시 다시 뜬다.
+          st.setRoundResult(null);
+          st.setDefeated(false);
+          st.setAiming(false);
+          st.setTransporting(false);
+          // 라운드 타이머: 서버 시각(roundEndsAtMs - serverTimeMs = 남은 시간)을 로컬 시계로 환산.
+          st.setRoundEndsAt(msg.roundEndsAtMs > 0 ? Date.now() + (msg.roundEndsAtMs - msg.serverTimeMs) : 0);
           setPrepared(map); // 스냅샷 반영 후 지도 렌더 시작
-          setPhase("ready");
+          setPhase("ready"); // WELCOME = 라운드 진행 중 → 지도로 전환
         });
         connection.onDelta((msg) => {
           applyDelta(msg);
           // 내 영토가 이번 delta에 전부 사라지면(미사일·점령) GAME OVER 오버레이를 띄운다.
           // 재시작은 유저가 오버레이 버튼으로 직접 선택한다(더 이상 자동 재배정 없음).
           if (drainDefeat()) useUIStore.getState().setDefeated(true);
-          // 점유율이 40%(대통령 기준)를 처음 넘으면 우승 오버레이를 띄운다.
-          if (drainVictory()) useUIStore.getState().setVictorious(true);
+          // 대통령(40%) 우승 오버레이는 라운드가 없는 목업 솔로에서만 — 실서버 라운드는 서버 RoundEnd가
+          // 우승(51% 도미네이션/30분)을 판정하므로, 40%에서 오버레이가 조기 발동하지 않게 목업으로 제한한다.
+          // (계급 표시상의 "대통령"은 그대로 유지 — computeRank가 담당.) drainVictory는 항상 호출해 플래그를 비운다.
+          if (drainVictory() && isMock) useUIStore.getState().setVictorious(true);
         });
-        connection.onError((msg) => useUIStore.getState().showToast(msg.message));
+        connection.onError((msg) => {
+          useUIStore.getState().showToast(msg.message);
+          // 입장하려던 방이 사라진 경우(마지막 멤버 이탈로 폐기 등)엔 로비로 돌려보낸다.
+          if (msg.code === "ROOM_NOT_FOUND") {
+            useUIStore.getState().setCurrentRoom(null);
+            setPhase("lobby");
+            connection.listRooms();
+          }
+        });
         connection.onLeaderboard((msg) =>
           useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)
         );
+        // 로비/방(다중 세션) 이벤트 배선.
+        connection.onRoomList((msg) => useUIStore.getState().setRooms(msg.rooms));
+        connection.onRoomJoined((msg) => {
+          const st = useUIStore.getState();
+          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state });
+          st.setMembers(msg.members);
+          st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
+          if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
+          // 진행 중 방 난입은 곧 WELCOME이 ready로 바꾸고, 결과/게임 화면 중 승계 통지로 화면을 끌어내리지 않는다.
+          if (msg.state !== "PLAYING" && (st.phase === "lobby" || st.phase === "room")) setPhase("room");
+        });
+        connection.onRoomState((msg) => {
+          const st = useUIStore.getState();
+          st.setMembers(msg.members);
+          if (st.currentRoom && st.currentRoom.roomId === msg.roomId) {
+            st.setCurrentRoom({ ...st.currentRoom, state: msg.state });
+          }
+        });
+        connection.onRoundEnd((msg) => {
+          const st = useUIStore.getState();
+          st.setRoundResult(msg);
+          st.setMyReady(false); // 서버가 라운드 종료 시 전원 준비를 리셋 — 로컬 상태도 맞춘다
+          setPhase("results");
+        });
         // 연결 끊김 → 배너 표시, 재연결 → 배너 해제(+최초 연결이 아니면 재연결 토스트).
         connection.onConnectionChange((connected) => {
           useUIStore.getState().setConnectionLost(!connected);
@@ -73,8 +120,13 @@ function App() {
         });
         connectionRef.current = connection;
 
-        // 데이터 준비 완료 → 접속 화면(닉네임 입력)으로.
-        setPhase("join");
+        // 데이터 준비 완료 → 목업이면 닉네임 접속 화면, 실서버면 로비로.
+        if (isMock) {
+          setPhase("join");
+        } else {
+          setPhase("lobby");
+          connection.listRooms();
+        }
       } catch (err) {
         if (cancelled) return;
         setPhase("error", err instanceof Error ? err.message : String(err));
@@ -85,7 +137,7 @@ function App() {
       connectionRef.current?.dispose();
       connectionRef.current = null;
     };
-  }, [setPhase]);
+  }, [setPhase, isMock]);
 
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
@@ -108,8 +160,11 @@ function App() {
       {prepared && connectionRef.current && (
         <MapView prepared={prepared} connection={connectionRef.current} />
       )}
-      <Hud connection={connectionRef.current} />
+      <Hud connection={connectionRef.current} isMock={isMock} />
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
+      {phase === "lobby" && connectionRef.current && <LobbyScreen connection={connectionRef.current} />}
+      {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
+      {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
     </div>
   );
 }

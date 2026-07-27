@@ -745,6 +745,16 @@ export function getLeaderboard(s: GameState): LeaderboardRow[] {
     .sort((a, b) => b.count - a.count);
 }
 
+// 라운드 지배 판정(라운드제) — 1위가 전국의 ROUND_WIN_RATIO 이상 점유 시 그 holderId, 아니면 -1.
+// 시간 종료(ROUND_DURATION_SEC)는 시각 비교라 루프(서버)에서 따로 처리한다.
+export function dominationHolder(s: GameState): number {
+  if (s.n === 0) return -1;
+  const leader = getLeaderboard(s)[0];
+  if (!leader) return -1;
+  const threshold = Math.ceil(s.n * CONFIG.ROUND_WIN_RATIO);
+  return leader.count >= threshold ? leader.holderId : -1;
+}
+
 // README §6 — 계급은 저장하지 않고 소유권에서 매번 파생.
 export function computeRank(s: GameState, holderId: number): Rank {
   if (holderId === NEUTRAL_HOLDER_ID || s.n === 0) return null;

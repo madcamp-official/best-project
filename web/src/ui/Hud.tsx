@@ -5,10 +5,11 @@ import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import type { Connection } from "../net/connection";
 
 interface Props {
-  connection: Connection | null; // GAME OVER 오버레이의 재시작 버튼이 sendRestart를 보내는 데 씀
+  connection: Connection | null; // GAME OVER 오버레이의 재시작/나가기 버튼이 명령을 보내는 데 씀
+  isMock: boolean; // 목업이면 "메인 화면"이 로비가 아니라 닉네임 접속 화면(join)으로 간다
 }
 
-export function Hud({ connection }: Props) {
+export function Hud({ connection, isMock }: Props) {
   const phase = useUIStore((s) => s.phase);
   const errorMessage = useUIStore((s) => s.errorMessage);
   const selectedInfo = useUIStore((s) => s.selectedInfo);
@@ -34,6 +35,9 @@ export function Hud({ connection }: Props) {
   const setVictorious = useUIStore((s) => s.setVictorious);
   const connectionLost = useUIStore((s) => s.connectionLost);
   const setPhase = useUIStore((s) => s.setPhase);
+  const currentRoom = useUIStore((s) => s.currentRoom);
+  const roundEndsAt = useUIStore((s) => s.roundEndsAt);
+  const totalCells = useUIStore((s) => s.totalCells);
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
@@ -45,6 +49,11 @@ export function Hud({ connection }: Props) {
     return () => clearInterval(id);
   }, []);
   const shieldSecLeft = Math.max(0, Math.ceil((world.shieldUntil[myHolderId] - nowTick) / 1000));
+
+  // 라운드 남은 시간(ms). roundEndsAt=0이면 제한 없음(브리지/목업) — 타이머 미표시.
+  const remainMs = roundEndsAt > 0 ? Math.max(0, roundEndsAt - nowTick) : -1;
+  const timerMin = Math.floor(remainMs / 60000);
+  const timerSec = Math.floor(remainMs / 1000) % 60;
 
   if (phase === "loading") {
     return (
@@ -58,8 +67,8 @@ export function Hud({ connection }: Props) {
     );
   }
 
-  // 접속 화면(닉네임 입력) 표시 중에는 HUD를 감춘다 — JoinScreen이 화면을 덮는다.
-  if (phase === "join") return null;
+  // 접속/로비/대기실/결과 화면 중에는 게임 HUD를 감춘다 — 각 화면 오버레이가 덮는다.
+  if (phase === "join" || phase === "lobby" || phase === "room" || phase === "results") return null;
 
   if (phase === "error") {
     return (
@@ -72,48 +81,91 @@ export function Hud({ connection }: Props) {
 
   return (
     <div className="hud-overlay">
-      <div className="hud-panel hud-top-left">
-        <div className="hud-title">영토 점령 게임 · 목업</div>
-        <div className="hud-rank">
-          내 계급: <strong>{myRank ?? "무소속"}</strong>
+      {/* 상단 중앙: 라운드 타이머 pill (io 스타일). 남은 1분부터 빨갛게 깜빡인다. */}
+      {remainMs >= 0 && (
+        <div className={`hud-timer ${remainMs < 60_000 ? "urgent" : ""}`}>
+          ⏱ {timerMin}:{String(timerSec).padStart(2, "0")}
         </div>
-        {shieldSecLeft > 0 && (
-          <div
-            style={{
-              margin: "4px 0",
-              padding: "3px 8px",
-              borderRadius: 6,
-              background: "rgba(111,214,255,0.15)",
-              border: "1px solid rgba(211,244,255,0.5)",
-              color: "#d3f4ff",
-              fontSize: 13,
-              fontWeight: 700,
-              display: "inline-block",
-            }}
-          >
-            🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+      )}
+
+      {/* 좌상단: 내 정보 + 선택한 동 정보(세로 스택) */}
+      <div className="hud-col hud-col-left">
+        <div className="hud-panel">
+          <div className="hud-title">{currentRoom?.name ?? "동대장 시뮬레이터"}</div>
+          <div className="hud-rank">
+            내 계급: <strong>{myRank ?? "무소속"}</strong>
+          </div>
+          {shieldSecLeft > 0 && (
+            <div
+              style={{
+                margin: "4px 0",
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: "rgba(111,214,255,0.15)",
+                border: "1px solid rgba(211,244,255,0.5)",
+                color: "#d3f4ff",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "inline-block",
+              }}
+            >
+              🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+            </div>
+          )}
+        </div>
+        {selectedInfo && (
+          <div className="hud-panel">
+            <div className="hud-title">{selectedInfo.name}</div>
+            <div>소유자: {selectedInfo.ownerName}</div>
+            <div>
+              병력: {selectedInfo.troops} / {selectedInfo.cap}
+            </div>
+            {selectedInfo.isMine && (
+              <div className="hud-sortie">
+                이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
+                <br />
+                인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
+              </div>
+            )}
           </div>
         )}
-        <ol className="hud-leaderboard">
-          {leaderboard.map((row) => (
-            <li key={row.holderId} className={row.holderId === myHolderId ? "me" : ""}>
-              <span
-                className="hud-swatch"
-                style={{ background: PALETTE[row.paletteIdx]?.stroke }}
-              />
-              {row.name} — {row.count}개 동
-            </li>
-          ))}
-        </ol>
-        <div className="hud-env">
-          {envCells > 0 ? (
-            <>
-              <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
-              야만인 잔존: {envCells}개 동
-            </>
-          ) : (
-            <span className="hud-env-clear">야만인 정리됨 ✓</span>
-          )}
+      </div>
+
+      {/* 우상단: 점유율 바 순위표 (io 게임 표준 위치) */}
+      <div className="hud-col hud-col-right">
+        <div className="hud-panel">
+          <div className="hud-title">순위</div>
+          {leaderboard.slice(0, 8).map((row, i) => {
+            const pct = totalCells > 0 ? (row.count / totalCells) * 100 : 0;
+            const color = PALETTE[row.paletteIdx]?.stroke;
+            return (
+              <div className="hud-lb-row" key={row.holderId}>
+                <div className={`hud-lb-line ${row.holderId === myHolderId ? "me" : ""}`}>
+                  <span className="hud-swatch" style={{ background: color }} />
+                  <span className="hud-lb-name">
+                    {i + 1}. {row.name}
+                  </span>
+                  <span className="hud-lb-pct">{pct.toFixed(1)}%</span>
+                </div>
+                <div className="hud-lb-bar">
+                  <div
+                    className="hud-lb-fill"
+                    style={{ width: `${Math.max(pct, 1)}%`, background: color }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          <div className="hud-env">
+            {envCells > 0 ? (
+              <>
+                <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
+                야만인 잔존: {envCells}개 동
+              </>
+            ) : (
+              <span className="hud-env-clear">야만인 정리됨 ✓</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -151,19 +203,10 @@ export function Hud({ connection }: Props) {
           </div>
           <button
             type="button"
+            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-primary" : "io-btn-ghost"}`}
+            style={{ marginTop: 6 }}
             disabled={missileCount === 0 && !isAiming}
             onClick={() => setAiming(!isAiming)}
-            style={{
-              width: "100%",
-              marginTop: 4,
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #ffffff55",
-              background: isAiming ? "#c0392b" : missileCount === 0 ? "#2a3340" : "#3a4a5e",
-              color: "#fff",
-              cursor: missileCount === 0 && !isAiming ? "not-allowed" : "pointer",
-              fontSize: 13,
-            }}
           >
             {isAiming ? "조준 중… (Esc 취소)" : "미사일 발사 (Space)"}
           </button>
@@ -197,19 +240,10 @@ export function Hud({ connection }: Props) {
           </div>
           <button
             type="button"
+            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-ghost"}`}
+            style={{ marginTop: 6 }}
             disabled={airdropCooldownLeft > 0 && !isTransporting}
             onClick={() => setTransporting(!isTransporting)}
-            style={{
-              width: "100%",
-              marginTop: 4,
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #ffffff55",
-              background: isTransporting ? "#b8860b" : airdropCooldownLeft > 0 ? "#2a3340" : "#3a4a5e",
-              color: "#fff",
-              cursor: airdropCooldownLeft > 0 && !isTransporting ? "not-allowed" : "pointer",
-              fontSize: 13,
-            }}
           >
             {isTransporting
               ? "수송 중… (Esc 취소)"
@@ -224,23 +258,6 @@ export function Hud({ connection }: Props) {
           </div>
         </div>
       </div>
-
-      {selectedInfo && (
-        <div className="hud-panel hud-top-right">
-          <div className="hud-title">{selectedInfo.name}</div>
-          <div>소유자: {selectedInfo.ownerName}</div>
-          <div>
-            병력: {selectedInfo.troops} / {selectedInfo.cap}
-          </div>
-          {selectedInfo.isMine && (
-            <div className="hud-sortie">
-              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
-              <br />
-              인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
-            </div>
-          )}
-        </div>
-      )}
 
       {connectionLost && (
         <div className="hud-conn-lost">
@@ -282,41 +299,30 @@ export function Hud({ connection }: Props) {
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               <button
+                className="io-btn io-btn-ghost"
                 type="button"
                 onClick={() => {
                   setDefeated(false);
-                  setPhase("join");
-                }}
-                style={{
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  border: "1px solid #ffffff33",
-                  background: "#3a4a5e",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
+                  if (isMock) {
+                    setPhase("join");
+                  } else {
+                    connection?.leaveRoom();
+                    connection?.listRooms();
+                    setPhase("lobby");
+                  }
                 }}
               >
-                메인 화면
+                {isMock ? "메인 화면" : "로비로"}
               </button>
               <button
+                className="io-btn io-btn-primary"
                 type="button"
                 onClick={() => {
                   connection?.sendRestart();
                   setDefeated(false);
                 }}
-                style={{
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  border: "1px solid #ffffff33",
-                  background: "#c0392b",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
               >
-                재시작
+                ▶ 재시작
               </button>
             </div>
           </div>

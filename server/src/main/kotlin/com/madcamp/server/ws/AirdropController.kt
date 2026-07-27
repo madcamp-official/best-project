@@ -27,15 +27,15 @@ class AirdropController(
 ) {
     @MessageMapping("/airdrop")
     fun airdrop(@Payload cmd: AirdropCommand, principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
-        gameLoop.submitOnLoop { world ->
+        gameLoop.submitOnRoom(binding.roomId) { world ->
             val result = GameCore.tryAirdrop(
                 world,
                 configService.current,
                 cmd.sources,
                 cmd.dest,
-                holderId,
+                binding.holderId,
                 System.currentTimeMillis(),
             )
             if (result is SortieResult.Err) {

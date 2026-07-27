@@ -26,14 +26,14 @@ class SortieController(
 ) {
     @MessageMapping("/sortie")
     fun sortie(@Payload cmd: SortieCommand, principal: Principal) {
-        val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
-        gameLoop.submitOnLoop { world ->
+        gameLoop.submitOnRoom(binding.roomId) { world ->
             val config = configService.current
             // web/src/net/localConnection.ts sendSortie와 동일한 안전 범위(0.05~1) 클램프.
             // 클라 입력은 신뢰하지 않는다 — 여기(경계)에서 걸러 순수 코어(GameCore)엔 항상 유효값만 넘긴다.
             val safeRatio = cmd.ratio?.takeIf { it.isFinite() }?.coerceIn(0.05, 1.0) ?: config.sortieRatio
-            val result = GameCore.trySortie(world, config, cmd.from, cmd.to, holderId, System.currentTimeMillis(), safeRatio)
+            val result = GameCore.trySortie(world, config, cmd.from, cmd.to, binding.holderId, System.currentTimeMillis(), safeRatio)
             if (result is SortieResult.Err) {
                 messagingTemplate.convertAndSendToUser(
                     principal.name,
