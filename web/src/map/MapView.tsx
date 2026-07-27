@@ -794,12 +794,7 @@ export function MapView({ prepared, connection }: Props) {
           source: MISSILE_SOURCE,
           layout: {
             "icon-image": MISSILE_IMAGE_ID,
-            "icon-size": 0.8,
-            // 이름이 보이는 확대(줌≥10)에선 이름 줄 높이(위)로 올려 오른쪽에 붙이고, 이름이 숨는
-            // 축소(줌<10)에선 오프셋을 0으로 되돌려 동 중심에 정확히 얹는다 — 어느 줌에서도 지역과
-            // 어긋나지 않게. (offset은 icon-size로 곱해지므로 실제 이동량은 값×0.8.)
-            "icon-anchor": "center",
-            "icon-offset": ["step", ["zoom"], ["literal", [0, 0]], 10, ["literal", [34, -22]]],
+            "icon-size": 1,
             "icon-allow-overlap": true, // 밀집해도 미사일은 항상 보이게
             "icon-ignore-placement": true,
           },
@@ -1595,7 +1590,7 @@ function handleSelect(idx: number, map: MaplibreMap) {
 //  · 인접 적/중립 → 전투    · 인접 내 동 → 증원    · 먼 내 동 → 경로 자동 출정(B1, 내 영토 따라 연쇄)
 // 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
 function doAttack(from: number, to: number, connection: Connection) {
-  const { showToast, sortieRatio } = useUIStore.getState();
+  const { showToast } = useUIStore.getState();
 
   if (from < 0 || world.ownerId[from] !== world.myHolderId) return; // 출발지가 내 동이 아니면 무시
   if (from === to) return; // 같은 동에 놓으면 취소
@@ -1605,7 +1600,7 @@ function doAttack(from: number, to: number, connection: Connection) {
   // 인접이 아니면: 내 동이면 경로 자동 출정(B1), 아니면 공격은 인접만 가능함을 안내.
   if (!adjacent) {
     if (world.ownerId[to] === world.myHolderId) {
-      connection.sendMarch(from, to, sortieRatio);
+      connection.sendMarch(from, to, SORTIE_SEND_RATIO);
     } else {
       showToast("먼 내 동은 자동 행군, 공격은 인접 동만 가능합니다.");
     }
@@ -1619,8 +1614,7 @@ function doAttack(from: number, to: number, connection: Connection) {
     return;
   }
 
-  // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
-  connection.sendSortie(from, to, sortieRatio);
+  connection.sendSortie(from, to, SORTIE_SEND_RATIO);
 }
 
 // 옛 방식(드래그 없이 우클릭한 경우): 좌클릭으로 선택해 둔 내 동을 출발지로 삼아 대상으로 파견한다.
