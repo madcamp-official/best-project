@@ -1183,11 +1183,11 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   const px = -uy; // 왼쪽 수직(단위)
   const py = ux;
 
-  // 출발부가 가장 넓고 촉으로 갈수록 좁아지는(역테이퍼) 형태. 폭은 전반적으로 축소.
-  const startW = Math.min(0.0038, Math.max(0.001, len * 0.055)); // 출발부 반폭(가장 넓음)
-  const neckW = startW * 0.35; // 촉 앞 목(가장 좁음)
-  const headW = startW * 0.8; // 화살촉 날개 반폭(목보다 넓지만 출발부보단 좁게)
-  const headLen = Math.min(len * 0.5, Math.max(len * 0.28, startW * 2.5)); // 화살촉 길이
+  // 얇게 시작해 촉으로 갈수록 넓어지는 형태(폭은 앞서 축소한 상태 유지).
+  const shaftW = Math.min(0.0038, Math.max(0.0012, len * 0.055)); // 촉 밑변쪽 샤프트 반폭
+  const startW = shaftW * 0.5; // 시작부는 얇게
+  const headW = shaftW * 2.0; // 화살촉 날개 반폭(가장 넓음)
+  const headLen = Math.min(len * 0.5, Math.max(len * 0.28, headW * 1.4)); // 화살촉 길이
   const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
 
   // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
@@ -1197,13 +1197,13 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   ];
 
   const ring: [number, number][] = [
-    P(0, startW), // 출발부 왼쪽(가장 넓음)
-    P(baseLen, neckW), // 목 왼쪽(좁아짐)
-    P(baseLen, headW), // 촉 왼쪽 날개
+    P(0, startW), // 시작부 왼쪽(얇음)
+    P(baseLen, shaftW), // 촉 밑변 왼쪽(넓어짐)
+    P(baseLen, headW), // 촉 왼쪽 날개(가장 넓음)
     P(len, 0), // 뾰족한 끝(타깃)
     P(baseLen, -headW), // 촉 오른쪽 날개
-    P(baseLen, -neckW), // 목 오른쪽
-    P(0, -startW), // 출발부 오른쪽
+    P(baseLen, -shaftW), // 촉 밑변 오른쪽
+    P(0, -startW), // 시작부 오른쪽(얇음)
     P(0, startW), // 닫기
   ];
   return [
