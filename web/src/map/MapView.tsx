@@ -160,6 +160,8 @@ export function MapView({ prepared, connection }: Props) {
     let rightDownDong = -1; // 우클릭이 눌린 동(내 동일 때만 드래그 출발지가 된다)
     let dragging = false;
     let dragSource = -1;
+    let dragTargets: number[] = []; // 이번 드래그에서 갈 수 있는 동들(드래그 확정 시 1회 계산)
+    let dragTargetSet = new Set<number>();
 
     // 출발지(from)에서 커서로 이어지는 공격 화살표(본선 + 화살촉)를 그린다. from<0이면 비운다.
     const updateArrow = (from: number, cursor: [number, number] | null) => {
@@ -173,6 +175,33 @@ export function MapView({ prepared, connection }: Props) {
         type: "FeatureCollection",
         features: arrowPolygon(world.meta[from].centroid as [number, number], cursor),
       });
+    };
+
+    // 드래그 중 화살표가 가리킬(= 놓았을 때 실제로 보낼) 대상 동을 정한다.
+    //  · 커서 아래 동이 갈 수 있는 대상이면 그 동
+    //  · 아니면(그 방향으로 더 멀거나 불가한 곳) 갈 수 있는 동 중 커서에 가장 가까운 동 = 그 방향 최대치
+    //  · 출발지 위이거나 갈 수 있는 동이 없으면 -1(화살표 없음)
+    const resolveDragTarget = (point: { x: number; y: number }, lngLat: [number, number]): number => {
+      if (!dragging || dragTargets.length === 0) return -1;
+      const hits = map.queryRenderedFeatures([point.x, point.y], { layers: [FILL_LAYER] });
+      const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+      if (over === dragSource) return -1;
+      if (over >= 0 && dragTargetSet.has(over)) return over;
+      const [cx, cy] = lngLat;
+      const cosLat = Math.cos((cy * Math.PI) / 180);
+      let best = -1;
+      let bestD = Infinity;
+      for (const c of dragTargets) {
+        const m = world.meta[c].centroid;
+        const dx = (m[0] - cx) * cosLat;
+        const dy = m[1] - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      return best;
     };
 
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
@@ -704,22 +733,16 @@ export function MapView({ prepared, connection }: Props) {
             if (moved > DRAG_THRESHOLD_PX && rightDownDong >= 0 && world.ownerId[rightDownDong] === world.myHolderId) {
               dragging = true;
               dragSource = rightDownDong;
+              dragTargets = reachableTargets(dragSource); // 갈 수 있는 동을 이번 드래그 시작 시 1회 계산
+              dragTargetSet = new Set(dragTargets);
               selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
             }
           }
-          // 공격/이동이 가능한 동 위에서만 그 '중심'으로 자석처럼 스냅해 화살표를 그린다.
-          // (인접 동 = 공격/증원, 먼 내 동 = 자동 행군.) 이동 불가한 곳(먼 적/중립·빈 곳)에선
-          // 화살표를 아예 그리지 않는다 — 커서를 따라 그 너머로 뻗지 않게.
+          // 갈 수 있는 대상 위면 그 동, 아니면 그 방향으로 갈 수 있는 최대치 동을 가리킨다(resolveDragTarget).
           if (dragging) {
-            const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-            const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-            const canTarget =
-              over >= 0 &&
-              over !== dragSource &&
-              ((world.neighborIndex[dragSource]?.includes(over) ?? false) ||
-                world.ownerId[over] === world.myHolderId);
-            if (canTarget) updateArrow(dragSource, world.meta[over].centroid as [number, number]);
-            else updateArrow(-1, null); // 이동 불가 → 화살표 숨김
+            const t = resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]);
+            if (t >= 0) updateArrow(dragSource, world.meta[t].centroid as [number, number]);
+            else updateArrow(-1, null);
           }
         }
       });
@@ -767,17 +790,24 @@ export function MapView({ prepared, connection }: Props) {
         if (e.originalEvent.button !== 2 || !rightDownPoint) return; // 우클릭 뗄 때만
         const wasDragging = dragging;
         const from = dragSource;
+        // 드래그면 화살표가 가리키던 대상(그 방향 최대치)을 그대로 쓴다 — 리셋 전에 계산.
+        const dragTarget = wasDragging ? resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]) : -1;
+
         rightDownPoint = null; // 상태 리셋
         rightDownDong = -1;
         dragging = false;
         dragSource = -1;
+        dragTargets = [];
+        dragTargetSet = new Set();
         updateArrow(-1, null); // 화살표 지우기
 
-        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-        const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-        if (target < 0) return; // 빈 곳에 뗌 = 취소
-        if (wasDragging) doAttack(from, target, connection); // 새: 드래그 출발지 → 대상
-        else doAttackFromSelected(target, connection); // 옛: 좌클릭으로 선택해 둔 내 동 → 대상
+        if (wasDragging) {
+          if (dragTarget >= 0) doAttack(from, dragTarget, connection); // 새: 화살표가 가리킨 동으로
+        } else {
+          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+          const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+          if (target >= 0) doAttackFromSelected(target, connection); // 옛: 좌클릭 선택 동 → 클릭한 대상
+        }
       });
 
       // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
@@ -1100,6 +1130,35 @@ function doAttackFromSelected(to: number, connection: Connection) {
     return;
   }
   doAttack(selectedIndex, to, connection);
+}
+
+// 드래그 공격에서 이 출발지로부터 '갈 수 있는' 동 목록:
+//  · 행군/증원 가능한 내 영토 연결요소(소유 인접으로 이어진 내 동들, 출발지 제외)
+//  · 공격 가능한 인접 적/중립(1홉)
+// 커서가 유효 대상 밖일 때 '그 방향으로 갈 수 있는 최대치'를 이 목록 중 커서 최근접으로 고른다.
+function reachableTargets(source: number): number[] {
+  const me = world.myHolderId;
+  const out: number[] = [];
+  const seen = new Uint8Array(world.n);
+  seen[source] = 1;
+  const q = [source];
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h];
+    if (cur !== source) out.push(cur); // 내 영토 연결요소(행군/증원 대상)
+    for (const nb of world.neighborIndex[cur]) {
+      if (!seen[nb] && world.ownerId[nb] === me) {
+        seen[nb] = 1;
+        q.push(nb);
+      }
+    }
+  }
+  for (const nb of world.neighborIndex[source]) {
+    if (!seen[nb] && world.ownerId[nb] !== me) {
+      seen[nb] = 1;
+      out.push(nb); // 인접 적/중립(공격 대상, 1홉)
+    }
+  }
+  return out;
 }
 
 // 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
