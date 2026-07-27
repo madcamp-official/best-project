@@ -12,12 +12,13 @@ import org.springframework.stereotype.Component
  */
 @Component
 class WelcomeAssembler(private val configService: ConfigService) {
-    fun build(roomId: String, world: World, holderId: Int, token: String): WelcomeMessage {
+    fun build(roomId: String, world: World, holderId: Int, token: String, roundEndsAtMs: Long): WelcomeMessage {
         val config = configService.current
         val holder = world.holders.getValue(holderId)
         val nowMs = System.currentTimeMillis()
         return WelcomeMessage(
             roomId = roomId,
+            roundEndsAtMs = roundEndsAtMs,
             holderId = holderId,
             token = token,
             paletteIdx = holder.paletteIdx,

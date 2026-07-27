@@ -8,6 +8,7 @@ import com.madcamp.server.game.RoomState
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
 import com.madcamp.server.ws.dto.CreateRoomCommand
+import com.madcamp.server.ws.dto.ErrorMessage
 import com.madcamp.server.ws.dto.JoinRoomCommand
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.handler.annotation.Payload
@@ -41,7 +42,8 @@ class LobbyController(
         gameLoop.submitRoomTask {
             val openRooms = roomManager.list().count { it.id != RoomManager.DEFAULT_ROOM_ID }
             if (openRooms >= RoomManager.MAX_ROOMS) {
-                broadcaster.broadcastRoomList() // 상한 초과 — 목록만 갱신(클라가 '가득 참' 인지)
+                sendRoomError(principal, "ROOM_LIMIT", "방 개수가 가득 찼습니다 — 잠시 후 다시 시도하세요.")
+                broadcaster.broadcastRoomList()
                 return@submitRoomTask
             }
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
@@ -53,20 +55,28 @@ class LobbyController(
     @MessageMapping("/lobby/join")
     fun join(@Payload cmd: JoinRoomCommand, principal: Principal) {
         gameLoop.submitRoomTask {
-            // 재접속 우선: 토큰이 기억하는 방이 아직 있으면 그 방으로 복귀시킨다.
-            val targetId = sessionService.roomOf(cmd.token)?.takeIf { roomManager.get(it) != null } ?: cmd.roomId
-            val room = roomManager.get(targetId)
+            // 명시적으로 고른 방(roomId)이 항상 우선. 비어 있을 때만(새로고침 뒤 자동 복구 등)
+            // 토큰이 기억하는 방으로 폴백한다 — 안 그러면 "방 A를 나가고 방 B를 클릭했는데
+            // 토큰이 방 A를 기억해 A로 끌려가는" 하이재킹이 생긴다.
+            val targetId = cmd.roomId.takeUnless { it.isBlank() } ?: sessionService.roomOf(cmd.token)
+            val room = targetId?.let { roomManager.get(it) }
             if (room == null || room.id == RoomManager.DEFAULT_ROOM_ID) {
-                broadcaster.broadcastRoomList() // 없는 방(또는 브리지 방) — 목록만 돌려줘 클라가 로비 유지
+                sendRoomError(principal, "ROOM_NOT_FOUND", "방을 찾을 수 없습니다 — 이미 사라졌을 수 있어요.")
+                broadcaster.broadcastRoomList() // 클라가 로비 목록을 최신으로 유지
                 return@submitRoomTask
             }
             val already = room.members.containsKey(principal.name)
             if (!already && room.members.size >= RoomManager.MAX_MEMBERS_PER_ROOM) {
-                broadcaster.broadcastRoomList() // 정원 초과
+                sendRoomError(principal, "ROOM_FULL", "방 정원이 가득 찼습니다.")
+                broadcaster.broadcastRoomList()
                 return@submitRoomTask
             }
             addMemberAndReply(room, principal, cmd.nickname, cmd.token)
         }
+    }
+
+    private fun sendRoomError(principal: Principal, code: String, message: String) {
+        messaging.convertAndSendToUser(principal.name, "/queue/error", ErrorMessage(code, message, -1, -1))
     }
 
     // 멤버 등록 + 입장 응답 + 브로드캐스트. (executor 스레드에서만 호출)
@@ -77,15 +87,19 @@ class LobbyController(
 
         val world = room.world
         if (room.state == RoomState.PLAYING && world != null) {
-            // 라이브 조인: 진행 중 방에 바로 스폰(토큰 있으면 기존 holder 복구). WELCOME으로 스냅샷 전달.
-            val (tok, session) = sessionService.joinOrRestore(room.id, world, configService.current, name, token)
+            // 라이브 조인: 진행 중 방에 바로 스폰(같은 방·같은 라운드의 토큰이면 기존 holder 복구).
+            val config = configService.current
+            val (tok, session) = sessionService.joinOrRestore(room.id, world, config, name, token)
             member.holderId = session.holderId
             member.token = tok
             connectionRegistry.bind(principal.name, room.id, session.holderId)
             messaging.convertAndSendToUser(
                 principal.name,
                 "/queue/welcome",
-                welcomeAssembler.build(room.id, world, session.holderId, tok),
+                welcomeAssembler.build(
+                    room.id, world, session.holderId, tok,
+                    roundEndsAtMs = room.roundStartMs + config.roundDurationSec * 1000L,
+                ),
             )
         } else {
             if (token != null) member.token = token

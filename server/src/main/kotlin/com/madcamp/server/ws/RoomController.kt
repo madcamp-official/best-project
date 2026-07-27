@@ -6,6 +6,7 @@ import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
+import com.madcamp.server.ws.dto.ErrorMessage
 import org.springframework.messaging.handler.annotation.MessageMapping
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Controller
@@ -35,7 +36,12 @@ class RoomController(
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             if (room.state == RoomState.PLAYING || room.members.isEmpty()) return@submitRoomTask
             if (roomManager.playingCount() >= RoomManager.MAX_PLAYING_ROOMS) {
-                broadcaster.broadcastRoomList() // 동시 진행 방 상한
+                // 동시 진행 방 상한 — 시작한 사람에게 이유를 알려준다(조용히 무시하면 버튼이 "고장"처럼 보임).
+                messaging.convertAndSendToUser(
+                    principal.name,
+                    "/queue/error",
+                    ErrorMessage("ROOM_LIMIT", "동시에 진행 중인 게임이 가득 찼습니다 — 잠시 후 다시 시도하세요.", -1, -1),
+                )
                 return@submitRoomTask
             }
             startRound(room)
@@ -67,7 +73,9 @@ class RoomController(
         val world = gameLoop.createFreshWorld()
         room.world = world
         for (member in room.members.values) {
-            // 새 라운드 = 새 월드라 항상 새 holder를 배정한다(기존 토큰으로 복구하지 않음).
+            // 새 라운드 = 새 월드라 항상 새 holder를 배정한다. 지난 라운드 토큰 세션은 스테일이므로
+            // 지워 누적을 막는다(새 토큰은 WELCOME으로 내려가 클라 localStorage를 교체한다).
+            sessionService.remove(member.token)
             val (tok, session) = sessionService.joinOrRestore(room.id, world, config, member.nickname, null)
             member.holderId = session.holderId
             member.token = tok
@@ -81,11 +89,12 @@ class RoomController(
         room.roundStartMs = System.currentTimeMillis()
         room.winnerHolderId = -1
         room.state = RoomState.PLAYING
+        val roundEndsAtMs = room.roundStartMs + config.roundDurationSec * 1000L
         for (member in room.members.values) {
             messaging.convertAndSendToUser(
                 member.principalName,
                 "/queue/welcome",
-                welcomeAssembler.build(room.id, world, member.holderId, member.token),
+                welcomeAssembler.build(room.id, world, member.holderId, member.token, roundEndsAtMs),
             )
         }
         broadcaster.broadcastRoomState(room)

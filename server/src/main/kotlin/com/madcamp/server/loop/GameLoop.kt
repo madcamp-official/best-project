@@ -95,7 +95,14 @@ class GameLoop(
     private fun safeTick() {
         try {
             val config = configService.current
-            for (room in roomManager.playingRooms()) tickRoom(room, config)
+            for (room in roomManager.playingRooms()) {
+                try {
+                    tickRoom(room, config)
+                } catch (e: Exception) {
+                    // 방 하나의 예외가 다른 방들의 tick까지 멈추지 않게 방 단위로 격리한다.
+                    log.error("room {} tick failed", room.id, e)
+                }
+            }
         } catch (e: Exception) {
             log.error("game loop tick failed", e)
         }

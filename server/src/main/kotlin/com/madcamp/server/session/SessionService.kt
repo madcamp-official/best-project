@@ -24,10 +24,25 @@ class SessionService {
     /** 토큰이 기억하는 방 id(재접속 라우팅용). 없으면 null. */
     fun roomOf(token: String?): String? = token?.let { sessionsByToken[it]?.roomId }
 
-    /** 기존 토큰이면 그대로 복구, 아니면 roomId의 World에 새 holder를 등록하고 새 토큰을 발급한다. */
+    /** 세션 제거 — 라운드 재시작 등으로 토큰이 무효화될 때 스테일 엔트리 누적을 막는다. */
+    fun remove(token: String?) {
+        if (!token.isNullOrEmpty()) sessionsByToken.remove(token)
+    }
+
+    /**
+     * 기존 토큰이 "이 방의, 지금 월드에 실존하는 holder"를 가리킬 때만 복구하고, 아니면(다른 방
+     * 토큰·라운드 재시작으로 월드가 바뀌어 사라진 holder 등 스테일) 폐기하고 새로 발급한다.
+     * 검증 없이 복구하면 새 월드에 없는 holderId로 WELCOME을 조립하다 크래시한다.
+     */
     fun joinOrRestore(roomId: String, world: World, config: GameConfig, nickname: String?, token: String?): Pair<String, PlayerSession> {
         if (token != null) {
-            sessionsByToken[token]?.let { return token to it } // 재접속 — 방어막 재부여 없음(이미 하던 게임 이어감)
+            val existing = sessionsByToken[token]
+            if (existing != null) {
+                if (existing.roomId == roomId && world.holders.containsKey(existing.holderId)) {
+                    return token to existing // 재접속 — 방어막 재부여 없음(이미 하던 게임 이어감)
+                }
+                sessionsByToken.remove(token) // 스테일 세션 — 폐기하고 아래에서 새로 배정
+            }
         }
         val newToken = UUID.randomUUID().toString()
         val holderId = allocateHolderId(world)

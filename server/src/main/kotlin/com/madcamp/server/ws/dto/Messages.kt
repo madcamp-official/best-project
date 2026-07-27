@@ -16,6 +16,7 @@ data class JoinMessage(val nickname: String? = null, val token: String? = null)
 
 data class WelcomeMessage(
     val roomId: String, // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
+    val roundEndsAtMs: Long, // 라운드 제한 시각(서버 epoch ms). 0=제한 없음(브리지 기본 방)
     val holderId: Int,
     val token: String,
     val paletteIdx: Int,
