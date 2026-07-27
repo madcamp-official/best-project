@@ -37,8 +37,12 @@ export interface Connection {
   sendMarch(from: number, to: number, ratio: number): void;
   // 미사일 발사. center=원 중심[lng,lat], radius=반경(도), hits=원에 겹치는 동 admIndex(클라 계산).
   sendMissile(center: [number, number], radius: number, hits: number[]): void;
+  // 전술핵 발사(사일로 소유자 전용). 인자 형식은 sendMissile과 동일하되 반경이 NUKE_RADIUS_MULT배.
+  sendNuke(center: [number, number], radius: number, hits: number[]): void;
   // B2 집결지 지정/해제. index = 내 소유 admIndex, -1이면 해제. 이후 후방 병력이 이 동으로 자동 전진.
   sendRally(index: number): void;
+  // 자동 공세 스탠스 on/off. on=true면 최전선 내 동이 매 주기 인접 적·중립을 자동 출정한다.
+  sendAggro(on: boolean): void;
   // B3 공수부대(병력 수송). sources = 원 안 내 소유 동 admIndex(클라 계산), dest = 투하 목적지(인접 불필요).
   sendAirdrop(sources: number[], dest: number): void;
   // 궤멸(소유 동 0개) 후 재시작 요청. 아직 소유 동이 있으면 서버가 무시한다.

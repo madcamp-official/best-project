@@ -135,6 +135,13 @@ class GameLoop(
             GameCore.tickSupply(world, config, wallNow)
         }
 
+        // 자동 공세 (AGGRO_INTERVAL_SEC 주기) — 켜진 플레이어의 최전선이 인접 적·중립을 자동 출정
+        room.aggroAccumSec += dtSec
+        if (room.aggroAccumSec >= config.aggroIntervalSec) {
+            room.aggroAccumSec = 0.0
+            GameCore.tickAggro(world, config, wallNow)
+        }
+
         broadcastDelta(room, wallNow)
         room.tickCount++
         if (room.tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) broadcastLeaderboard(room)

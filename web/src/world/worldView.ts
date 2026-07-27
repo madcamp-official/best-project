@@ -13,6 +13,10 @@ import { CONFIG } from "../config";
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
   myRally: number; // B2 — 내 집결지 admIndex(-1=없음). 렌더러가 깃발 마커를 그린다.
+  myAggressive: boolean; // 자동 공세 스탠스 on/off (HUD 토글 표시·복구용).
+  // 전술핵 사일로별 재발사 가능 시각을 로컬 시계(Date.now)로 환산한 값 — Hud 쿨다운 표시용.
+  // (서버 nukeReadyAtMs는 serverTimeMs 시간축이라 받은 시점에 로컬로 번역해 둔다.)
+  nukeReadyLocal: number[];
 }
 
 // 참조 고정 싱글턴 — applyWelcome이 필드를 제자리에서 덮어쓴다.
@@ -20,6 +24,8 @@ export interface WorldView extends GameState {
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
   myRally: -1,
+  myAggressive: false,
+  nukeReadyLocal: [] as number[],
 });
 
 // 미사일이 얹힌 동 집합이 바뀌면(WELCOME/DELTA) set — 렌더러가 마커를 다시 그린다.
@@ -48,9 +54,15 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.nextLogId = 1;
   world.myHolderId = msg.holderId;
   world.myRally = msg.rally ?? -1;
+  world.myAggressive = msg.aggressive ?? false;
   rallyTouched = true;
   world.shieldUntil = new Float64Array(256);
   for (const sh of msg.shields) world.shieldUntil[sh.holderId] = sh.until;
+  // 전술핵 사일로 — 위치·섬 마스크는 정적 데이터에서 재계산, 쿨다운은 로컬 시계로 환산해 저장.
+  core.initNukeState(world);
+  world.nukeReadyLocal = (msg.nukeReadyAtMs ?? []).map(
+    (t) => Date.now() + (t - msg.serverTimeMs)
+  );
   enclosedSet.clear(); // 재접속 스냅샷 — 포위 반짝임은 이후 DELTA(enclosed)로 다시 채운다
   enclosedTouched = true;
 }
@@ -113,6 +125,10 @@ export function applyDelta(msg: DeltaMessage) {
     missilesTouched = true;
   }
   for (const sh of msg.shieldUpdates) world.shieldUntil[sh.holderId] = sh.until;
+  // 전술핵 발사로 사일로 쿨다운이 바뀐 DELTA — 로컬 시계로 환산해 갱신.
+  if (msg.nukeReadyAtMs) {
+    world.nukeReadyLocal = msg.nukeReadyAtMs.map((t) => Date.now() + (t - msg.serverTimeMs));
+  }
   // 포위 집합 갱신 — 필드가 실려 온 DELTA에서만 통째로 교체한다(없으면 기존 집합 유지).
   if (msg.enclosed) {
     enclosedSet.clear();
@@ -193,6 +209,21 @@ export function drainMissilesTouched(): boolean {
 // 내가 보유한 미사일 수 = 내 소유 동에 얹힌 미사일 수.
 export const myMissileCount = () => core.missileCount(world, world.myHolderId);
 
+// 전술핵 상태 요약(Hud용). owned=사일로(울릉도·제주) 보유 여부, cooldownLeftMs=남은 재장전(0=발사 가능).
+// 둘 다 보유 시 더 빨리 준비되는 쪽 기준.
+export function myNukeStatus(): { owned: boolean; cooldownLeftMs: number } {
+  const mine = core.ownedNukeSilos(world, world.myHolderId);
+  if (mine.length === 0) return { owned: false, cooldownLeftMs: 0 };
+  let best = Infinity;
+  for (let k = 0; k < world.nukeSilos.length; k++) {
+    const idx = world.nukeSilos[k];
+    if (idx < 0 || world.ownerId[idx] !== world.myHolderId) continue;
+    const left = Math.max(0, (world.nukeReadyLocal[k] ?? 0) - Date.now());
+    if (left < best) best = left;
+  }
+  return { owned: true, cooldownLeftMs: best === Infinity ? 0 : best };
+}
+
 // 공수 사거리 판정(렌더러 UX용) — 지금 선택한 출발 동들에서 dest가 사거리 이내인가.
 export const airdropInRange = (sources: number[], dest: number) =>
   core.airdropInRange(world, sources, dest, world.myHolderId);
@@ -211,4 +242,9 @@ export function drainRallyTouched(): boolean {
 export function setMyRally(idx: number) {
   world.myRally = idx;
   rallyTouched = true;
+}
+
+// 자동 공세 스탠스를 낙관적으로 갱신한다(토글 즉시 반영 — 서버 WELCOME이 최종 진실).
+export function setMyAggressive(on: boolean) {
+  world.myAggressive = on;
 }

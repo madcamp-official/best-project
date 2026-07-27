@@ -60,6 +60,11 @@ data class GameConfig(
     @JsonProperty("SUPPLY_RATIO") var supplyRatio: Double = 0.34,
     @JsonProperty("SUPPLY_MIN_TROOPS") var supplyMinTroops: Int = 5,
 
+    // 자동 공세 스탠스 — 켜면 최전선 동이 매 주기 이길 만한 인접 적·중립을 자동 출정(클라 config.ts와 동기).
+    @JsonProperty("AGGRO_INTERVAL_SEC") var aggroIntervalSec: Double = 1.2,
+    @JsonProperty("AGGRO_RATIO") var aggroRatio: Double = 0.5,
+    @JsonProperty("AGGRO_MIN_TROOPS") var aggroMinTroops: Int = 8,
+
     // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)
     @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 0.55, // 사거리 상한(출발↔목적지 centroid 도 단위)
@@ -71,6 +76,14 @@ data class GameConfig(
     // 스폰 방어막 — 신규 참가·재시작 직후 이 시간(초) 동안 내 동은 공격/미사일/포위/공수로부터
     // 보호된다(자기 자신의 SORTIE 등 능동 행동은 제한 없음). "시작하자마자 죽는" 문제 대응.
     @JsonProperty("SPAWN_SHIELD_SEC") var spawnShieldSec: Double = 120.0,
+
+    // 전술핵 사일로 — 울릉도(울릉읍)·제주도(오등동, 한라산 북사면)에 고정. 사일로 동을 소유한
+    // 플레이어는 일반 미사일의 nukeRadiusMult배 반경 미사일을 쿨다운마다 발사할 수 있다.
+    // 두 섬은 본토와 인접이 끊긴 컴포넌트라, 사일로 섬을 오가는 공수는 사거리 제한을 받지 않는다.
+    // web/src/config.ts NUKE_*와 동기.
+    @JsonProperty("NUKE_SILO_CODES") var nukeSiloCodes: List<String> = listOf("47940250", "50110134"),
+    @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 3.0,
+    @JsonProperty("NUKE_COOLDOWN_SEC") var nukeCooldownSec: Double = 180.0,
 )
 
 /** holderId 예약값(README §3.2). GameConfig.envHolderId와 항상 동기화되어야 하는 구조 상수. */

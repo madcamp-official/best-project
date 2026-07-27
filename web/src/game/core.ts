@@ -25,6 +25,9 @@ export interface GameState {
   // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 후방 병력이 이 동을 향해 자동 전진한다.
   // 크기 256 = holderId 예약 범위(0 중립 … 255 E). 시뮬레이터(목/서버)만 채우고 클라 사본은 -1.
   rally: Int32Array;
+  // 자동 공세 스탠스: holderId → 켜짐(1)/꺼짐(0). 켜면 최전선 동이 매 주기 인접 적·중립을 자동 출정.
+  // 크기 256. 시뮬레이터(목/서버)만 참조하고 클라 사본은 미사용(토글 상태는 WELCOME.aggressive로 복구).
+  aggressive: Uint8Array;
   // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
   airdropReadyAt: Float64Array;
   // 스폰 방어막: holderId → 보호 종료 시각(ms, 호출자의 시간축 그대로 — 시뮬레이터는 wallNowMs).
@@ -36,6 +39,14 @@ export interface GameState {
   borderMask: Uint8Array;
   enclosedBy: Int32Array; // 이 동을 현재 포위 중인 holderId (-1 = 없음)
   enclosedSince: Float64Array; // 연속 포위가 시작된 단조 시각(ms). enclosedBy=-1이면 무의미.
+  // 전술핵 사일로 — NUKE_SILO_CODES 순서와 정렬된 admIndex(-1=데이터에 없음, 시도 축소 로드 등).
+  // 사일로 동을 소유한 플레이어가 NUKE_COOLDOWN_SEC마다 일반 미사일의 NUKE_RADIUS_MULT배
+  // 반경 미사일을 쏠 수 있다. 정적 데이터에서 파생되므로 클라·서버가 각자 initNukeState로 계산.
+  nukeSilos: number[];
+  nukeReadyAt: Float64Array; // 사일로별 재발사 가능 시각(호출자 시간축). 0=즉시 가능.
+  // 사일로가 있는 섬(울릉도·제주 본섬 = 본토와 인접이 끊긴 컴포넌트) 소속 동 마스크(0/1).
+  // 이 섬을 오가는 공수는 사거리 제한을 받지 않는다.
+  nukeIslandMask: Uint8Array;
   logEntries: LogEntry[];
   nextLogId: number;
 }
@@ -81,14 +92,19 @@ export function createGameState(
     orders: [],
     missiles: new Uint8Array(n),
     rally: new Int32Array(256).fill(-1),
+    aggressive: new Uint8Array(256),
     airdropReadyAt: new Float64Array(256),
     shieldUntil: new Float64Array(256),
     borderMask: borderMask ?? new Uint8Array(n),
     enclosedBy: new Int32Array(n).fill(-1),
     enclosedSince: new Float64Array(n),
+    nukeSilos: [],
+    nukeReadyAt: new Float64Array(CONFIG.NUKE_SILO_CODES.length),
+    nukeIslandMask: new Uint8Array(n),
     logEntries: [],
     nextLogId: 1,
   };
+  initNukeState(s);
 
   if (n > 0) {
     ownerId[startIndex] = MY_HOLDER_ID;
@@ -97,6 +113,28 @@ export function createGameState(
     pushLog(s, `${meta[startIndex].name}에서 시작합니다.`, wallNowMs);
   }
   return s;
+}
+
+// 전술핵 사일로 상태 초기화 — 정적 데이터(meta·neighborIndex)에서 파생되므로 언제든 재계산
+// 가능하다. 클라 world는 WELCOME으로 meta를 받은 뒤 이 함수를 다시 불러 채운다(재사용 이음매).
+export function initNukeState(s: GameState) {
+  s.nukeSilos = CONFIG.NUKE_SILO_CODES.map((code) => s.meta.findIndex((m) => m.code === code));
+  s.nukeIslandMask = new Uint8Array(s.n);
+  // 사일로 동에서 인접 그래프를 flood — 그 연결요소 전체가 "사일로 섬"(울릉도·제주 본섬).
+  for (const silo of s.nukeSilos) {
+    if (silo < 0 || s.nukeIslandMask[silo]) continue;
+    const stack = [silo];
+    s.nukeIslandMask[silo] = 1;
+    while (stack.length > 0) {
+      const cur = stack.pop() as number;
+      for (const nb of s.neighborIndex[cur] ?? []) {
+        if (!s.nukeIslandMask[nb]) {
+          s.nukeIslandMask[nb] = 1;
+          stack.push(nb);
+        }
+      }
+    }
+  }
 }
 
 // 시작 동 선택: 전체 라벨 지점의 무게중심에 가장 가까운 동 (하드코딩 없이 데이터 기반).
@@ -449,6 +487,61 @@ export function launchMissile(
   return { ok: true, removed: src, neutralized };
 }
 
+// ── 전술핵 사일로 ─────────────────────────────────────────────────────
+// 울릉도·제주의 사일로 동(NUKE_SILO_CODES)을 소유한 플레이어는 소모품 미사일 없이도
+// NUKE_COOLDOWN_SEC마다 일반 미사일의 NUKE_RADIUS_MULT배 반경 미사일을 발사할 수 있다.
+
+export type NukeResult =
+  | { ok: true; silo: number; readyAtMs: number; neutralized: number[] }
+  | { ok: false; reason: string };
+
+// 내가 소유한 사일로 admIndex 목록(순서 = NUKE_SILO_CODES).
+export function ownedNukeSilos(s: GameState, holderId: number): number[] {
+  return s.nukeSilos.filter((idx) => idx >= 0 && s.ownerId[idx] === holderId);
+}
+
+// 전술핵 발사: 내가 소유하고 쿨다운이 끝난 사일로 1기를 쓴다(둘 다 보유 시 준비된 쪽 우선).
+// hits는 호출자(전송 계층)가 전술핵 반경으로 검증한 목록. nowMs = 쿨다운 시간축(serverTime).
+export function launchNuke(
+  s: GameState,
+  holderId: number,
+  hits: number[],
+  nowMs: number,
+  wallNowMs: number
+): NukeResult {
+  let ownedK = -1; // 소유 중인 사일로(쿨다운 무관) — 에러 메시지 구분용
+  let readyK = -1; // 소유 + 쿨다운 완료
+  for (let k = 0; k < s.nukeSilos.length; k++) {
+    const idx = s.nukeSilos[k];
+    if (idx < 0 || s.ownerId[idx] !== holderId) continue;
+    if (ownedK < 0) ownedK = k;
+    if (nowMs >= s.nukeReadyAt[k]) {
+      readyK = k;
+      break;
+    }
+  }
+  if (ownedK < 0) return { ok: false, reason: "전술핵 사일로(울릉도·제주)를 보유해야 발사할 수 있습니다." };
+  if (readyK < 0) {
+    const left = Math.ceil((s.nukeReadyAt[ownedK] - nowMs) / 1000);
+    return { ok: false, reason: `전술핵 재장전까지 ${left}초 남았습니다.` };
+  }
+
+  const neutralized: number[] = [];
+  for (const h of hits) {
+    if (h < 0 || h >= s.n) continue;
+    if (isShielded(s, s.ownerId[h], wallNowMs)) continue; // 방어막 보호 — 중립화 안 됨
+    s.ownerId[h] = NEUTRAL_HOLDER_ID;
+    s.troops[h] = 0;
+    s.troopAccum[h] = 0;
+    s.dirty.add(h);
+    neutralized.push(h);
+  }
+  s.nukeReadyAt[readyK] = nowMs + CONFIG.NUKE_COOLDOWN_SEC * 1000;
+  const siloName = s.meta[s.nukeSilos[readyK]]?.name ?? "?";
+  pushLog(s, `☢ 전술핵 착탄(${siloName} 발사) — ${neutralized.length}개 동 중립화`, wallNowMs);
+  return { ok: true, silo: s.nukeSilos[readyK], readyAtMs: s.nukeReadyAt[readyK], neutralized };
+}
+
 // ── 보급선 (B2) ───────────────────────────────────────────────────────
 // 집결지(rally)를 정하면 매 보급 tick마다 후방 병력이 내 영토 경사를 따라 집결지 방향으로
 // 한 홉씩 자동 전진한다. 내 소유 동 사이에서만 흐르므로 전투는 없다. 전선 동을 집결지로 잡으면
@@ -526,6 +619,54 @@ function supplyToward(
   }
 }
 
+// ── 자동 공세 스탠스 ───────────────────────────────────────────────────
+// 켜진 holder의 최전선 동(인접에 non-소유 동이 있는 동)이 매 공세 주기마다 '이길 만한' 인접
+// 적·중립 하나를 자동 출정한다. 클릭 없이 전선이 스스로 전진한다(집결지=수비/보급의 공격판 대칭).
+
+// 자동 공세 on/off. 실제 플레이어(중립·E 아님)만 켤 수 있다.
+export function setAggressive(s: GameState, holderId: number, on: boolean) {
+  if (!isRealPlayer(holderId)) return;
+  s.aggressive[holderId] = on ? 1 : 0;
+}
+
+// 자동 공세가 켜진 모든 holder를 전진시킨다(시뮬레이터가 AGGRO_INTERVAL_SEC 주기 호출).
+// 반환 = 이번 주기에 새로 출발한 공세 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
+export function tickAggro(s: GameState, nowMs: number): Order[] {
+  const out: Order[] = [];
+  for (let h = 0; h < s.aggressive.length; h++) {
+    if (s.aggressive[h] !== 1) continue;
+    if (!isRealPlayer(h)) continue;
+    aggroExpand(s, h, nowMs, out);
+  }
+  return out;
+}
+
+// holderId의 각 최전선 동에서 병력이 가장 적은(=가장 이기기 쉬운) 인접 non-소유 동을 골라,
+// 보낼 병력이 그 방어 병력을 넘길 때만 출정한다(못 이길 싸움은 피해 피딩 방지). 병력은 즉시 차감·행군.
+function aggroExpand(s: GameState, holderId: number, nowMs: number, out: Order[]) {
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] !== holderId) continue;
+    if (s.troops[i] < CONFIG.AGGRO_MIN_TROOPS) continue;
+    let target = -1;
+    let weakest = Infinity;
+    for (const nb of s.neighborIndex[i]) {
+      if (s.ownerId[nb] === holderId) continue; // 내 동은 목표 아님(공세는 확장만)
+      if (s.troops[nb] < weakest) {
+        weakest = s.troops[nb];
+        target = nb;
+      }
+    }
+    if (target < 0) continue; // 최전선이 아님(인접이 전부 내 동)
+    const amount = Math.floor(s.troops[i] * CONFIG.AGGRO_RATIO);
+    if (amount <= weakest) continue; // 이길 수 없으면 보류(다음 주기에 병력이 더 쌓이면 재시도)
+    s.troops[i] -= amount;
+    s.dirty.add(i);
+    const order = makeOrder(s, i, target, amount, holderId, nowMs);
+    s.orders.push(order);
+    out.push(order);
+  }
+}
+
 // ── 공수부대 (B3) ──────────────────────────────────────────────────────
 // 원으로 고른 내 동들(sources)의 병력 전부를 모아 삼각형 유닛으로 dest에 투하한다. 도착 시
 // resolveAirdrop이 목적지→인접 BFS로 순차 flood한다(적/중립은 전투로 점령, 내 동은 상한까지 증원).
@@ -559,7 +700,10 @@ export function tryAirdrop(
   if (total <= 0) return { ok: false, reason: "수송할 병력이 없습니다.", code: "NO_TROOPS" };
 
   const origin = nearestSourceToCentroid(s, valid, holderId); // 삼각형 유닛 출발 위치(원 중심 근사)
-  if (airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
+  // 사일로 섬(울릉도·제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
+  // (두 섬은 본토와 인접이 끊겨 있어 공수 외 도달 수단이 없다 — 전술핵 사일로 쟁탈전의 통로.)
+  const rangeExempt = s.nukeIslandMask[origin] === 1 || s.nukeIslandMask[dest] === 1;
+  if (!rangeExempt && airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
     return { ok: false, reason: "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.", code: "AIRDROP_RANGE" };
   }
   for (const i of valid) {
@@ -633,6 +777,8 @@ export function airdropInRange(s: GameState, sources: number[], dest: number, ho
   const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
   if (valid.length === 0) return false;
   const origin = nearestSourceToCentroid(s, valid, holderId);
+  // 사일로 섬(울릉도·제주) 출발/도착은 사거리 무제한 — tryAirdrop과 같은 규칙(클라 UX 일치).
+  if (s.nukeIslandMask[origin] === 1 || s.nukeIslandMask[dest] === 1) return true;
   return airdropScaledDist(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
 }
 

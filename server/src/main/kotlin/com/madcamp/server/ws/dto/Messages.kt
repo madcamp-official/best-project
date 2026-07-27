@@ -31,7 +31,11 @@ data class WelcomeMessage(
     val orders: List<Order>,
     val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
     val rally: Int, // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 복구용.
+    val aggressive: Boolean, // 자동 공세 스탠스 on/off. 재접속 시 토글 상태 복구용.
     val shields: List<ShieldInfo>, // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
+    // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
+    // 사일로 위치는 정적 데이터에서 파생되므로 보내지 않는다(클라가 initNukeState로 계산).
+    val nukeReadyAtMs: List<Long>,
 )
 
 // ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
@@ -52,6 +56,17 @@ data class LaunchMissileCommand(
 
 // B2 집결지 지정/해제(C→S, /app/rally). index = 내 소유 admIndex, -1이면 해제.
 data class SetRallyCommand(val index: Int = -1)
+
+// 전술핵 발사(C→S, /app/nuke). 사일로(울릉도·제주) 소유자만. hits = 전술핵 반경(일반 미사일의
+// NUKE_RADIUS_MULT배) 원에 겹치는 동 admIndex(클라 계산). 서버가 소유·쿨다운·근접을 검증한다.
+data class LaunchNukeCommand(
+    val center: List<Double> = emptyList(),
+    val radius: Double = 0.0,
+    val hits: List<Int> = emptyList(),
+)
+
+// 자동 공세 스탠스 on/off(C→S, /app/aggro). on=true면 최전선 내 동이 매 주기 인접 적·중립을 자동 출정.
+data class SetAggroCommand(val on: Boolean = false)
 
 // 공수부대(병력 수송, C→S, /app/airdrop). sources=원 안 내 소유 동 목록(클라 계산),
 // dest=투하 목적지. 서버가 소유·쿨타임을 검증하고 sources 병력 전부를 dest에 투하한다.

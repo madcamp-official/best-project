@@ -14,6 +14,7 @@ import {
   drainRallyTouched,
   drainRespawnCell,
   setMyRally,
+  setMyAggressive,
   enclosedSet,
   drainEnclosedTouched,
 } from "../world/worldView";
@@ -54,6 +55,9 @@ const MISSILE_SOURCE = "missiles";
 const MISSILE_LAYER = "missiles-layer";
 const MISSILE_IMAGE_ID = "missile-icon"; // addImage로 얹는 🚀 아이콘 이름
 const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 미사일 이모지가 없어 로켓 사용)
+const NUKE_SOURCE = "nuke-silos"; // 전술핵 사일로(울릉도·제주) 고정 마커
+const NUKE_LAYER = "nuke-silos-layer";
+const NUKE_IMAGE_ID = "nuke-silo-icon"; // 일반 미사일보다 훨씬 큰 로켓 = 사일로 표식
 const RALLY_SOURCE = "rally"; // B2 집결지 깃발 마커
 const RALLY_LAYER = "rally-layer";
 const RALLY_IMAGE_ID = "rally-icon"; // addImage로 얹는 🚩 아이콘 이름
@@ -301,17 +305,26 @@ export function MapView({ prepared, connection }: Props) {
       return best;
     };
 
+    // 지금 조준 반경 — 전술핵 조준 중이면 일반 미사일의 NUKE_RADIUS_MULT배.
+    const aimRadius = () =>
+      useUIStore.getState().isNukeAiming ? RADIUS * CONFIG.NUKE_RADIUS_MULT : RADIUS;
+
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
-    // ownedOnly=true면 내 소유 동만(공수 source 단계), false면 모든 동(미사일 조준).
-    const updateAim = (center: [number, number], targetSet: Set<number>, ownedOnly: boolean) => {
+    // ownedOnly=true면 내 소유 동만(공수 source 단계), false면 모든 동(미사일·전술핵 조준).
+    const updateAim = (
+      center: [number, number],
+      targetSet: Set<number>,
+      ownedOnly: boolean,
+      radius: number = RADIUS
+    ) => {
       const [cx, cy] = center;
       const cosLat = Math.cos((cy * Math.PI) / 180);
-      const rLng = RADIUS / cosLat; // 경도는 위도에 따라 실제 거리가 달라 보정(원처럼 보이게)
+      const rLng = radius / cosLat; // 경도는 위도에 따라 실제 거리가 달라 보정(원처럼 보이게)
 
       const ring: [number, number][] = [];
       for (let i = 0; i <= 48; i++) {
         const a = (i / 48) * 2 * Math.PI;
-        ring.push([cx + Math.cos(a) * rLng, cy + Math.sin(a) * RADIUS]);
+        ring.push([cx + Math.cos(a) * rLng, cy + Math.sin(a) * radius]);
       }
       const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
       circleSrc?.setData({
@@ -320,8 +333,8 @@ export function MapView({ prepared, connection }: Props) {
       });
 
       // 원의 경위도 bbox를 화면 좌표로 변환해 후보 동만 질의 → 폴리곤-원 교차로 확정.
-      const sw = map.project([cx - rLng, cy - RADIUS]);
-      const ne = map.project([cx + rLng, cy + RADIUS]);
+      const sw = map.project([cx - rLng, cy - radius]);
+      const ne = map.project([cx + rLng, cy + radius]);
       const bbox: [[number, number], [number, number]] = [
         [Math.min(sw.x, ne.x), Math.min(sw.y, ne.y)],
         [Math.max(sw.x, ne.x), Math.max(sw.y, ne.y)],
@@ -333,7 +346,7 @@ export function MapView({ prepared, connection }: Props) {
         const id = Number(f.id);
         if (hit.has(id)) continue;
         if (ownedOnly && world.ownerId[id] !== world.myHolderId) continue; // 공수 source는 내 동만
-        if (circleHitsPoly(cx, cy, RADIUS, cosLat, f.geometry)) hit.add(id);
+        if (circleHitsPoly(cx, cy, radius, cosLat, f.geometry)) hit.add(id);
       }
       for (const idx of targetSet) {
         if (!hit.has(idx)) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
@@ -350,10 +363,18 @@ export function MapView({ prepared, connection }: Props) {
     };
 
     // 발사: 지금 원에 걸린 동 목록을 서버로 보내고 조준 모드를 끝낸다. 서버가 중립화 후 DELTA.
+    // 전술핵 조준 중이면 사일로 발사(sendNuke, 반경 3배) — 검증·쿨다운은 서버가 담당.
     const fireMissile = (center: [number, number]) => {
+      const st = useUIStore.getState();
+      if (st.isNukeAiming) {
+        connection.sendNuke(center, RADIUS * CONFIG.NUKE_RADIUS_MULT, Array.from(aimedSet));
+        clearAim(aimedSet);
+        st.setNukeAiming(false);
+        return;
+      }
       connection.sendMissile(center, RADIUS, Array.from(aimedSet));
       clearAim(aimedSet);
-      useUIStore.getState().setAiming(false);
+      st.setAiming(false);
     };
 
     // 공수 사거리 원(반경 = AIRDROP_MAX_RANGE_DEG)을 origin 중심으로 그린다. 거리 판정은 raw 도
@@ -777,6 +798,51 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
+      // 전술핵 사일로(울릉도·제주) 마커 — 일반 미사일(28px)보다 훨씬 큰 로켓(48px)으로 구분.
+      // 사일로 위치는 정적이라 여기서 한 번만 그린다(소유가 바뀌어도 마커는 그대로).
+      map.addSource(NUKE_SOURCE, {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: world.nukeSilos
+            .filter((i) => i >= 0)
+            .map((i) => ({
+              type: "Feature" as const,
+              properties: {},
+              geometry: { type: "Point" as const, coordinates: world.meta[i].centroid },
+            })),
+        },
+      });
+      const nukeIcon = makeEmojiIcon(MISSILE_EMOJI, 48);
+      if (nukeIcon) {
+        if (!map.hasImage(NUKE_IMAGE_ID)) {
+          map.addImage(NUKE_IMAGE_ID, nukeIcon.data, { pixelRatio: nukeIcon.pixelRatio });
+        }
+        map.addLayer({
+          id: NUKE_LAYER,
+          type: "symbol",
+          source: NUKE_SOURCE,
+          layout: {
+            "icon-image": NUKE_IMAGE_ID,
+            "icon-size": 1,
+            "icon-allow-overlap": true, // 사일로는 항상 보이게
+            "icon-ignore-placement": true,
+          },
+        });
+      } else {
+        map.addLayer({
+          id: NUKE_LAYER,
+          type: "circle",
+          source: NUKE_SOURCE,
+          paint: {
+            "circle-radius": 10,
+            "circle-color": "#ff5a3c",
+            "circle-stroke-color": "#3a0e00",
+            "circle-stroke-width": 2,
+          },
+        });
+      }
+
       // B2 집결지 깃발 마커 — 내 집결지 centroid에 🚩. (미사일 마커와 같은 이모지-아이콘 방식.)
       map.addSource(RALLY_SOURCE, {
         type: "geojson",
@@ -1011,7 +1077,7 @@ export function MapView({ prepared, connection }: Props) {
       map.on("mousemove", (e) => {
         lastMouseLngLat = [e.lngLat.lng, e.lngLat.lat];
         const st = useUIStore.getState();
-        if (st.isAiming) aimDirty = true;
+        if (st.isAiming || st.isNukeAiming) aimDirty = true;
         if (st.isTransporting && airdropPhase === "source") aimDirty = true;
         // 우클릭을 누른 채 임계 이상 움직이면 드래그 공격으로 확정(내 동에서 시작한 경우만).
         if (rightDownPoint && (e.originalEvent.buttons & 2) !== 0) {
@@ -1034,9 +1100,10 @@ export function MapView({ prepared, connection }: Props) {
         }
       });
 
-      // 좌클릭 = 동 선택. 조준 중이면 = 미사일 발사, 공수 중이면 = 공수 클릭.
+      // 좌클릭 = 동 선택. 조준 중이면 = 미사일/전술핵 발사, 공수 중이면 = 공수 클릭.
       map.on("click", (e) => {
-        if (useUIStore.getState().isAiming) {
+        const stClick = useUIStore.getState();
+        if (stClick.isAiming || stClick.isNukeAiming) {
           fireMissile([e.lngLat.lng, e.lngLat.lat]);
           return;
         }
@@ -1064,7 +1131,7 @@ export function MapView({ prepared, connection }: Props) {
       map.on("mousedown", (e) => {
         if (e.originalEvent.button !== 2) return; // 우클릭만
         const st = useUIStore.getState();
-        if (st.isAiming || st.isTransporting) return; // 특수 모드 중엔 우클릭 공격 비활성
+        if (st.isAiming || st.isNukeAiming || st.isTransporting) return; // 특수 모드 중엔 우클릭 공격 비활성
         // 누른 지점·동만 기록해 둔다. 드래그 확정은 mousemove의 임계 판정이 한다.
         rightDownPoint = { x: e.point.x, y: e.point.y };
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
@@ -1100,7 +1167,7 @@ export function MapView({ prepared, connection }: Props) {
       // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
       map.on("dblclick", (e) => {
         const st = useUIStore.getState();
-        if (st.isAiming || st.isTransporting) return;
+        if (st.isAiming || st.isNukeAiming || st.isTransporting) return;
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
         if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
@@ -1144,11 +1211,15 @@ export function MapView({ prepared, connection }: Props) {
       if (e.isComposing || e.keyCode === 229) return;
       // 입력창(닉네임 등)에 포커스가 있으면 지도 조작으로 가로채지 않는다.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      // Esc = 미사일 조준 / 공수 모드 취소
+      // Esc = 미사일/전술핵 조준 / 공수 모드 취소
       if (e.code === "Escape") {
         const st = useUIStore.getState();
         if (st.isAiming) {
           st.setAiming(false);
+          return;
+        }
+        if (st.isNukeAiming) {
+          st.setNukeAiming(false);
           return;
         }
         if (st.isTransporting) {
@@ -1182,6 +1253,17 @@ export function MapView({ prepared, connection }: Props) {
         } else {
           st.setTransporting(true); // aiming은 setTransporting이 알아서 끈다.
         }
+        return;
+      }
+      // G = 자동 공세 스탠스 토글 (오른쪽 아래 버튼과 동일 동작). 켜면 최전선이 자동 전진한다.
+      if (e.code === "KeyG") {
+        if (e.repeat) return; // 누르고 있을 때의 리핏으로 반복 토글되지 않게.
+        const st = useUIStore.getState();
+        const next = !st.aggressive;
+        connection.sendAggro(next);
+        setMyAggressive(next); // 낙관적 반영(서버 WELCOME이 최종 진실)
+        st.setAggressive(next);
+        st.showToast(next ? "자동 공세 ON — 최전선이 인접 적·중립을 자동 점령" : "자동 공세 OFF");
         return;
       }
       // 이동 키: 방향만 기록(연속 패닝은 렌더 루프가 담당). 화살표 기본 스크롤 방지.
@@ -1315,12 +1397,13 @@ export function MapView({ prepared, connection }: Props) {
       // 스폰 방어막 돔 — 매 프레임 갱신(보호 중인 플레이어가 있을 때만 실질 비용 발생).
       updateShieldDomes(map, now);
 
-      // 미사일 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스
-      const aimingNow = useUIStore.getState().isAiming;
+      // 미사일/전술핵 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스 (전술핵은 반경 3배)
+      const stAim = useUIStore.getState();
+      const aimingNow = stAim.isAiming || stAim.isNukeAiming;
       if (aimingNow) {
         if (!wasAiming) aimDirty = true; // 조준 시작 → 즉시 한 번 그린다
         if (aimDirty && lastMouseLngLat) {
-          updateAim(lastMouseLngLat, aimedSet, false);
+          updateAim(lastMouseLngLat, aimedSet, false, aimRadius());
           aimDirty = false;
         }
         const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));

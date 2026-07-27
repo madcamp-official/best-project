@@ -43,10 +43,23 @@ export interface LaunchMissileCommand {
   hits: number[];
 }
 
+// 전술핵 발사(C→S). 사일로(울릉도·제주) 소유자만. hits = 전술핵 반경(일반 미사일의
+// NUKE_RADIUS_MULT배) 원에 겹치는 동 admIndex 목록(클라 계산). 서버가 소유·쿨다운·근접을 검증한다.
+export interface LaunchNukeCommand {
+  center: [number, number];
+  radius: number;
+  hits: number[];
+}
+
 // B2 집결지 지정/해제(C→S). index = 내 소유 admIndex(집결지), -1이면 해제. 서버가 소유를 검증하고
 // 이후 매 주기 후방 병력을 이 동을 향해 자동 전진시킨다.
 export interface SetRallyCommand {
   index: number;
+}
+
+// 자동 공세 스탠스 on/off(C→S). on=true면 최전선 내 동이 매 주기 인접 적·중립을 자동 출정한다.
+export interface SetAggroCommand {
+  on: boolean;
 }
 
 // 공수부대(병력 수송, C→S). sources = 원 안에 든 내 소유 동 admIndex 목록(클라 계산),
@@ -84,7 +97,11 @@ export interface WelcomeMessage {
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
   rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
+  aggressive: boolean; // 자동 공세 스탠스 on/off. 재접속 시 토글 상태 복구용.
   shields: ShieldInfo[]; // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
+  // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
+  // 사일로 위치 자체는 정적 데이터에서 파생되므로 보내지 않는다(클라가 initNukeState로 계산).
+  nukeReadyAtMs: number[];
 }
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
@@ -95,6 +112,7 @@ export interface ErrorMessage {
     | "NO_TROOPS"
     | "ALREADY_FULL"
     | "NO_MISSILE"
+    | "NO_NUKE" // 전술핵: 사일로 미보유 또는 재장전 중
     | "NO_PATH"
     | "AIRDROP_COOLDOWN"
     | "AIRDROP_RANGE"
@@ -121,6 +139,8 @@ export interface DeltaMessage {
   // 이번 구간에 미사일이 착탄한 동(중립화 대상 전부). 렌더러가 폭발 충격파를 터뜨린다.
   // 소유권 변화로 착탄을 추론하면 "이미 중립인 동"을 맞출 때 모션이 안 뜨므로 명시적으로 싣는다.
   missileImpacts?: number[];
+  // 전술핵 발사로 사일로 쿨다운이 바뀐 구간에만 실림(NUKE_SILO_CODES 순서, serverTimeMs 시간축).
+  nukeReadyAtMs?: number[];
   // 현재 포위(귀속 대기)된 동 전체 목록. 집합이 바뀐 DELTA에만 실린다(없으면 클라가 기존 집합 유지).
   // 렌더러가 이 동들을 반짝이게 해 "곧 흡수됨"을 알린다(ANNEX_HOLD_SEC 카운트다운 시각화).
   enclosed?: number[];

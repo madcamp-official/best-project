@@ -28,6 +28,9 @@ class World(
     // web/src/game/core.ts GameState.rally 대응.
     val rally: IntArray = IntArray(256) { -1 }
 
+    // 자동 공세 스탠스: holderId → 켜짐(1)/꺼짐(0). 크기 256. web/src/game/core.ts GameState.aggressive 대응.
+    val aggressive: IntArray = IntArray(256)
+
     // 공수부대(B3): holderId → 재사용 가능해지는 벽시계 시각(ms). 0=쿨타임 없음. 크기 256.
     // web/src/game/core.ts GameState.airdropReadyAt 대응.
     val airdropReadyAt: LongArray = LongArray(256)
@@ -45,6 +48,13 @@ class World(
     // 시작된 시각(ms). ANNEX_HOLD_SEC 유지 판정용 — web/src/game/core.ts enclosedBy/enclosedSince 대응.
     val enclosedBy: IntArray = IntArray(n) { -1 }
     val enclosedSince: LongArray = LongArray(n)
+
+    // 전술핵 사일로(web/src/game/core.ts nukeSilos/nukeReadyAt/nukeIslandMask 대응).
+    // create()가 config.nukeSiloCodes에서 계산해 채운다. nukeSilos[k] = -1 이면 데이터에 없는 코드.
+    var nukeSilos: IntArray = IntArray(0)
+    var nukeReadyAt: LongArray = LongArray(0) // 사일로별 재발사 가능 벽시계 시각(ms). 0=즉시 가능.
+    var nukeIslandMask: BooleanArray = BooleanArray(n) // 사일로 섬(울릉도·제주 본섬) 소속 동 — 공수 사거리 예외
+    var nukeDirty: Boolean = false // 이번 tick 구간에 사일로 쿨다운이 바뀜(발사) → DELTA에 실어 보낸다
 
     // 이번 tick 구간에 발생한 것 — DELTA 브로드캐스트 후 비운다(api-spec.md §2.5).
     val pendingNewOrders: MutableList<Order> = mutableListOf()
@@ -75,7 +85,36 @@ class World(
             val borderMask = BooleanArray(n) { cells[it].border }
             val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta, borderMask)
             world.holders[HolderIds.NEUTRAL] = Holder(HolderIds.NEUTRAL, "중립", 0)
+            initNukeState(world, config)
             return world
+        }
+
+        /**
+         * 전술핵 사일로 상태 초기화(web/src/game/core.ts initNukeState 대응) — 정적 데이터에서 파생.
+         * 사일로 동에서 인접 그래프를 flood한 연결요소 전체가 "사일로 섬"(울릉도·제주 본섬)이 되고,
+         * 이 섬을 오가는 공수는 사거리 제한을 받지 않는다(GameCore.tryAirdrop).
+         */
+        private fun initNukeState(world: World, config: GameConfig) {
+            val codeToIdx = HashMap<String, Int>(world.n * 2)
+            for (i in 0 until world.n) codeToIdx[world.meta[i].code] = i
+            world.nukeSilos = IntArray(config.nukeSiloCodes.size) { codeToIdx[config.nukeSiloCodes[it]] ?: -1 }
+            world.nukeReadyAt = LongArray(world.nukeSilos.size)
+            world.nukeIslandMask = BooleanArray(world.n)
+            for (silo in world.nukeSilos) {
+                if (silo < 0 || world.nukeIslandMask[silo]) continue
+                val stack = ArrayDeque<Int>()
+                stack.addLast(silo)
+                world.nukeIslandMask[silo] = true
+                while (stack.isNotEmpty()) {
+                    val cur = stack.removeLast()
+                    for (nb in world.neighborIndex[cur]) {
+                        if (!world.nukeIslandMask[nb]) {
+                            world.nukeIslandMask[nb] = true
+                            stack.addLast(nb)
+                        }
+                    }
+                }
+            }
         }
     }
 }

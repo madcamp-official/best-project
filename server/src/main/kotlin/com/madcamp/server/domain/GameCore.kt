@@ -340,6 +340,50 @@ object GameCore {
         return MissileLaunch(ok = true, removed = src, neutralized = neutralized)
     }
 
+    // ── 전술핵 사일로 (web/src/game/core.ts launchNuke 대응) ──
+    // 울릉도·제주의 사일로 동을 소유한 플레이어는 소모품 미사일 없이도 nukeCooldownSec마다
+    // 일반 미사일의 nukeRadiusMult배 반경 미사일을 발사할 수 있다.
+    fun launchNuke(
+        world: World,
+        config: GameConfig,
+        holderId: Int,
+        hits: List<Int>,
+        wallNowMs: Long,
+    ): MissileLaunch {
+        var ownedK = -1 // 소유 중인 사일로(쿨다운 무관) — 에러 메시지 구분용
+        var readyK = -1 // 소유 + 쿨다운 완료
+        for (k in world.nukeSilos.indices) {
+            val idx = world.nukeSilos[k]
+            if (idx < 0 || world.ownerId[idx] != holderId) continue
+            if (ownedK < 0) ownedK = k
+            if (wallNowMs >= world.nukeReadyAt[k]) {
+                readyK = k
+                break
+            }
+        }
+        if (ownedK < 0) return MissileLaunch(ok = false, reason = "전술핵 사일로(울릉도·제주)를 보유해야 발사할 수 있습니다.")
+        if (readyK < 0) {
+            val left = (world.nukeReadyAt[ownedK] - wallNowMs + 999) / 1000
+            return MissileLaunch(ok = false, reason = "전술핵 재장전까지 ${left}초 남았습니다.")
+        }
+
+        val neutralized = ArrayList<Int>()
+        for (h in hits) {
+            if (h < 0 || h >= world.n) continue
+            if (isShielded(world, world.ownerId[h], wallNowMs)) continue // 방어막 보호 — 중립화 안 됨
+            world.ownerId[h] = HolderIds.NEUTRAL
+            world.troops[h] = 0
+            world.troopAccum[h] = 0.0
+            world.dirty.add(h)
+            neutralized.add(h)
+        }
+        world.nukeReadyAt[readyK] = wallNowMs + (config.nukeCooldownSec * 1000).toLong()
+        world.nukeDirty = true
+        val siloName = world.meta[world.nukeSilos[readyK]].name
+        pushLog(world, "☢ 전술핵 착탄(${siloName} 발사) — ${neutralized.size}개 동 중립화", wallNowMs)
+        return MissileLaunch(ok = true, removed = world.nukeSilos[readyK], neutralized = neutralized)
+    }
+
     // ── 공수부대 (B3, web/src/game/core.ts tryAirdrop/resolveAirdrop 대응) ──
     // 원으로 고른 내 동들(sources)의 병력 전부를 모아 삼각형 유닛으로 dest에 투하한다. 도착 시
     // resolveAirdrop이 목적지→인접 BFS로 순차 flood한다(적/중립은 전투로 점령, 내 동은 상한까지 증원).
@@ -369,7 +413,10 @@ object GameCore {
         if (total <= 0) return SortieResult.Err(SortieErrorCode.NO_TROOPS, "수송할 병력이 없습니다.")
 
         val origin = nearestSourceToCentroid(world, valid, holderId) // 삼각형 유닛 출발 위치(원 중심 근사)
-        if (airdropScaledDist(world, origin, dest) > config.airdropMaxRangeDeg) {
+        // 사일로 섬(울릉도·제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
+        // (두 섬은 본토와 인접이 끊겨 있어 공수 외 도달 수단이 없다 — 전술핵 사일로 쟁탈전의 통로.)
+        val rangeExempt = world.nukeIslandMask[origin] || world.nukeIslandMask[dest]
+        if (!rangeExempt && airdropScaledDist(world, origin, dest) > config.airdropMaxRangeDeg) {
             return SortieResult.Err(SortieErrorCode.AIRDROP_RANGE, "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.")
         }
         for (i in valid) if (world.troops[i] > 0) {
@@ -523,6 +570,50 @@ object GameCore {
             world.troops[i] -= amt
             world.dirty.add(i)
             val order = makeOrder(world, config, i, j, amt, holderId, nowMs)
+            world.orders.add(order)
+            world.pendingNewOrders.add(order)
+        }
+    }
+
+    // ── 자동 공세 스탠스 (web/src/game/core.ts setAggressive/tickAggro 대응) ──
+    // 켜진 holder의 최전선 동이 매 공세 주기마다 '이길 만한' 인접 적·중립을 자동 출정한다.
+
+    fun setAggressive(world: World, holderId: Int, on: Boolean) {
+        if (!isRealPlayer(holderId)) return
+        world.aggressive[holderId] = if (on) 1 else 0
+    }
+
+    // 자동 공세가 켜진 모든 holder를 전진시킨다(GameLoop이 aggroIntervalSec 주기로 호출).
+    // 새 공세 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
+    fun tickAggro(world: World, config: GameConfig, nowMs: Long) {
+        for (h in world.aggressive.indices) {
+            if (world.aggressive[h] != 1) continue
+            if (!isRealPlayer(h)) continue
+            aggroExpand(world, config, h, nowMs)
+        }
+    }
+
+    // holderId의 각 최전선 동에서 병력이 가장 적은(가장 이기기 쉬운) 인접 non-소유 동을 골라,
+    // 보낼 병력이 그 방어 병력을 넘길 때만 출정한다(못 이길 싸움은 피해 피딩 방지). 병력은 즉시 차감·행군.
+    private fun aggroExpand(world: World, config: GameConfig, holderId: Int, nowMs: Long) {
+        for (i in 0 until world.n) {
+            if (world.ownerId[i] != holderId) continue
+            if (world.troops[i] < config.aggroMinTroops) continue
+            var target = -1
+            var weakest = Int.MAX_VALUE
+            for (nb in world.neighborIndex[i]) {
+                if (world.ownerId[nb] == holderId) continue // 내 동은 목표 아님(공세는 확장만)
+                if (world.troops[nb] < weakest) {
+                    weakest = world.troops[nb]
+                    target = nb
+                }
+            }
+            if (target < 0) continue // 최전선이 아님(인접이 전부 내 동)
+            val amount = floor(world.troops[i] * config.aggroRatio).toInt()
+            if (amount <= weakest) continue // 이길 수 없으면 보류(다음 주기에 병력이 더 쌓이면 재시도)
+            world.troops[i] -= amount
+            world.dirty.add(i)
+            val order = makeOrder(world, config, i, target, amount, holderId, nowMs)
             world.orders.add(order)
             world.pendingNewOrders.add(order)
         }
