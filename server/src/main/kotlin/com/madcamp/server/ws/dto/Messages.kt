@@ -33,7 +33,11 @@ data class WelcomeMessage(
     val orders: List<Order>,
     val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
     val rally: Int, // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 복구용.
+    val aggressive: Boolean, // 자동 공세 스탠스 on/off. 재접속 시 토글 상태 복구용.
     val shields: List<ShieldInfo>, // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
+    // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
+    // 사일로 위치는 정적 데이터에서 파생되므로 보내지 않는다(클라가 initNukeState로 계산).
+    val nukeReadyAtMs: List<Long>,
 )
 
 // ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
@@ -43,6 +47,10 @@ data class SortieCommand(val from: Int, val to: Int, val ratio: Double? = null)
 // B1 경로 자동 출정(C→S, /app/march). to는 from과 인접하지 않아도 되며, 서버가 내 영토를 따라
 // 최단 경로를 찾아 연쇄 출정을 발주한다. web/src/net/protocol.ts MarchCommand과 동일 계약.
 data class MarchCommand(val from: Int, val to: Int, val ratio: Double? = null)
+
+// 드래그 쓸기(C→S, /app/sortie-multi). 한 출발지(from)에서 여러 인접 목표(targets)로 병력을 균등
+// 분할해 동시 출정한다. web/src/net/protocol.ts MultiSortieCommand과 동일 계약.
+data class MultiSortieCommand(val from: Int = -1, val targets: List<Int> = emptyList(), val ratio: Double? = null)
 
 // 미사일 발사(C→S, /app/missile). center=[lng,lat], radius=반경(도), hits=원에 겹치는 동
 // admIndex(폴리곤을 가진 클라가 계산). 서버가 반경/근접을 검증하고 미사일 1개를 소모해 적용.
@@ -54,6 +62,17 @@ data class LaunchMissileCommand(
 
 // B2 집결지 지정/해제(C→S, /app/rally). index = 내 소유 admIndex, -1이면 해제.
 data class SetRallyCommand(val index: Int = -1)
+
+// 전술핵 발사(C→S, /app/nuke). 사일로(울릉도·제주) 소유자만. hits = 전술핵 반경(일반 미사일의
+// NUKE_RADIUS_MULT배) 원에 겹치는 동 admIndex(클라 계산). 서버가 소유·쿨다운·근접을 검증한다.
+data class LaunchNukeCommand(
+    val center: List<Double> = emptyList(),
+    val radius: Double = 0.0,
+    val hits: List<Int> = emptyList(),
+)
+
+// 자동 공세 스탠스 on/off(C→S, /app/aggro). on=true면 최전선 내 동이 매 주기 인접 적·중립을 자동 출정.
+data class SetAggroCommand(val on: Boolean = false)
 
 // 공수부대(병력 수송, C→S, /app/airdrop). sources=원 안 내 소유 동 목록(클라 계산),
 // dest=투하 목적지. 서버가 소유·쿨타임을 검증하고 sources 병력 전부를 dest에 투하한다.
@@ -81,6 +100,9 @@ data class DeltaMessage(
     // 클라가 이 동들을 반짝이게 한다(worldView.ts enclosed와 대응).
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val enclosed: List<Int>? = null,
+    // 전술핵 발사로 사일로 쿨다운이 바뀐 tick에만 실린다(NUKE_SILO_CODES 순서, serverTimeMs 시간축).
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val nukeReadyAtMs: List<Long>? = null,
 )
 
 data class LeaderboardMessage(
@@ -131,20 +153,28 @@ data class RoundEndMessage(
     val leaderboard: List<LeaderboardRow>,
 )
 
-/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. idToken은 JoinMessage 참고. */
+/**
+ * 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+ * idToken은 JoinMessage 참고. clientId=영속 클라 신원(방장용).
+ */
 data class CreateRoomCommand(
     val name: String? = null,
     val nickname: String? = null,
     val token: String? = null,
     val idToken: String? = null,
+    val clientId: String? = null,
 )
 
-/** 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고. */
+/**
+ * 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고.
+ * clientId=영속 클라 신원(재접속 시 방장·멤버 동일성 유지용).
+ */
 data class JoinRoomCommand(
     val roomId: String = "",
     val nickname: String? = null,
     val token: String? = null,
     val idToken: String? = null,
+    val clientId: String? = null,
 )
 
 /** 대기실 준비 토글(C→S, /app/room/ready). 방장이 아닌 멤버가 사용. */

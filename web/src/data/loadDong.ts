@@ -183,6 +183,7 @@ function extractArcs(
   // 행정구역 경계 하이라이트(소유권과 무관한 정적 속성): 아크 양쪽 동의 시군구/시도 코드가
   // 다르면 그 경계선을 표시 대상으로 표시한다. 지도 바깥과 맞닿은 외곽선(b=-1)은 대상 아님
   // — 이미 국토 윤곽이라 행정구역 강조가 필요 없다.
+  // outer(외곽선 여부)도 속성으로 실어, 렌더러가 해안선에는 글로우를 빼는 등 달리 그릴 수 있게 한다.
   const features: Feature<LineString>[] = [];
   for (let i = 0; i < arcCount; i++) {
     const { a, b } = arcSides[i];
@@ -195,7 +196,7 @@ function extractArcs(
     features.push({
       type: "Feature",
       id: i,
-      properties: { sggBoundary, sidoBoundary },
+      properties: { sggBoundary, sidoBoundary, outer: b === -1 },
       geometry: { type: "LineString", coordinates: decodeArc(topo, i) },
     });
   }

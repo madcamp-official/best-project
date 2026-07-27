@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
-import { world } from "../world/worldView";
+import { world, setMyAggressive } from "../world/worldView";
 import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import type { Connection } from "../net/connection";
 
@@ -24,7 +24,15 @@ export function Hud({ connection, isMock }: Props) {
   const missileCount = useUIStore((s) => s.missileCount);
   const isAiming = useUIStore((s) => s.isAiming);
   const setAiming = useUIStore((s) => s.setAiming);
+  const isNukeAiming = useUIStore((s) => s.isNukeAiming);
+  const setNukeAiming = useUIStore((s) => s.setNukeAiming);
+  const nukeOwned = useUIStore((s) => s.nukeOwned);
+  const nukeCooldownLeft = useUIStore((s) => s.nukeCooldownLeft);
+  const nukeCoolSec = Math.ceil(nukeCooldownLeft / 1000);
   const rallyIndex = useUIStore((s) => s.rallyIndex);
+  const aggressive = useUIStore((s) => s.aggressive);
+  const setAggressive = useUIStore((s) => s.setAggressive);
+  const showToast = useUIStore((s) => s.showToast);
   const isTransporting = useUIStore((s) => s.isTransporting);
   const setTransporting = useUIStore((s) => s.setTransporting);
   const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
@@ -194,7 +202,11 @@ export function Hud({ connection, isMock }: Props) {
           onChange={(e) => setSortieRatio(Number(e.currentTarget.value) / 100)}
           aria-label="출정 병력 비율"
         />
-        <div className="hud-ratio-hint">우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다</div>
+        <div className="hud-ratio-hint">
+          우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다
+          <br />
+          내 동에서 우클릭 드래그로 여러 인접 지역을 <strong>쓸면</strong> 병력을 나눠 한 번에 출정합니다
+        </div>
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
@@ -203,7 +215,7 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-primary" : "io-btn-ghost"}`}
+            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-amber" : "io-btn-primary"}`}
             style={{ marginTop: 6 }}
             disabled={missileCount === 0 && !isAiming}
             onClick={() => setAiming(!isAiming)}
@@ -216,6 +228,35 @@ export function Hud({ connection, isMock }: Props) {
               : "Space로 조준 · 범위에 걸친 동을 중립으로 만듭니다"}
           </div>
         </div>
+
+        {nukeOwned && (
+          <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+            <div className="hud-ratio-head">
+              <span className="hud-title">☢ 전술핵 사일로</span>
+              <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
+                {nukeCooldownLeft > 0 ? `${nukeCoolSec}초` : "발사 가능"}
+              </strong>
+            </div>
+            <button
+              type="button"
+              className={`io-btn io-btn-sm io-btn-block ${isNukeAiming ? "io-btn-amber" : "io-btn-primary"}`}
+              style={{ marginTop: 6 }}
+              disabled={nukeCooldownLeft > 0 && !isNukeAiming}
+              onClick={() => setNukeAiming(!isNukeAiming)}
+            >
+              {isNukeAiming
+                ? "핵 조준 중… (Esc 취소)"
+                : nukeCooldownLeft > 0
+                  ? `재장전 ${nukeCoolSec}초`
+                  : "전술핵 발사"}
+            </button>
+            <div className="hud-ratio-hint">
+              {isNukeAiming
+                ? "지도에서 범위를 클릭해 발사 — 일반 미사일의 3배 범위가 중립이 됩니다"
+                : "울릉도·제주 사일로 보유 보너스 · 3분마다 3배 범위 미사일"}
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
@@ -233,6 +274,44 @@ export function Hud({ connection, isMock }: Props) {
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
+            <span className="hud-title">자동 공세</span>
+            <strong
+              className="hud-ratio-value"
+              style={{ fontSize: 12, color: aggressive ? "#ff9a3c" : undefined }}
+            >
+              {aggressive ? "ON" : "OFF"}
+            </strong>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !aggressive;
+              connection?.sendAggro(next);
+              setMyAggressive(next); // 낙관적 반영(서버 WELCOME이 최종 진실)
+              setAggressive(next);
+              showToast(next ? "자동 공세 ON — 최전선이 인접 적·중립을 자동 점령" : "자동 공세 OFF");
+            }}
+            style={{
+              width: "100%",
+              marginTop: 4,
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #ffffff55",
+              background: aggressive ? "#c0632b" : "#3a4a5e",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            {aggressive ? "자동 공세 끄기 (G)" : "자동 공세 켜기 (G)"}
+          </button>
+          <div className="hud-ratio-hint">
+            켜면 최전선 내 동이 매 주기 이길 만한 인접 적·중립을 자동 출정합니다(클릭 없이 확장).
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+          <div className="hud-ratio-head">
             <span className="hud-title">공수부대 (병력 수송)</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {airdropCooldownLeft > 0 ? `${airdropCoolSec}초` : "준비"}
@@ -240,7 +319,7 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-ghost"}`}
+            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-primary"}`}
             style={{ marginTop: 6 }}
             disabled={airdropCooldownLeft > 0 && !isTransporting}
             onClick={() => setTransporting(!isTransporting)}

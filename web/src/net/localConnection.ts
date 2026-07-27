@@ -47,10 +47,12 @@ export class LocalConnection implements Connection {
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
   private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
+  private aggroTimerMs = 0; // 자동 공세 스탠스 판정 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
   private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
+  private nukeDirty = false; // 이번 DELTA 구간에 전술핵 쿨다운이 바뀜(발사됨)
   private lastEnclosedKey = ""; // 직전에 보낸 포위 동 집합의 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
   private prepared: PreparedMap;
 
@@ -224,6 +226,17 @@ export class LocalConnection implements Connection {
     }
   }
 
+  sendMultiSortie(from: number, targets: number[], ratio: number): void {
+    const now = performance.now();
+    const safeRatio = Number.isFinite(ratio) ? Math.min(1, Math.max(0.05, ratio)) : CONFIG.SORTIE_RATIO;
+    const res = core.tryMultiSortie(this.gs, from, targets, this.holderId, now, safeRatio);
+    if (!res.ok) {
+      this.errorCb?.({ code: this.errorCode(from, targets[0] ?? -1), message: res.reason, from, to: -1 });
+      return;
+    }
+    this.pendingOrders.push(...res.orders); // 새로 출발한 order 전부 다음 DELTA에 실어 보낸다
+  }
+
   sendMarch(from: number, to: number, ratio: number): void {
     const now = performance.now();
     const before = this.gs.orders.length;
@@ -251,8 +264,26 @@ export class LocalConnection implements Connection {
     this.pendingMissileImpacts.push(...res.neutralized);
   }
 
+  sendNuke(center: [number, number], _radius: number, hits: number[]): void {
+    // 클라가 보낸 radius는 신뢰하지 않는다 — 전술핵 반경은 서버 config가 정한다(실서버 동일).
+    const nukeRadius = CONFIG.MISSILE_RADIUS_DEG * CONFIG.NUKE_RADIUS_MULT;
+    const valid = hits.filter((h) => this.withinRadius(h, center, nukeRadius));
+    // 쿨다운 시간축 = serverTimeMs와 같은 performance.now() (클라가 로컬 시계로 환산).
+    const res = core.launchNuke(this.gs, this.holderId, valid, performance.now(), Date.now());
+    if (!res.ok) {
+      this.errorCb?.({ code: "NO_NUKE", message: res.reason, from: -1, to: -1 });
+      return;
+    }
+    this.pendingMissileImpacts.push(...res.neutralized); // 미사일과 같은 폭발 연출 경로
+    this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
+  }
+
   sendRally(index: number): void {
     core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
+  }
+
+  sendAggro(on: boolean): void {
+    core.setAggressive(this.gs, this.holderId, on); // 다음 공세 tick부터 최전선이 자동 출정
   }
 
   // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
@@ -330,6 +361,14 @@ export class LocalConnection implements Connection {
       if (supplyOrders.length > 0) this.pendingOrders.push(...supplyOrders);
     }
 
+    // 자동 공세 (AGGRO_INTERVAL_SEC 주기) — 켜진 플레이어의 최전선이 인접 적·중립을 자동 출정
+    this.aggroTimerMs += TICK_MS;
+    if (this.aggroTimerMs >= CONFIG.AGGRO_INTERVAL_SEC * 1000) {
+      this.aggroTimerMs = 0;
+      const aggroOrders = core.tickAggro(this.gs, now);
+      if (aggroOrders.length > 0) this.pendingOrders.push(...aggroOrders);
+    }
+
     this.flushDelta(now);
 
     this.tickCount++;
@@ -366,6 +405,9 @@ export class LocalConnection implements Connection {
     const enclosedKey = enclosedList.join(",");
     const enclosedChanged = enclosedKey !== this.lastEnclosedKey;
 
+    const nukeChanged = this.nukeDirty;
+    this.nukeDirty = false;
+
     if (
       cells.length === 0 &&
       newOrders.length === 0 &&
@@ -374,7 +416,8 @@ export class LocalConnection implements Connection {
       missileRemove.length === 0 &&
       missileImpacts.length === 0 &&
       shieldUpdates.length === 0 &&
-      !enclosedChanged
+      !enclosedChanged &&
+      !nukeChanged
     ) {
       return;
     }
@@ -391,6 +434,7 @@ export class LocalConnection implements Connection {
       newHolders: [],
       shieldUpdates,
       ...(enclosedChanged ? { enclosed: enclosedList } : {}),
+      ...(nukeChanged ? { nukeReadyAtMs: Array.from(this.gs.nukeReadyAt) } : {}),
     });
   }
 
@@ -420,7 +464,9 @@ export class LocalConnection implements Connection {
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
       rally: this.gs.rally[this.holderId],
+      aggressive: this.gs.aggressive[this.holderId] === 1,
       shields: this.collectShields(),
+      nukeReadyAtMs: Array.from(this.gs.nukeReadyAt), // serverTimeMs와 같은 performance.now() 시간축
     };
   }
 

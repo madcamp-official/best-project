@@ -135,6 +135,13 @@ class GameLoop(
             GameCore.tickSupply(world, config, wallNow)
         }
 
+        // 자동 공세 (AGGRO_INTERVAL_SEC 주기) — 켜진 플레이어의 최전선이 인접 적·중립을 자동 출정
+        room.aggroAccumSec += dtSec
+        if (room.aggroAccumSec >= config.aggroIntervalSec) {
+            room.aggroAccumSec = 0.0
+            GameCore.tickAggro(world, config, wallNow)
+        }
+
         broadcastDelta(room, wallNow)
         room.tickCount++
         if (room.tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) broadcastLeaderboard(room)
@@ -208,9 +215,12 @@ class GameLoop(
         val enclosedKey = enclosedList.joinToString(",")
         val enclosedChanged = enclosedKey != room.lastEnclosedKey
 
+        val nukeChanged = world.nukeDirty
+        world.nukeDirty = false
+
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
             missileAdd.isEmpty() && missileRemove.isEmpty() && missileImpacts.isEmpty() &&
-            newHolders.isEmpty() && shieldUpdates.isEmpty() && !enclosedChanged
+            newHolders.isEmpty() && shieldUpdates.isEmpty() && !enclosedChanged && !nukeChanged
         ) {
             return
         }
@@ -221,6 +231,7 @@ class GameLoop(
             nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders,
             shieldUpdates,
             enclosed = if (enclosedChanged) enclosedList else null,
+            nukeReadyAtMs = if (nukeChanged) world.nukeReadyAt.toList() else null,
         )
         messagingTemplate.convertAndSend(worldTopic(room.id), msg)
         if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_WORLD_TOPIC, msg)

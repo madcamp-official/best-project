@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { world, computeRank, myMissileCount } from "../world/worldView";
+import { world, computeRank, myMissileCount, myNukeStatus } from "../world/worldView";
 import type { LogEntry, Rank } from "../game/types";
 import type { MemberInfo, RoomInfo, RoomState, RoundEndMessage } from "../net/protocol";
 
@@ -54,7 +54,11 @@ interface UIState {
   sortieRatio: number;
   missileCount: number; // 내 보유 미사일 수 (오른쪽 아래 표시)
   isAiming: boolean; // 미사일 조준 모드(발사 버튼 누른 상태)
+  isNukeAiming: boolean; // 전술핵 조준 모드(사일로 보유자 전용, 반경 3배)
+  nukeOwned: boolean; // 전술핵 사일로(울릉도·제주) 보유 여부
+  nukeCooldownLeft: number; // 전술핵 남은 재장전(ms). refreshSummary가 갱신
   rallyIndex: number; // B2 — 내 집결지 admIndex(-1=없음). 지정은 지도 더블클릭으로.
+  aggressive: boolean; // 자동 공세 스탠스 on/off (버튼·단축키 A로 토글)
   isTransporting: boolean; // B3 — 공수(병력 수송) 모드
   airdropReadyAt: number; // B3 — 공수 재사용 가능 시각(Date.now ms). 0=준비됨
   airdropCooldownLeft: number; // B3 — 남은 쿨타임(ms). refreshSummary가 갱신(버튼 표시용)
@@ -72,6 +76,8 @@ interface UIState {
   setRoundEndsAt: (t: number) => void;
   setSortieRatio: (ratio: number) => void;
   setAiming: (v: boolean) => void;
+  setNukeAiming: (v: boolean) => void;
+  setAggressive: (v: boolean) => void;
   setTransporting: (v: boolean) => void;
   startAirdropCooldown: (ms: number) => void;
   setDefeated: (v: boolean) => void;
@@ -116,7 +122,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   sortieRatio: 1, // 출정 병력 기본값 100% (슬라이더 초기값)
   missileCount: 0,
   isAiming: false,
+  isNukeAiming: false,
+  nukeOwned: false,
+  nukeCooldownLeft: 0,
   rallyIndex: -1,
+  aggressive: false,
   isTransporting: false,
   airdropReadyAt: 0,
   airdropCooldownLeft: 0,
@@ -133,11 +143,14 @@ export const useUIStore = create<UIState>((set, get) => ({
   setRoundResult: (roundResult) => set({ roundResult }),
   setRoundEndsAt: (roundEndsAt) => set({ roundEndsAt }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
-  // 미사일 조준·공수 모드는 상호 배타 — 하나를 켜면 나머지는 끈다.
+  // 미사일·전술핵 조준·공수 모드는 상호 배타 — 하나를 켜면 나머지는 끈다.
   setAiming: (v) =>
-    set(v ? { isAiming: true, isTransporting: false } : { isAiming: false }),
+    set(v ? { isAiming: true, isNukeAiming: false, isTransporting: false } : { isAiming: false }),
+  setNukeAiming: (v) =>
+    set(v ? { isNukeAiming: true, isAiming: false, isTransporting: false } : { isNukeAiming: false }),
+  setAggressive: (v) => set({ aggressive: v }),
   setTransporting: (v) =>
-    set(v ? { isTransporting: true, isAiming: false } : { isTransporting: false }),
+    set(v ? { isTransporting: true, isAiming: false, isNukeAiming: false } : { isTransporting: false }),
   startAirdropCooldown: (ms) => set({ airdropReadyAt: Date.now() + ms }),
   setDefeated: (v) => set({ defeated: v }),
   setVictorious: (v) => set({ victorious: v }),
@@ -164,12 +177,16 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     // 순위표는 서버 LEADERBOARD로 갱신되므로 여기서 건드리지 않는다.
     const myRank = computeRank(world.myHolderId);
+    const nuke = myNukeStatus();
     set({
       selectedInfo,
       myHolderId: world.myHolderId,
       myRank,
       missileCount: myMissileCount(),
+      nukeOwned: nuke.owned,
+      nukeCooldownLeft: nuke.cooldownLeftMs,
       rallyIndex: world.myRally,
+      aggressive: world.myAggressive,
       airdropCooldownLeft: Math.max(0, get().airdropReadyAt - Date.now()),
       logEntries: world.logEntries,
     });
