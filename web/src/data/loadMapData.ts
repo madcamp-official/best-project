@@ -12,7 +12,7 @@ import { computeLabelPoint } from "./labelPoint";
 import { SCOPE_SIDOCD } from "../config";
 import type { DongStaticMeta } from "../game/types";
 
-// 아크(공유 경계선) 한 조각의 양쪽 동. b = -1 이면 지도 바깥과 맞닿은 외곽선.
+// 아크(공유 경계선) 한 조각의 양쪽 셀. b = -1 이면 지도 바깥과 맞닿은 외곽선.
 export interface ArcSide {
   a: number;
   b: number;
@@ -26,78 +26,112 @@ export interface PreparedMap {
   // 국경(소유주가 다른 경계)만 그리기 위한 아크 단위 경계선 데이터.
   arcGeojson: FeatureCollection<LineString>;
   arcSides: ArcSide[];
-  dongArcs: number[][]; // admIndex → 그 동에 접한 아크 인덱스 목록
-  isolated: number[]; // 인접 차수 0인 동(섬·월경지) admIndex 목록 (README §2.3)
-  // 지도 바깥(바다·국경)에 직접 닿는 '경계 동' 마스크(0/1). 포위 귀속 판정의 탈출구.
+  dongArcs: number[][]; // admIndex → 그 셀에 접한 아크 인덱스 목록
+  isolated: number[]; // 인접 차수 0인 셀(섬·월경지) admIndex 목록 (README §2.3)
+  // 지도 바깥(바다·경계)에 직접 닿는 '경계 셀' 마스크(0/1). 포위 귀속 판정의 탈출구.
   borderMask: Uint8Array;
 }
 
 type DongFeature = Feature<Polygon | MultiPolygon, Record<string, unknown>>;
-
-// 법정동 경계 GeoJSON (web/public). gisdeveloper 읍면동(법정동) SHP를 mapshaper로
-// WGS84 변환한 정적 자산. 속성: EMD_CD(8자리 법정동코드=[시도2][시군구3][읍면동3]),
-// EMD_KOR_NM(한글명), EMD_ENG_NM(영문명).
-// 재현: mapshaper emd.shp encoding=euc-kr -clean -simplify 8% keep-shapes \
-//         -proj wgs84 -o format=geojson precision=0.00001 beopjeong-emd.geojson
-//   ※ -clean을 simplify 前에 둔다 — 원본 SHP의 자기교차를 재노딩해 렌더 시 생기는
-//     "좁고 긴 회랑"(얇은 삼각 슬래시) 아티팩트를 방지. (clean을 뒤에 두면 안 고쳐짐)
-//   경계 데이터를 바꾸면 server/tools/data-gen/generate.mjs도 다시 돌려 admIndex를 맞출 것.
-// 로드 후 TopoJSON 위상으로 인접 그래프 + 아크(공유 경계선) 추출 → polylabel 라벨 지점 계산.
-// SCOPE_SIDOCD = null 이면 전국 전체(~5,065 법정동), 시도 코드면 해당 시도만(성능 폴백).
-const DONG_GEOJSON_URL = `${import.meta.env.BASE_URL}beopjeong-emd.geojson`;
-
-// 시군구/시도명 조회 테이블 (server/tools/data-gen/generate-sgg-names.mjs 산출물).
-// beopjeong-emd.geojson엔 EMD_CD(코드)만 있고 이름이 없어서 별도로 채운다 — admdongkor
-// sgg/sido 레벨에서 뽑되, 법정동 원본(gisdeveloper 20230729)과 같은 시기 스냅샷(20230701)을
-// 써서 그 이후 행정구역 개편(전북특별자치도 출범 등)으로 코드가 어긋나는 문제를 피했다.
-const NAMES_URL = `${import.meta.env.BASE_URL}sgg-sido-names.json`;
-
-interface EmdProps {
-  EMD_CD: string;
-  EMD_KOR_NM: string;
-  EMD_ENG_NM?: string;
-}
+type MetaFields = Omit<DongStaticMeta, "admIndex" | "centroid">;
 
 interface NameLookup {
   sggNames: Record<string, string>;
   sidoNames: Record<string, string>;
 }
 
-export async function loadDong(): Promise<PreparedMap> {
-  const [res, namesRes] = await Promise.all([fetch(DONG_GEOJSON_URL), fetch(NAMES_URL)]);
-  if (!res.ok) throw new Error(`법정동 경계 로드 실패 (${res.status}) — ${DONG_GEOJSON_URL}`);
-  if (!namesRes.ok) throw new Error(`시군구/시도명 로드 실패 (${namesRes.status}) — ${NAMES_URL}`);
-  const fc = (await res.json()) as FeatureCollection<Polygon | MultiPolygon, EmdProps>;
-  const { sggNames, sidoNames } = (await namesRes.json()) as NameLookup;
+// 지도(mapId)별 자산 위치 + "원본 GeoJSON 속성 → DongStaticMeta 필드" 변환. 파이프라인(topology/
+// 인접 그래프/아크 추출) 자체는 지도 무관이라 아래 로직에서 한 번만 구현하고 공유한다.
+interface MapAsset {
+  geojsonUrl: string;
+  namesUrl?: string;
+  // null을 반환하면 그 feature는 제외한다(코드 없는 행, SCOPE_SIDOCD 폴백 등).
+  extractMeta: (props: Record<string, unknown>, names: NameLookup | null) => MetaFields | null;
+}
 
-  const filtered = fc.features.filter(
-    (f) =>
-      f.properties?.EMD_CD &&
-      (SCOPE_SIDOCD === null || f.properties.EMD_CD.slice(0, 2) === SCOPE_SIDOCD)
-  );
+const MAP_ASSETS: Record<string, MapAsset> = {
+  // 전국 법정동(~5,065개). 소스: web/public/beopjeong-emd.geojson(README §2.1 참조).
+  "kr-dong": {
+    geojsonUrl: `${import.meta.env.BASE_URL}beopjeong-emd.geojson`,
+    namesUrl: `${import.meta.env.BASE_URL}sgg-sido-names.json`,
+    extractMeta: (props, names) => {
+      const code = props.EMD_CD as string | undefined;
+      if (!code) return null;
+      if (SCOPE_SIDOCD !== null && code.slice(0, 2) !== SCOPE_SIDOCD) return null;
+      return {
+        code,
+        name: props.EMD_KOR_NM as string,
+        sggcd: code.slice(0, 5), // [시도2][시군구3] — core.computeRank 시장 판정용
+        sggnm: names?.sggNames[code.slice(0, 5)] ?? "",
+        sidocd: code.slice(0, 2),
+        sidonm: names?.sidoNames[code.slice(0, 2)] ?? "",
+      };
+    },
+  },
+  // 시/군/구(~250개, "한국지리" 모드). 소스: web/public/kr-sgg.geojson(admdongkor sgg
+  // level에서 fetch-sgg-geojson.mjs로 1회 추출 — sggcd/sggnm/sidocd/sidonm이 이미 채워져 있어
+  // 별도 이름 조회 테이블이 필요 없다.
+  //
+  // 이 지도의 최소 단위 자체가 시군구이므로 sggcd=자기 자신 코드로 채운다 — GameCore.computeRank의
+  // "sggcd 그룹 전체 장악=시장 계급" 판정이 셀 하나만 가져도 참이 되어, 최하위 계급(동장 상당)이
+  // 자연히 생략되고 시장→도지사→대통령 순으로만 오른다(서버 generate-sgg.mjs와 동일한 설계).
+  "kr-sgg": {
+    geojsonUrl: `${import.meta.env.BASE_URL}kr-sgg.geojson`,
+    extractMeta: (props) => {
+      const code = props.sggcd as string | undefined;
+      if (!code) return null;
+      return {
+        code,
+        name: props.sggnm as string,
+        sggcd: code,
+        sggnm: props.sggnm as string,
+        sidocd: props.sidocd as string,
+        sidonm: props.sidonm as string,
+      };
+    },
+  },
+};
+
+export const DEFAULT_MAP_ID = "kr-dong";
+
+export const MAP_DISPLAY_NAMES: Record<string, string> = {
+  "kr-dong": "전국 법정동",
+  "kr-sgg": "시/군/구",
+};
+
+export function mapDisplayName(mapId: string): string {
+  return MAP_DISPLAY_NAMES[mapId] ?? MAP_DISPLAY_NAMES[DEFAULT_MAP_ID];
+}
+
+export async function loadMapData(mapId: string): Promise<PreparedMap> {
+  const asset = MAP_ASSETS[mapId] ?? MAP_ASSETS[DEFAULT_MAP_ID];
+
+  const [res, namesRes] = await Promise.all([
+    fetch(asset.geojsonUrl),
+    asset.namesUrl ? fetch(asset.namesUrl) : Promise.resolve(null),
+  ]);
+  if (!res.ok) throw new Error(`지도 경계 로드 실패 (${res.status}) — ${asset.geojsonUrl}`);
+  if (asset.namesUrl && (!namesRes || !namesRes.ok)) {
+    throw new Error(`시군구/시도명 로드 실패 (${namesRes?.status}) — ${asset.namesUrl}`);
+  }
+  const fc = (await res.json()) as FeatureCollection<Polygon | MultiPolygon, Record<string, unknown>>;
+  const names: NameLookup | null = namesRes ? ((await namesRes.json()) as NameLookup) : null;
 
   const meta: DongStaticMeta[] = [];
   const preparedFeatures: DongFeature[] = [];
 
-  filtered.forEach((f, admIndex) => {
-    const code = f.properties.EMD_CD; // 법정동코드 8자리
+  for (const f of fc.features) {
+    const m = asset.extractMeta(f.properties ?? {}, names);
+    if (!m) continue;
+    const admIndex = meta.length;
     const centroid = computeLabelPoint(f as Feature<Polygon | MultiPolygon>);
-    meta.push({
-      admIndex,
-      code,
-      name: f.properties.EMD_KOR_NM,
-      sggcd: code.slice(0, 5), // [시도2][시군구3] — core.computeRank 시장 판정용
-      sggnm: sggNames[code.slice(0, 5)] ?? "",
-      sidocd: code.slice(0, 2),
-      sidonm: sidoNames[code.slice(0, 2)] ?? "",
-      centroid,
-    });
+    meta.push({ admIndex, ...m, centroid });
     preparedFeatures.push({
       type: "Feature",
       properties: { admIndex },
       geometry: f.geometry,
     });
-  });
+  }
 
   const inputFc: FeatureCollection<Polygon | MultiPolygon> = {
     type: "FeatureCollection",
@@ -118,20 +152,20 @@ export async function loadDong(): Promise<PreparedMap> {
   const n = meta.length;
   const { arcGeojson, arcSides, dongArcs } = extractArcs(topo, geomCollection, n, meta);
 
-  // 경계 동 마스크: arcSides[i].b === -1 이면 그 아크는 동 하나(a)만 쓰는 외곽선 →
-  // a는 지도 바깥(바다·국경)에 닿는 경계 동. 포위 귀속에서 '탈출구'로 쓰인다.
+  // 경계 셀 마스크: arcSides[i].b === -1 이면 그 아크는 셀 하나(a)만 쓰는 외곽선 →
+  // a는 지도 바깥(바다·경계)에 닿는 경계 셀. 포위 귀속에서 '탈출구'로 쓰인다.
   const borderMask = new Uint8Array(n);
   for (const { a, b } of arcSides) {
     if (b === -1 && a >= 0) borderMask[a] = 1;
   }
 
-  // README §2.3 — 인접 차수 0(섬·월경지) 실측. 전국 전환 시 처리 방침 판단 자료.
+  // README §2.3 — 인접 차수 0(섬·월경지) 실측.
   const isolated: number[] = [];
   for (let i = 0; i < n; i++) if (neighborIndex[i].length === 0) isolated.push(i);
   if (isolated.length > 0) {
-    const names = isolated.slice(0, 20).map((i) => meta[i].name).join(", ");
+    const names_ = isolated.slice(0, 20).map((i) => meta[i].name).join(", ");
     console.warn(
-      `[loadDong] 인접 차수 0인 동 ${isolated.length}개 (섬·월경지): ${names}` +
+      `[loadMapData:${mapId}] 인접 차수 0인 셀 ${isolated.length}개 (섬·월경지): ${names_}` +
         (isolated.length > 20 ? " …" : "")
     );
   }
@@ -139,7 +173,7 @@ export async function loadDong(): Promise<PreparedMap> {
   return { n, geojson, meta, neighborIndex, arcGeojson, arcSides, dongArcs, isolated, borderMask };
 }
 
-// TopoJSON 아크는 인접한 두 폴리곤이 하나로 공유한다. 각 아크가 어떤 동들에
+// TopoJSON 아크는 인접한 두 폴리곤이 하나로 공유한다. 각 아크가 어떤 셀들에
 // 쓰이는지 집계하면 "공유 경계선" 단위의 인접 정보를 얻는다.
 function extractArcs(
   topo: Topology,
@@ -180,9 +214,8 @@ function extractArcs(
     for (const d of users) dongArcs[d].push(arcIdx);
   });
 
-  // 행정구역 경계 하이라이트(소유권과 무관한 정적 속성): 아크 양쪽 동의 시군구/시도 코드가
-  // 다르면 그 경계선을 표시 대상으로 표시한다. 지도 바깥과 맞닿은 외곽선(b=-1)은 대상 아님
-  // — 이미 국토 윤곽이라 행정구역 강조가 필요 없다.
+  // 행정구역 경계 하이라이트(소유권과 무관한 정적 속성): 아크 양쪽 셀의 시군구/시도 코드가
+  // 다르면 그 경계선을 표시 대상으로 표시한다. 지도 바깥과 맞닿은 외곽선(b=-1)은 대상 아님.
   // outer(외곽선 여부)도 속성으로 실어, 렌더러가 해안선에는 글로우를 빼는 등 달리 그릴 수 있게 한다.
   const features: Feature<LineString>[] = [];
   for (let i = 0; i < arcCount; i++) {

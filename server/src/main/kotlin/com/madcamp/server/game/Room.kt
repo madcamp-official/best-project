@@ -1,5 +1,6 @@
 package com.madcamp.server.game
 
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.domain.World
 
 /** 방 생명주기 상태. LOBBY(대기)에서 시작 → PLAYING(라운드 진행) → ENDED(결과) → 다시 LOBBY. */
@@ -15,6 +16,7 @@ enum class RoomState { LOBBY, PLAYING, ENDED }
 class Room(
     val id: String,
     var name: String,
+    var mapId: String = MapCatalog.DEFAULT,
 ) {
     var state: RoomState = RoomState.LOBBY
     var world: World? = null // LOBBY 동안 null, 라운드 시작 시 생성

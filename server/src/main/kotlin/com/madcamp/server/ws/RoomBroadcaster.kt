@@ -25,7 +25,7 @@ class RoomBroadcaster(
     fun broadcastRoomList() {
         val rooms = roomManager.list()
             .filter { it.id != RoomManager.DEFAULT_ROOM_ID }
-            .map { RoomInfo(it.id, it.name, it.state, it.members.size, RoomManager.MAX_MEMBERS_PER_ROOM) }
+            .map { RoomInfo(it.id, it.name, it.mapId, it.state, it.members.size, RoomManager.MAX_MEMBERS_PER_ROOM) }
         messaging.convertAndSend(ROOMS_TOPIC, RoomListMessage(rooms))
     }
 
@@ -49,7 +49,10 @@ class RoomBroadcaster(
     }
 
     fun roomJoined(room: Room, forClientId: String) =
-        RoomJoinedMessage(room.id, room.name, room.state, memberInfos(room), youAreHost = forClientId == room.hostClientId)
+        RoomJoinedMessage(
+            room.id, room.name, room.mapId, room.state, memberInfos(room),
+            youAreHost = forClientId == room.hostClientId,
+        )
 
     /** 방장 승계 등으로 특정 멤버의 방장 여부가 바뀌었을 때 개인 통지(roomJoined 재전송). */
     fun notifyRoomJoined(room: Room, principalName: String, clientId: String) {

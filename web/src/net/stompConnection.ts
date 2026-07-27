@@ -196,11 +196,11 @@ export class StompConnection implements Connection {
     this.send("/app/lobby/list", "{}");
   }
 
-  createRoom(name: string, nickname: string, token?: string): void {
+  createRoom(name: string, mapId: string, nickname: string, token?: string): void {
     this.nickname = nickname;
     this.token = token;
     this.bridgeMode = false;
-    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token, clientId: this.clientId }));
+    this.send("/app/lobby/create", JSON.stringify({ name, mapId, nickname, token, clientId: this.clientId }));
   }
 
   joinRoom(roomId: string, nickname: string, token?: string): void {

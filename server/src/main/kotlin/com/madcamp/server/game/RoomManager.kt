@@ -1,5 +1,6 @@
 package com.madcamp.server.game
 
+import com.madcamp.server.data.MapCatalog
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -13,10 +14,10 @@ class RoomManager {
     private val rooms = ConcurrentHashMap<String, Room>()
     private val seq = AtomicInteger(0)
 
-    /** 새 방 생성(자동 id 부여). */
-    fun create(name: String): Room {
+    /** 새 방 생성(자동 id 부여). mapId는 알 수 없는 값이면 기본 지도로 대체(MapCatalog.normalize). */
+    fun create(name: String, mapId: String = MapCatalog.DEFAULT): Room {
         val id = "r${seq.incrementAndGet()}"
-        return Room(id, name).also { rooms[id] = it }
+        return Room(id, name, MapCatalog.normalize(mapId)).also { rooms[id] = it }
     }
 
     /** 지정 id로 방 생성(기본 브리지 방 등 well-known id용). */

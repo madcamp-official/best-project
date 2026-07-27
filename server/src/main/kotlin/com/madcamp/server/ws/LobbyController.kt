@@ -1,6 +1,7 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.game.Member
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
@@ -47,7 +48,7 @@ class LobbyController(
                 return@submitRoomTask
             }
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
-            val room = roomManager.create(name)
+            val room = roomManager.create(name, cmd.mapId ?: MapCatalog.DEFAULT)
             room.hostClientId = clientIdOf(cmd.clientId, principal) // 생성자가 방장 — 시작 권한 보유
             addMemberAndReply(room, principal, cmd.nickname, cmd.token, cmd.clientId)
         }
@@ -110,7 +111,7 @@ class LobbyController(
                 principal.name,
                 "/queue/welcome",
                 welcomeAssembler.build(
-                    room.id, world, session.holderId, tok,
+                    room.id, room.mapId, world, session.holderId, tok,
                     roundEndsAtMs = room.roundStartMs + config.roundDurationSec * 1000L,
                 ),
             )

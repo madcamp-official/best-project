@@ -1,6 +1,7 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
@@ -31,7 +32,7 @@ class JoinController(
             val config = configService.current
             val (token, session) = sessionService.joinOrRestore(RoomManager.DEFAULT_ROOM_ID, world, config, msg.nickname, msg.token)
             connectionRegistry.bind(principal.name, RoomManager.DEFAULT_ROOM_ID, session.holderId)
-            welcomeAssembler.build(RoomManager.DEFAULT_ROOM_ID, world, session.holderId, token, roundEndsAtMs = 0L)
+            welcomeAssembler.build(RoomManager.DEFAULT_ROOM_ID, MapCatalog.DEFAULT, world, session.holderId, token, roundEndsAtMs = 0L)
         } ?: return
         messagingTemplate.convertAndSendToUser(principal.name, "/queue/welcome", welcome)
     }

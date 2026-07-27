@@ -6,8 +6,8 @@ import { JoinScreen } from "./ui/JoinScreen";
 import { LobbyScreen } from "./ui/LobbyScreen";
 import { RoomWaitScreen } from "./ui/RoomWaitScreen";
 import { ResultsOverlay } from "./ui/ResultsOverlay";
-import { loadDong } from "./data/loadDong";
-import type { PreparedMap } from "./data/loadDong";
+import { loadMapData, DEFAULT_MAP_ID } from "./data/loadMapData";
+import type { PreparedMap } from "./data/loadMapData";
 import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
@@ -33,6 +33,9 @@ function App() {
   const [prepared, setPrepared] = useState<PreparedMap | null>(null);
   const connectionRef = useRef<Connection | null>(null);
   const everConnectedRef = useRef(false); // 재연결 토스트를 최초 연결 때는 안 띄우기 위한 플래그
+  // 방마다 지도(mapId)가 다를 수 있어(로비에서 선택) WELCOME을 받고서야 어느 지도를 로드할지
+  // 안다 — 지도별로 한 번만 로드해 재사용하는 캐시(같은 지도로 재입장 시 재요청 방지).
+  const mapCacheRef = useRef<Map<string, PreparedMap>>(new Map());
   const phase = useUIStore((s) => s.phase);
   const setPhase = useUIStore((s) => s.setPhase);
   // 목업(브라우저 내 목 서버)은 로비가 없어 join()으로 솔로 진행, 실서버는 로비 흐름.
@@ -42,12 +45,26 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const map = await loadDong();
-        if (cancelled) return;
+        // 목업은 로비가 없어 기본 지도를 즉시 로드해 목 서버 생성에 써야 한다. 실서버는 방에
+        // 입장(WELCOME 수신)해야 어느 지도인지 알 수 있으므로 여기서는 로드하지 않는다.
+        let connection: Connection;
+        if (isMock) {
+          const map = await loadMapData(DEFAULT_MAP_ID);
+          if (cancelled) return;
+          mapCacheRef.current.set(DEFAULT_MAP_ID, map);
+          connection = new LocalConnection(map);
+        } else {
+          connection = new StompConnection();
+        }
 
-        // Connection 생성(기본: 실서버 STOMP) + 서버→클라 메시지 배선.
-        const connection: Connection = isMock ? new LocalConnection(map) : new StompConnection();
-        connection.onWelcome((msg) => {
+        // 서버→클라 메시지 배선.
+        connection.onWelcome(async (msg) => {
+          let map = mapCacheRef.current.get(msg.mapId);
+          if (!map) {
+            map = await loadMapData(msg.mapId);
+            if (cancelled) return;
+            mapCacheRef.current.set(msg.mapId, map);
+          }
           applyWelcome(msg);
           localStorage.setItem("token", msg.token); // 재접속용
           const st = useUIStore.getState();

@@ -82,6 +82,7 @@ export type RestartCommand = Record<string, never>;
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
 export interface WelcomeMessage {
   roomId: string; // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
+  mapId: string; // 이 방이 쓰는 지도(data/loadMapData.ts MAP_ASSETS 키). 어느 geojson을 로드할지 결정.
   roundEndsAtMs: number; // 라운드 제한 시각(서버 epoch ms). 0=제한 없음(브리지/목업)
   holderId: number;
   token: string; // 재접속용. 클라는 localStorage에 저장
@@ -176,6 +177,7 @@ export interface MemberInfo {
 export interface RoomInfo {
   roomId: string;
   name: string;
+  mapId: string;
   state: RoomState;
   memberCount: number;
   maxMembers: number;
@@ -190,6 +192,7 @@ export interface RoomListMessage {
 export interface RoomJoinedMessage {
   roomId: string;
   name: string;
+  mapId: string;
   state: RoomState;
   members: MemberInfo[];
   youAreHost: boolean;
@@ -214,6 +217,7 @@ export interface RoundEndMessage {
 // 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
 export interface CreateRoomCommand {
   name: string;
+  mapId: string; // data/loadMapData.ts MAP_ASSETS 키. 서버가 모르는 값이면 기본 지도로 대체.
   nickname: string;
   token?: string;
   clientId?: string; // 영속 클라 신원(방장 판정용)

@@ -4,7 +4,8 @@
 // (Connection 인터페이스는 그대로) — 클라 렌더러/입력 계층은 바뀌지 않는다.
 
 import * as core from "../game/core";
-import type { PreparedMap } from "../data/loadDong";
+import type { PreparedMap } from "../data/loadMapData";
+import { DEFAULT_MAP_ID } from "../data/loadMapData";
 import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
 import { safeUuid } from "../util/uuid";
 import type { Order, ShieldInfo } from "../game/types";
@@ -438,6 +439,7 @@ export class LocalConnection implements Connection {
   private buildWelcome(): WelcomeMessage {
     return {
       roomId: SOLO_ROOM_ID,
+      mapId: DEFAULT_MAP_ID, // 목업 솔로는 항상 기본 지도(App.tsx가 부팅 시 이미 로드해둠)
       roundEndsAtMs: 0, // 목업 솔로는 라운드 제한 없음
       holderId: this.holderId,
       token: this.token,
@@ -494,7 +496,7 @@ export class LocalConnection implements Connection {
   // ── 로비/방(다중 세션) ── 목업은 로비 없이 join()으로 솔로 진행한다. App이 목업이면 join()을
   // 직접 부르고 로비 화면을 건너뛰므로(Phase 7), 아래 메서드는 계약을 만족시키는 no-op이다.
   listRooms(): void {}
-  createRoom(_name: string, _nickname: string, _token?: string): void {}
+  createRoom(_name: string, _mapId: string, _nickname: string, _token?: string): void {}
   joinRoom(_roomId: string, _nickname: string, _token?: string): void {}
   startRound(): void {}
   setReady(_ready: boolean): void {}

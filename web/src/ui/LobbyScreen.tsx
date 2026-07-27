@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import type { Connection } from "../net/connection";
+import { DEFAULT_MAP_ID, MAP_DISPLAY_NAMES } from "../data/loadMapData";
 
 interface Props {
   connection: Connection;
 }
+
+// 로비에서 고를 수 있는 지도 목록(순서 그대로 라디오에 표시). data/loadMapData.ts의
+// MAP_DISPLAY_NAMES와 짝을 맞춘다 — 새 지도를 추가하면 여기 한 줄만 더하면 된다.
+const MAP_OPTIONS: string[] = Object.keys(MAP_DISPLAY_NAMES);
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
@@ -12,6 +17,7 @@ export function LobbyScreen({ connection }: Props) {
   const rooms = useUIStore((s) => s.rooms);
   const [nickname, setNickname] = useState(() => localStorage.getItem("nickname") ?? "");
   const [roomName, setRoomName] = useState("");
+  const [mapId, setMapId] = useState<string>(DEFAULT_MAP_ID);
   const nameOk = nickname.trim().length > 0;
 
   const token = () => localStorage.getItem("token") ?? undefined;
@@ -20,7 +26,7 @@ export function LobbyScreen({ connection }: Props) {
   const create = () => {
     if (!nameOk) return;
     saveNick();
-    connection.createRoom(roomName.trim() || `${nickname.trim()}의 방`, nickname.trim(), token());
+    connection.createRoom(roomName.trim() || `${nickname.trim()}의 방`, mapId, nickname.trim(), token());
   };
   const join = (roomId: string) => {
     if (!nameOk) return;
@@ -57,6 +63,7 @@ export function LobbyScreen({ connection }: Props) {
                       <span className={`io-badge ${r.state === "PLAYING" ? "playing" : "waiting"}`}>
                         {r.state === "PLAYING" ? "게임 중" : "대기 중"}
                       </span>
+                      <span className="io-badge">{MAP_DISPLAY_NAMES[r.mapId] ?? r.mapId}</span>
                       <span>
                         👥 {r.memberCount}/{r.maxMembers}
                       </span>
@@ -113,6 +120,22 @@ export function LobbyScreen({ connection }: Props) {
                 if (e.key === "Enter") create();
               }}
             />
+            <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+              {MAP_OPTIONS.map((id) => (
+                <label
+                  key={id}
+                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "#9fb0c8" }}
+                >
+                  <input
+                    type="radio"
+                    name="mapId"
+                    checked={mapId === id}
+                    onChange={() => setMapId(id)}
+                  />
+                  {MAP_DISPLAY_NAMES[id]}
+                </label>
+              ))}
+            </div>
             <button
               className="io-btn io-btn-primary io-btn-lg io-btn-block"
               type="button"

@@ -16,6 +16,7 @@ data class JoinMessage(val nickname: String? = null, val token: String? = null)
 
 data class WelcomeMessage(
     val roomId: String, // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
+    val mapId: String, // 이 방이 쓰는 지도(MapCatalog). 클라가 이 값으로 어느 geojson/names를 로드할지 정한다.
     val roundEndsAtMs: Long, // 라운드 제한 시각(서버 epoch ms). 0=제한 없음(브리지 기본 방)
     val holderId: Int,
     val token: String,
@@ -111,6 +112,7 @@ data class LeaderboardMessage(
 data class RoomInfo(
     val roomId: String,
     val name: String,
+    val mapId: String,
     val state: RoomState,
     val memberCount: Int,
     val maxMembers: Int,
@@ -126,6 +128,7 @@ data class MemberInfo(val nickname: String, val holderId: Int, val ready: Boolea
 data class RoomJoinedMessage(
     val roomId: String,
     val name: String,
+    val mapId: String,
     val state: RoomState,
     val members: List<MemberInfo>,
     val youAreHost: Boolean,
@@ -147,9 +150,11 @@ data class RoundEndMessage(
     val leaderboard: List<LeaderboardRow>,
 )
 
-/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. clientId=영속 클라 신원(방장용). */
+/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. clientId=영속 클라 신원(방장용).
+ * mapId는 MapCatalog에 없는 값이거나 생략되면 서버가 기본 지도로 대체한다(RoomManager.create). */
 data class CreateRoomCommand(
     val name: String? = null,
+    val mapId: String? = null,
     val nickname: String? = null,
     val token: String? = null,
     val clientId: String? = null,

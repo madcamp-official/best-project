@@ -3,6 +3,7 @@ package com.madcamp.server.loop
 import com.madcamp.server.config.ConfigService
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import com.madcamp.server.data.BoundaryCell
 import com.madcamp.server.data.BoundaryDataLoader
 import com.madcamp.server.domain.EnvAi
 import com.madcamp.server.domain.GameCore
@@ -45,14 +46,16 @@ class GameLoop(
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "game-loop") }
 
-    // 경계 데이터는 한 번만 로드해 모든 방이 공유한다(정적·불변). 첫 접근(start)에서 로드.
-    private val cells by lazy { boundaryDataLoader.load() }
+    // 경계 데이터는 지도(mapId)별로 한 번만 로드해 그 지도를 쓰는 모든 방이 공유한다(정적·불변).
+    // 각 mapId는 첫 접근(그 지도로 방이 시작되는 시점)에 로드된다.
+    private val cellsByMap = java.util.concurrent.ConcurrentHashMap<String, List<BoundaryCell>>()
+    private fun cellsOf(mapId: String) = cellsByMap.getOrPut(mapId) { boundaryDataLoader.load(mapId) }
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
         // 레거시/스모크테스트 호환 브리지: 기본 방을 PLAYING으로 띄운다(정식 경로는 로비).
         val room = roomManager.createWithId(RoomManager.DEFAULT_ROOM_ID, "기본 방")
-        room.world = createFreshWorld()
+        room.world = createFreshWorld(room.mapId)
         room.state = RoomState.PLAYING
         room.roundStartMs = System.currentTimeMillis()
         room.lastTickNanos = System.nanoTime()
@@ -70,8 +73,8 @@ class GameLoop(
     }
 
     /** 프레시 월드 1개 생성(경계 데이터 + 환경세력 스폰). 방 라운드 시작·재생성에서 재사용. */
-    fun createFreshWorld(): World {
-        val fresh = World.create(cells, configService.current)
+    fun createFreshWorld(mapId: String): World {
+        val fresh = World.create(cellsOf(mapId), configService.current)
         EnvAi.spawn(fresh, configService.current)
         return fresh
     }
@@ -197,7 +200,7 @@ class GameLoop(
 
         room.state = RoomState.ENDED
         // 다음 라운드를 위해 프레시 빈 월드로 교체하고 LOBBY로 되돌린다. 멤버는 유지(대기 후 재시작).
-        room.world = createFreshWorld()
+        room.world = createFreshWorld(room.mapId)
         for (member in room.members.values) {
             member.holderId = -1
             member.ready = false // 다음 라운드는 다시 준비부터(방장 제외 전원 준비 시 시작 가능)

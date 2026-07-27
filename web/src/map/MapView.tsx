@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AttributionControl, Map as MaplibreMap, type GeoJSONSource, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { PreparedMap } from "../data/loadDong";
+import type { PreparedMap } from "../data/loadMapData";
 import {
   world,
   airdropInRange,

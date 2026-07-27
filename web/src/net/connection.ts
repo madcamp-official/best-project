@@ -20,8 +20,8 @@ export interface Connection {
   // ── 로비/방(다중 세션) ──
   // 공개 방 목록 요청 → onRoomList로 응답(/topic/rooms).
   listRooms(): void;
-  // 방 생성(생성 즉시 입장). onRoomJoined로 응답.
-  createRoom(name: string, nickname: string, token?: string): void;
+  // 방 생성(생성 즉시 입장). onRoomJoined로 응답. mapId = data/loadMapData.ts MAP_ASSETS 키.
+  createRoom(name: string, mapId: string, nickname: string, token?: string): void;
   // 방 입장. onRoomJoined로 응답(진행 중 방이면 onWelcome도).
   joinRoom(roomId: string, nickname: string, token?: string): void;
   // 방 안에서 라운드 시작(방장 전용 — 방장 제외 전원 준비 시). 성공 시 onWelcome(전원) + onRoomState(PLAYING).

@@ -103,7 +103,7 @@ class RoomController(
     // (executor 스레드에서만 호출)
     private fun startRound(room: Room) {
         val config = configService.current
-        val world = gameLoop.createFreshWorld()
+        val world = gameLoop.createFreshWorld(room.mapId)
         room.world = world
         for (member in room.members.values) {
             // 새 라운드 = 새 월드라 항상 새 holder를 배정한다. 지난 라운드 토큰 세션은 스테일이므로
@@ -127,7 +127,7 @@ class RoomController(
             messaging.convertAndSendToUser(
                 member.principalName,
                 "/queue/welcome",
-                welcomeAssembler.build(room.id, world, member.holderId, member.token, roundEndsAtMs),
+                welcomeAssembler.build(room.id, room.mapId, world, member.holderId, member.token, roundEndsAtMs),
             )
         }
         broadcaster.broadcastRoomState(room)
