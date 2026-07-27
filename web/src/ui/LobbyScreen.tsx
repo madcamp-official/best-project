@@ -32,7 +32,7 @@ export function LobbyScreen({ connection }: Props) {
     <div className="join-overlay">
       <div className="join-card io-card">
         <h1 className="io-logo">
-          영토점령<span className="accent">.io</span>
+          <span className="accent">동대장</span> 시뮬레이터
         </h1>
         <p className="io-tagline">실제 전국 법정동 지도에서 벌이는 실시간 영토 전쟁</p>
 

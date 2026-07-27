@@ -89,7 +89,7 @@ export function Hud({ connection, isMock }: Props) {
       {/* 좌상단: 내 정보 + 선택한 동 정보(세로 스택) */}
       <div className="hud-col hud-col-left">
         <div className="hud-panel">
-          <div className="hud-title">{currentRoom?.name ?? "영토점령.io"}</div>
+          <div className="hud-title">{currentRoom?.name ?? "동대장 시뮬레이터"}</div>
           <div className="hud-rank">
             내 계급: <strong>{myRank ?? "무소속"}</strong>
           </div>
