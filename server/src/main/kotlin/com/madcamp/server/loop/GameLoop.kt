@@ -90,27 +90,39 @@ class GameLoop(
         }
     }
 
-    /** 방 자체(멤버·상태·world 교체 등)를 executor 위에서 안전하게 조작할 때(로비/라운드 전환용). */
-    fun submitRoomTask(block: () -> Unit) = executor.execute(block)
+    /** 방 자체(멤버·상태·world 교체 등)를 executor 위에서 안전하게 조작할 때(로비/라운드 전환용).
+     * block이 뭘 던지든(Throwable) 여기서 삼키고 로그만 남긴다 — 안 그러면 방 생성 등 요청이
+     * 응답 없이 그냥 사라지고, 최악의 경우 이 executor의 스케줄 자체가 조용히 멈출 수 있다. */
+    fun submitRoomTask(block: () -> Unit) = executor.execute {
+        try {
+            block()
+        } catch (e: Throwable) {
+            log.error("room task failed", e)
+        }
+    }
     fun <T> runRoomTask(block: () -> T): T = executor.submit(Callable(block)).get()
 
     private var globalTickCount = 0L
 
+    // Throwable을 잡는다(Exception이 아니라) — scheduleAtFixedRate는 Runnable이 어떤 Throwable이든
+    // 던지고 나가면 그 순간 로그 한 줄 없이 이후 예약을 영구히 취소해버리는 JDK의 알려진 함정이 있다.
+    // 실제로 이 때문에 게임 루프 전체(빈 방 청소 포함, 방 생성도 이 스레드에서 처리됨)가 예외 흔적도
+    // 없이 멈춘 적이 있어(2026-07-27), 반드시 여기서 다 삼키고 로그를 남긴다.
     private fun safeTick() {
         try {
             val config = configService.current
             for (room in roomManager.playingRooms()) {
                 try {
                     tickRoom(room, config)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     // 방 하나의 예외가 다른 방들의 tick까지 멈추지 않게 방 단위로 격리한다.
                     log.error("room {} tick failed", room.id, e)
                 }
             }
             globalTickCount++
             if (globalTickCount % EMPTY_ROOM_SWEEP_EVERY_N_TICKS == 0L) sweepEmptyRooms()
-        } catch (e: Exception) {
-            log.error("game loop tick failed", e)
+        } catch (e: Throwable) {
+            log.error("game loop tick failed — 다음 tick은 계속 진행됨", e)
         }
     }
 
