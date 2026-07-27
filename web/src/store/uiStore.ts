@@ -57,8 +57,7 @@ interface UIState {
   isNukeAiming: boolean; // 전술핵 조준 모드(사일로 보유자 전용, 반경 3배)
   nukeOwned: boolean; // 전술핵 사일로(울릉도·제주) 보유 여부
   nukeCooldownLeft: number; // 전술핵 남은 재장전(ms). refreshSummary가 갱신
-  rallyIndex: number; // B2 — 내 집결지 admIndex(-1=없음). 지정은 지도 더블클릭으로.
-  aggressive: boolean; // 자동 공세 스탠스 on/off (버튼·단축키 A로 토글)
+  offensiveIndex: number; // 내 공세 목표 admIndex(-1=없음). 지정은 적·중립 더블클릭으로.
   isTransporting: boolean; // B3 — 공수(병력 수송) 모드
   airdropReadyAt: number; // B3 — 공수 재사용 가능 시각(Date.now ms). 0=준비됨
   airdropCooldownLeft: number; // B3 — 남은 쿨타임(ms). refreshSummary가 갱신(버튼 표시용)
@@ -77,7 +76,6 @@ interface UIState {
   setSortieRatio: (ratio: number) => void;
   setAiming: (v: boolean) => void;
   setNukeAiming: (v: boolean) => void;
-  setAggressive: (v: boolean) => void;
   setTransporting: (v: boolean) => void;
   startAirdropCooldown: (ms: number) => void;
   setDefeated: (v: boolean) => void;
@@ -125,8 +123,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isNukeAiming: false,
   nukeOwned: false,
   nukeCooldownLeft: 0,
-  rallyIndex: -1,
-  aggressive: false,
+  offensiveIndex: -1,
   isTransporting: false,
   airdropReadyAt: 0,
   airdropCooldownLeft: 0,
@@ -148,7 +145,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(v ? { isAiming: true, isNukeAiming: false, isTransporting: false } : { isAiming: false }),
   setNukeAiming: (v) =>
     set(v ? { isNukeAiming: true, isAiming: false, isTransporting: false } : { isNukeAiming: false }),
-  setAggressive: (v) => set({ aggressive: v }),
   setTransporting: (v) =>
     set(v ? { isTransporting: true, isAiming: false, isNukeAiming: false } : { isTransporting: false }),
   startAirdropCooldown: (ms) => set({ airdropReadyAt: Date.now() + ms }),
@@ -185,8 +181,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       missileCount: myMissileCount(),
       nukeOwned: nuke.owned,
       nukeCooldownLeft: nuke.cooldownLeftMs,
-      rallyIndex: world.myRally,
-      aggressive: world.myAggressive,
+      offensiveIndex: world.myOffensive,
       airdropCooldownLeft: Math.max(0, get().airdropReadyAt - Date.now()),
       logEntries: world.logEntries,
     });

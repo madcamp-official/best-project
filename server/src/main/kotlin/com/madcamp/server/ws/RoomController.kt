@@ -115,7 +115,7 @@ class RoomController(
         }
         room.tickCount = 0
         room.missileAccumSec = 0.0
-        room.supplyAccumSec = 0.0
+        room.offensiveAccumSec = 0.0
         room.lastEnclosedKey = ""
         room.lastTickNanos = System.nanoTime()
         room.roundStartMs = System.currentTimeMillis()

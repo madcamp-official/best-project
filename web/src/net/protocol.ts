@@ -59,15 +59,10 @@ export interface LaunchNukeCommand {
   hits: number[];
 }
 
-// B2 집결지 지정/해제(C→S). index = 내 소유 admIndex(집결지), -1이면 해제. 서버가 소유를 검증하고
-// 이후 매 주기 후방 병력을 이 동을 향해 자동 전진시킨다.
-export interface SetRallyCommand {
+// 공세 목표 지정/해제(C→S). index = 적·중립 admIndex(목표), -1이면 해제. 서버가 검증하고 이후 매
+// 주기 그 목표를 향한 최전선을 자동 전진시킨다. 같은 목표 재지정·내 동 지정은 해제로 처리된다.
+export interface SetOffensiveCommand {
   index: number;
-}
-
-// 자동 공세 스탠스 on/off(C→S). on=true면 최전선 내 동이 매 주기 인접 적·중립을 자동 출정한다.
-export interface SetAggroCommand {
-  on: boolean;
 }
 
 // 공수부대(병력 수송, C→S). sources = 원 안에 든 내 소유 동 admIndex 목록(클라 계산),
@@ -104,8 +99,7 @@ export interface WelcomeMessage {
   holders: Holder[]; // 중립·환경세력 포함
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
-  rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
-  aggressive: boolean; // 자동 공세 스탠스 on/off. 재접속 시 토글 상태 복구용.
+  offensive: number; // 이 플레이어의 공세 목표 admIndex(-1=없음). 재접속 시 복구용.
   shields: ShieldInfo[]; // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
   // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
   // 사일로 위치 자체는 정적 데이터에서 파생되므로 보내지 않는다(클라가 initNukeState로 계산).

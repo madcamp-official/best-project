@@ -22,12 +22,9 @@ export interface GameState {
   dirty: Set<number>; // feature-state 리페인트 대상 admIndex
   orders: Order[]; // 이동 중인 유닛(원) 목록
   missiles: Uint8Array; // 동별 미사일 보유 여부(0/1). 동에 종속 — 그 동 소유자가 발사 가능.
-  // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 후방 병력이 이 동을 향해 자동 전진한다.
+  // 공세 목표: holderId → 지정한 적·중립 admIndex(-1=없음). 전선이 이 동을 향해 자동 전진한다.
   // 크기 256 = holderId 예약 범위(0 중립 … 255 E). 시뮬레이터(목/서버)만 채우고 클라 사본은 -1.
-  rally: Int32Array;
-  // 자동 공세 스탠스: holderId → 켜짐(1)/꺼짐(0). 켜면 최전선 동이 매 주기 인접 적·중립을 자동 출정.
-  // 크기 256. 시뮬레이터(목/서버)만 참조하고 클라 사본은 미사용(토글 상태는 WELCOME.aggressive로 복구).
-  aggressive: Uint8Array;
+  offensive: Int32Array;
   // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
   airdropReadyAt: Float64Array;
   // 스폰 방어막: holderId → 보호 종료 시각(ms, 호출자의 시간축 그대로 — 시뮬레이터는 wallNowMs).
@@ -91,8 +88,7 @@ export function createGameState(
     dirty: new Set<number>(),
     orders: [],
     missiles: new Uint8Array(n),
-    rally: new Int32Array(256).fill(-1),
-    aggressive: new Uint8Array(256),
+    offensive: new Int32Array(256).fill(-1),
     airdropReadyAt: new Float64Array(256),
     shieldUntil: new Float64Array(256),
     borderMask: borderMask ?? new Uint8Array(n),
@@ -591,126 +587,75 @@ export function launchNuke(
   return { ok: true, silo: s.nukeSilos[readyK], readyAtMs: s.nukeReadyAt[readyK], neutralized };
 }
 
-// ── 보급선 (B2) ───────────────────────────────────────────────────────
-// 집결지(rally)를 정하면 매 보급 tick마다 후방 병력이 내 영토 경사를 따라 집결지 방향으로
-// 한 홉씩 자동 전진한다. 내 소유 동 사이에서만 흐르므로 전투는 없다. 전선 동을 집결지로 잡으면
-// 후방 생산분이 손 안 대도 전선으로 모인다.
+// ── 공세 목표 (지정 지점을 향한 전면 공세) ──────────────────────────────
+// 적·중립 동 하나를 공세 목표로 지정하면(지도 더블클릭), 매 공세 주기마다 그 목표를 향한 최전선
+// 동들이 목표 쪽 인접 적·중립을 '이길 만할 때만' 자동 출정한다. 전선이 목표를 향해 스스로 굴러간다.
 
-// 집결지 지정/해제. index<0 이면 해제, 아니면 내 소유 동일 때만 등록(무효는 무시).
-export function setRally(s: GameState, holderId: number, index: number) {
-  if (index < 0) {
-    s.rally[holderId] = -1;
+// 공세 목표 지정/해제. index<0 이거나 내 동이면 해제, 같은 목표를 다시 지정하면 해제(토글),
+// 아니면(적·중립) 그 동을 목표로 등록한다. 실제 플레이어(중립·E 아님)만 지정 가능.
+export function setOffensive(s: GameState, holderId: number, index: number) {
+  if (!isRealPlayer(holderId)) return;
+  if (index < 0 || index >= s.n) {
+    s.offensive[holderId] = -1;
     return;
   }
-  if (index >= s.n || s.ownerId[index] !== holderId) return;
-  s.rally[holderId] = index;
+  if (s.offensive[holderId] === index || s.ownerId[index] === holderId) {
+    s.offensive[holderId] = -1; // 같은 목표 재지정 or 내 동 = 해제
+    return;
+  }
+  s.offensive[holderId] = index;
 }
 
-// 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진시킨다(시뮬레이터가 SUPPLY_INTERVAL_SEC 주기 호출).
-// 반환 = 이번 주기에 새로 출발한 보급 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
-export function tickSupply(s: GameState, nowMs: number): Order[] {
+// 공세 목표를 가진 모든 holder를 목표 방향으로 한 걸음 전진시킨다(시뮬레이터가 OFFENSIVE_INTERVAL_SEC 주기 호출).
+// 반환 = 이번 주기에 새로 출발한 공세 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
+export function tickOffensive(s: GameState, nowMs: number): Order[] {
   const out: Order[] = [];
-  for (let h = 0; h < s.rally.length; h++) {
-    const rallyIdx = s.rally[h];
-    if (rallyIdx < 0) continue;
-    if (s.ownerId[rallyIdx] !== h) {
-      s.rally[h] = -1; // 집결지를 잃으면 자동 해제
+  for (let h = 0; h < s.offensive.length; h++) {
+    const target = s.offensive[h];
+    if (target < 0) continue;
+    if (s.ownerId[target] === h) {
+      s.offensive[h] = -1; // 목표를 점령했으면 공세 종료
       continue;
     }
-    supplyToward(s, h, rallyIdx, nowMs, out);
+    offensiveAdvance(s, h, target, nowMs, out);
   }
   return out;
 }
 
-// 집결지에서 BFS로 각 내 동까지의 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로
-// 병력 일부를 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다.
-// 도착 처리(증원·상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
-function supplyToward(
-  s: GameState,
-  holderId: number,
-  rallyIdx: number,
-  nowMs: number,
-  out: Order[]
-) {
+// 목표(target)에서 전체 그래프로 BFS해 각 동의 목표까지 홉 거리를 구하고, holderId의 각 최전선 동이
+// 자기보다 목표에 더 가까운 인접 non-소유 동을 골라 '이길 만하면' 출정한다 — 전선이 목표를 향해 전진.
+function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs: number, out: Order[]) {
   const dist = new Int32Array(s.n).fill(-1);
-  dist[rallyIdx] = 0;
-  const q = [rallyIdx];
+  dist[target] = 0;
+  const q = [target];
   for (let k = 0; k < q.length; k++) {
     const cur = q[k];
     for (const nb of s.neighborIndex[cur]) {
-      if (dist[nb] !== -1 || s.ownerId[nb] !== holderId) continue;
+      if (dist[nb] !== -1) continue;
       dist[nb] = dist[cur] + 1;
       q.push(nb);
     }
   }
-  for (let k = 1; k < q.length; k++) {
-    const i = q[k];
-    if (s.troops[i] <= CONFIG.SUPPLY_MIN_TROOPS) continue;
-    let j = -1; // 집결지에 한 칸 더 가까운 이웃
-    for (const nb of s.neighborIndex[i]) {
-      if (dist[nb] === dist[i] - 1) {
-        j = nb;
-        break;
-      }
-    }
-    if (j < 0) continue;
-    const space = s.troopCap[j] - s.troops[j];
-    if (space <= 0) continue; // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
-    let amt = Math.floor(s.troops[i] * CONFIG.SUPPLY_RATIO);
-    if (amt < 1) continue;
-    if (amt > space) amt = space;
-    // 병력은 즉시 출발지를 떠나(차감) 이웃으로 행군한다. 도착 시 tickOrders가 증원 처리(초과분 반환).
-    s.troops[i] -= amt;
-    s.dirty.add(i);
-    const order = makeOrder(s, i, j, amt, holderId, nowMs);
-    s.orders.push(order);
-    out.push(order);
-  }
-}
-
-// ── 자동 공세 스탠스 ───────────────────────────────────────────────────
-// 켜진 holder의 최전선 동(인접에 non-소유 동이 있는 동)이 매 공세 주기마다 '이길 만한' 인접
-// 적·중립 하나를 자동 출정한다. 클릭 없이 전선이 스스로 전진한다(집결지=수비/보급의 공격판 대칭).
-
-// 자동 공세 on/off. 실제 플레이어(중립·E 아님)만 켤 수 있다.
-export function setAggressive(s: GameState, holderId: number, on: boolean) {
-  if (!isRealPlayer(holderId)) return;
-  s.aggressive[holderId] = on ? 1 : 0;
-}
-
-// 자동 공세가 켜진 모든 holder를 전진시킨다(시뮬레이터가 AGGRO_INTERVAL_SEC 주기 호출).
-// 반환 = 이번 주기에 새로 출발한 공세 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
-export function tickAggro(s: GameState, nowMs: number): Order[] {
-  const out: Order[] = [];
-  for (let h = 0; h < s.aggressive.length; h++) {
-    if (s.aggressive[h] !== 1) continue;
-    if (!isRealPlayer(h)) continue;
-    aggroExpand(s, h, nowMs, out);
-  }
-  return out;
-}
-
-// holderId의 각 최전선 동에서 병력이 가장 적은(=가장 이기기 쉬운) 인접 non-소유 동을 골라,
-// 보낼 병력이 그 방어 병력을 넘길 때만 출정한다(못 이길 싸움은 피해 피딩 방지). 병력은 즉시 차감·행군.
-function aggroExpand(s: GameState, holderId: number, nowMs: number, out: Order[]) {
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] !== holderId) continue;
-    if (s.troops[i] < CONFIG.AGGRO_MIN_TROOPS) continue;
-    let target = -1;
-    let weakest = Infinity;
+    if (s.troops[i] < CONFIG.OFFENSIVE_MIN_TROOPS) continue;
+    if (dist[i] < 0) continue; // 목표와 그래프상 연결 안 됨(섬 등)
+    // 목표에 더 가까운(dist가 작은) 인접 non-소유 동 중 가장 가까운 것을 노린다(=목표 방향 전진).
+    let best = -1;
+    let bestDist = dist[i];
     for (const nb of s.neighborIndex[i]) {
-      if (s.ownerId[nb] === holderId) continue; // 내 동은 목표 아님(공세는 확장만)
-      if (s.troops[nb] < weakest) {
-        weakest = s.troops[nb];
-        target = nb;
+      if (s.ownerId[nb] === holderId) continue;
+      if (dist[nb] >= 0 && dist[nb] < bestDist) {
+        bestDist = dist[nb];
+        best = nb;
       }
     }
-    if (target < 0) continue; // 최전선이 아님(인접이 전부 내 동)
-    const amount = Math.floor(s.troops[i] * CONFIG.AGGRO_RATIO);
-    if (amount <= weakest) continue; // 이길 수 없으면 보류(다음 주기에 병력이 더 쌓이면 재시도)
+    if (best < 0) continue; // 목표 쪽으로 전진할 인접 적·중립이 없음(최전선 아님/목표 반대쪽)
+    const amount = Math.floor(s.troops[i] * CONFIG.OFFENSIVE_RATIO);
+    if (amount <= s.troops[best]) continue; // 이길 수 없으면 보류(다음 주기에 병력이 더 쌓이면 재시도)
     s.troops[i] -= amount;
     s.dirty.add(i);
-    const order = makeOrder(s, i, target, amount, holderId, nowMs);
+    const order = makeOrder(s, i, best, amount, holderId, nowMs);
     s.orders.push(order);
     out.push(order);
   }
