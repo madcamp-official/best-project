@@ -624,29 +624,6 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
-      // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 도 하나가 화면에
-      // 들어올 정도로 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 동 단위로
-      // 들어가면 동 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
-      map.addSource(PLAYER_LABEL_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      map.addLayer({
-        id: PLAYER_LABEL_LAYER,
-        type: "symbol",
-        source: PLAYER_LABEL_SOURCE,
-        maxzoom: 8.5,
-        layout: {
-          "text-field": ["get", "name"],
-          "text-size": 15,
-        },
-        paint: {
-          "text-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
-          "text-halo-color": "#0b1220",
-          "text-halo-width": 1.8,
-        },
-      });
-
       // 이동 중인 유닛: 원 하나 + 그 옆의 병력 숫자. (README.md §4.4 유닛 이동)
       map.addSource(UNIT_SOURCE, {
         type: "geojson",
@@ -816,6 +793,31 @@ export function MapView({ prepared, connection }: Props) {
           },
         });
       }
+
+      // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 도 하나가 화면에
+      // 들어올 정도로 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 동 단위로
+      // 들어가면 동 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
+      // 유닛 원(UNIT_CIRCLE_LAYER)·집결지 깃발(RALLY_LAYER)보다 나중에(=위에) 그려야 그것들에
+      // 가려지지 않는다 — 이전엔 더 먼저 추가돼 있어서 집결지 근처에서 라벨이 안 보이는 문제가 있었다.
+      map.addSource(PLAYER_LABEL_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: PLAYER_LABEL_LAYER,
+        type: "symbol",
+        source: PLAYER_LABEL_SOURCE,
+        maxzoom: 8.5,
+        layout: {
+          "text-field": ["get", "name"],
+          "text-size": 15,
+        },
+        paint: {
+          "text-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
+          "text-halo-color": "#ffffff", // 흰 테두리 — 색색의 영토·유닛 배경 위에서도 또렷하게
+          "text-halo-width": 1.8,
+        },
+      });
 
       // 미사일 조준 원(마우스 따라다님) — 반투명 흰 채움 + 흰 점선 테두리.
       map.addSource(AIM_CIRCLE_SOURCE, {
