@@ -546,7 +546,7 @@ export function tryAirdrop(
   if (total <= 0) return { ok: false, reason: "수송할 병력이 없습니다.", code: "NO_TROOPS" };
 
   const origin = nearestSourceToCentroid(s, valid, holderId); // 삼각형 유닛 출발 위치(원 중심 근사)
-  if (centroidDistance(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
+  if (airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
     return { ok: false, reason: "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.", code: "AIRDROP_RANGE" };
   }
   for (const i of valid) {
@@ -593,12 +593,23 @@ function nearestSourceToCentroid(s: GameState, sources: number[], holderId: numb
 
 // 공수 사거리 판정(클라 UX용) — 삼각형 출발 동(origin)에서 dest까지 거리가 상한 이내인가.
 // tryAirdrop과 같은 origin·거리 기준을 써서 클라 하이라이트와 서버 검증이 어긋나지 않게 한다.
+// 공수 사거리용 거리 — 화면에 그리는 사거리 원(경도를 cosLat로 보정한 둥근 원)과 같은 척도로 잰다.
+// 그래야 "원에 걸침 = 수송 가능"이 정확히 일치한다. cosLat은 origin 위도 기준(원을 그 위도로 그린다).
+function airdropScaledDist(s: GameState, origin: number, dest: number): number {
+  const a = s.meta[origin].centroid;
+  const b = s.meta[dest].centroid;
+  const cosLat = Math.cos((a[1] * Math.PI) / 180);
+  const dx = (a[0] - b[0]) * cosLat;
+  const dy = a[1] - b[1];
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 export function airdropInRange(s: GameState, sources: number[], dest: number, holderId: number): boolean {
   if (dest < 0 || dest >= s.n) return false;
   const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
   if (valid.length === 0) return false;
   const origin = nearestSourceToCentroid(s, valid, holderId);
-  return centroidDistance(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
+  return airdropScaledDist(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
 }
 
 // 공수 삼각형 출발 동(사거리 원의 중심) — airdropInRange/tryAirdrop과 같은 origin. 유효 소스 없으면 -1.

@@ -2,6 +2,7 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -245,6 +246,16 @@ object GameCore {
         return sqrt(dx * dx + dy * dy)
     }
 
+    // 공수 사거리용 거리 — 클라가 그리는 사거리 원(경도 cosLat 보정)과 같은 척도. "원에 걸침=수송 가능" 일치.
+    private fun airdropScaledDist(world: World, origin: Int, dest: Int): Double {
+        val a = world.meta[origin].centroid
+        val b = world.meta[dest].centroid
+        val cosLat = cos(a[1] * Math.PI / 180.0)
+        val dx = (a[0] - b[0]) * cosLat
+        val dy = a[1] - b[1]
+        return sqrt(dx * dx + dy * dy)
+    }
+
     fun drainDirty(world: World): List<Int> {
         if (world.dirty.isEmpty()) return emptyList()
         val list = world.dirty.toList()
@@ -350,7 +361,7 @@ object GameCore {
         if (total <= 0) return SortieResult.Err(SortieErrorCode.NO_TROOPS, "수송할 병력이 없습니다.")
 
         val origin = nearestSourceToCentroid(world, valid, holderId) // 삼각형 유닛 출발 위치(원 중심 근사)
-        if (centroidDistance(world, origin, dest) > config.airdropMaxRangeDeg) {
+        if (airdropScaledDist(world, origin, dest) > config.airdropMaxRangeDeg) {
             return SortieResult.Err(SortieErrorCode.AIRDROP_RANGE, "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.")
         }
         for (i in valid) if (world.troops[i] > 0) {

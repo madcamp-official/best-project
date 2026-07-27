@@ -17,22 +17,22 @@ export const CONFIG = {
 
   // 환경 세력 (E, README §4.6) — 초반 긴장용 조연(문명 야만인). 전부 튜닝값.
   ENV_HOLDER_ID: 255, // E 전용 holderId (예약)
-  ENV_CLUSTER_COUNT: 3, // 야만인 무리 수 — 전국에 흩뿌리는 캠프 개수 (1이면 기존처럼 플레이어 근처 한 무리)
-  ENV_START_CELLS: 3, // 무리 1개당 시작 E 보유 동 수
-  ENV_PROD_MULT: 1.0, // E 생산 배율 (기본 = 플레이어와 동일, 램프 없음)
-  ENV_ACT_INTERVAL_SEC: 6, // E 행동 주기(초)
+  ENV_CLUSTER_COUNT: 10, // 야만인 무리 수 — 전국에 흩뿌리는 캠프 개수 (1이면 기존처럼 플레이어 근처 한 무리)
+  ENV_START_CELLS: 5, // 무리 1개당 시작 E 보유 동 수
+  ENV_PROD_MULT: 0.7, // E 생산 배율 (기본 = 플레이어와 동일, 램프 없음)
+  ENV_ACT_INTERVAL_SEC: 3, // E 행동 주기(초)
   ENV_ATTACK_MARGIN: 1.2, // 이길 만할 때만 공격 (자살 방지 계수)
   ENV_BOUNTY: 10, // E 동 함락 시 보너스 병력
   ENV_MAX_RATIO: 0.1, // E 보유 동 수 하드 상한 (전체 대비 비율)
   // ENV_CLUSTER_COUNT(3) * ENV_START_CELLS(3) = 9개로 시작하므로 그보다 커야 한다 — 안 그러면
   // 스폰 직후부터 envCells(9) >= cap이 되어 E가 첫 행동도 못 해보고 얼어붙는다("야만인이 가만히
   // 있다" 버그. 다중 클러스터 도입 시 이 값을 안 올려서 생겼다).
-  ENV_MIN_PRESENCE: 12, // 극초반 E 최소 존재감(동 수)
+  ENV_MIN_PRESENCE: 30, // 극초반 E 최소 존재감(동 수)
 
   // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
   MISSILE_SPAWN_SEC: 5, // 전국에서 무작위 동 1곳에 미사일이 스폰되는 주기(초) — 체감상 적어서 2배로 상향
   MISSILE_MAX_TOTAL: 60, // 맵 전체 동시 존재 미사일 총 상한(소유·중립 무관). 도달 시 스폰 중단. (2배 상향, 개인 한도 없음)
-  MISSILE_RADIUS_DEG: 0.02, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
+  MISSILE_RADIUS_DEG: 0.03, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
 
   // 경로 자동 출정(B1) — 멀리 있는 내 동을 우클릭하면 내 영토를 따라 최단 경로로 연쇄 출정.
   MARCH_MAX_HOPS: 60, // 자동 경로 최대 홉(원거리 남용/BFS 비용 방지)
