@@ -883,8 +883,26 @@ export function MapView({ prepared, connection }: Props) {
     });
 
     // README.md §4.5 — 물리 키(e.code) 사용, 한글 IME 조합 중에는 무시.
+    // WASD/화살표는 '눌린 방향'만 pressed에 모아두고, 렌더 루프가 매 프레임 일정 속도로
+    // 부드럽게 패닝한다(키다운마다 툭툭 끊기거나 OS 키 리핏 속도에 휘둘리지 않도록).
+    // 대각선(두 키 동시)·일정 속도·키 리핏 무관이 자연스러운 이동의 핵심. 줌·미사일 키는 단발.
+    const PAN_SPEED = 800; // 패닝 속도(px/초)
+    const DIR: Record<string, "up" | "down" | "left" | "right"> = {
+      KeyW: "up",
+      ArrowUp: "up",
+      KeyS: "down",
+      ArrowDown: "down",
+      KeyA: "left",
+      ArrowLeft: "left",
+      KeyD: "right",
+      ArrowRight: "right",
+    };
+    const pressed = new Set<"up" | "down" | "left" | "right">();
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
+      // 입력창(닉네임 등)에 포커스가 있으면 지도 조작으로 가로채지 않는다.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       // Esc = 미사일 조준 / 공수 모드 취소
       if (e.code === "Escape") {
         const st = useUIStore.getState();
@@ -910,24 +928,15 @@ export function MapView({ prepared, connection }: Props) {
         if (next && st.isTransporting) st.setTransporting(false); // 공수 중이었으면 해제하고 조준으로
         return;
       }
-      const step = 60;
+      // 이동 키: 방향만 기록(연속 패닝은 렌더 루프가 담당). 화살표 기본 스크롤 방지.
+      const dir = DIR[e.code];
+      if (dir) {
+        pressed.add(dir);
+        e.preventDefault();
+        return;
+      }
+      // 줌은 단발.
       switch (e.code) {
-        case "KeyW":
-        case "ArrowUp":
-          map.panBy([0, -step]);
-          break;
-        case "KeyS":
-        case "ArrowDown":
-          map.panBy([0, step]);
-          break;
-        case "KeyA":
-        case "ArrowLeft":
-          map.panBy([-step, 0]);
-          break;
-        case "KeyD":
-        case "ArrowRight":
-          map.panBy([step, 0]);
-          break;
         case "Equal":
         case "NumpadAdd":
         case "KeyE":
@@ -940,7 +949,15 @@ export function MapView({ prepared, connection }: Props) {
           break;
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const dir = DIR[e.code];
+      if (dir) pressed.delete(dir);
+    };
+    // 창이 포커스를 잃으면 keyup을 놓쳐 키가 '눌린 채' 남는 것을 방지(멈춤).
+    const onBlur = () => pressed.clear();
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
 
     // 렌더 루프 — 서버가 보낸 world(사본)의 변경분만 반영한다. 게임 로직(생산·전투)은
     // 서버(로컬 mock)가 돌린다. 여기선 (1) 도착 유닛 제거 (2) dirty 배치 리페인트
@@ -948,8 +965,18 @@ export function MapView({ prepared, connection }: Props) {
     let raf = 0;
     let lastSummaryAt = 0;
     let hadUnits = false;
+    let lastPanNow = 0; // WASD 연속 패닝용 직전 프레임 시각
     const flashing = new Map<number, number>(); // admIndex → 플래시 시작 시각
     const loop = (now: number) => {
+      // WASD/화살표 연속 패닝 — 눌린 방향으로 매 프레임 dt(초)만큼 부드럽게 이동.
+      const dt = lastPanNow ? Math.min(0.05, (now - lastPanNow) / 1000) : 0; // dt 상한: 탭 복귀 시 급점프 방지
+      lastPanNow = now;
+      if (pressed.size > 0) {
+        const dx = ((pressed.has("right") ? 1 : 0) - (pressed.has("left") ? 1 : 0)) * PAN_SPEED * dt;
+        const dy = ((pressed.has("down") ? 1 : 0) - (pressed.has("up") ? 1 : 0)) * PAN_SPEED * dt;
+        if (dx !== 0 || dy !== 0) map.panBy([dx, dy], { animate: false });
+      }
+
       // 소스가 아직 없으면(load 핸들러 전) 아무것도 하지 않는다 — dirty를 소진하지 않아 보존된다.
       if (!map.getSource(SOURCE_ID)) {
         raf = requestAnimationFrame(loop);
@@ -1102,6 +1129,8 @@ export function MapView({ prepared, connection }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       map.remove();
     };
     // prepared는 최초 로드 후 고정값이므로 마운트 시 1회만 실행한다.
