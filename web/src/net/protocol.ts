@@ -65,6 +65,7 @@ export type RestartCommand = Record<string, never>;
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.
 export interface WelcomeMessage {
+  roomId: string; // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
   holderId: number;
   token: string; // 재접속용. 클라는 localStorage에 저장
   serverTimeMs: number; // 시간 동기화용
@@ -129,4 +130,66 @@ export interface LeaderboardMessage {
   rows: { holderId: number; name: string; count: number }[];
   envCells: number;
   totalCells: number;
+}
+
+// ── 로비/방(다중 세션) ─────────────────────────────────────────────────
+
+export type RoomState = "LOBBY" | "PLAYING" | "ENDED";
+
+// 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정).
+export interface MemberInfo {
+  nickname: string;
+  holderId: number;
+}
+
+// 로비 목록의 방 한 개 요약(/topic/rooms).
+export interface RoomInfo {
+  roomId: string;
+  name: string;
+  state: RoomState;
+  memberCount: number;
+  maxMembers: number;
+}
+
+// 공개 방 목록(S→C, /topic/rooms). 멤버십·상태가 바뀔 때마다 브로드캐스트.
+export interface RoomListMessage {
+  rooms: RoomInfo[];
+}
+
+// 방 입장 응답(S→C, /user/queue/roomJoined). 입장한 방의 현재 상태·멤버.
+export interface RoomJoinedMessage {
+  roomId: string;
+  name: string;
+  state: RoomState;
+  members: MemberInfo[];
+}
+
+// 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state).
+export interface RoomStateMessage {
+  roomId: string;
+  state: RoomState;
+  members: MemberInfo[];
+}
+
+// 라운드 종료 결과(S→C, /topic/room/{id}/state, RoomStateMessage와 같은 채널). reason으로 구분.
+export interface RoundEndMessage {
+  roomId: string;
+  reason: "DOMINATION" | "TIMEOUT";
+  winnerHolderId: number;
+  winnerName: string | null;
+  leaderboard: { holderId: number; name: string; count: number }[];
+}
+
+// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+export interface CreateRoomCommand {
+  name: string;
+  nickname: string;
+  token?: string;
+}
+
+// 방 입장(C→S, /app/lobby/join).
+export interface JoinRoomCommand {
+  roomId: string;
+  nickname: string;
+  token?: string;
 }

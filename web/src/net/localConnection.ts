@@ -12,8 +12,15 @@ import type {
   DeltaMessage,
   ErrorMessage,
   LeaderboardMessage,
+  RoomJoinedMessage,
+  RoomListMessage,
+  RoomStateMessage,
+  RoundEndMessage,
   WelcomeMessage,
 } from "./protocol";
+
+// 목업은 로비가 없는 단일 로컬 플레이어라, WELCOME에 이 고정 방 id를 붙인다(룸 스코프 개념 없음).
+const SOLO_ROOM_ID = "solo";
 
 const TICK_MS = 200; // 서버 tick = DELTA 주기 (5Hz)
 const LEADERBOARD_EVERY = 5; // tick 5회마다 = 1Hz
@@ -398,6 +405,7 @@ export class LocalConnection implements Connection {
 
   private buildWelcome(): WelcomeMessage {
     return {
+      roomId: SOLO_ROOM_ID,
       holderId: this.holderId,
       token: this.token,
       serverTimeMs: performance.now(),
@@ -448,6 +456,18 @@ export class LocalConnection implements Connection {
   onConnectionChange(cb: (connected: boolean) => void): void {
     this.connectionCb = cb;
   }
+
+  // ── 로비/방(다중 세션) ── 목업은 로비 없이 join()으로 솔로 진행한다. App이 목업이면 join()을
+  // 직접 부르고 로비 화면을 건너뛰므로(Phase 7), 아래 메서드는 계약을 만족시키는 no-op이다.
+  listRooms(): void {}
+  createRoom(_name: string, _nickname: string, _token?: string): void {}
+  joinRoom(_roomId: string, _nickname: string, _token?: string): void {}
+  startRound(): void {}
+  leaveRoom(): void {}
+  onRoomList(_cb: (m: RoomListMessage) => void): void {}
+  onRoomJoined(_cb: (m: RoomJoinedMessage) => void): void {}
+  onRoomState(_cb: (m: RoomStateMessage) => void): void {}
+  onRoundEnd(_cb: (m: RoundEndMessage) => void): void {}
 
   // 개발용: 끊김/재연결 UI를 목 모드에서 테스트하기 위한 수동 트리거(프로덕션 경로 아님).
   simulateConnection(connected: boolean): void {

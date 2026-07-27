@@ -6,12 +6,29 @@ import type {
   DeltaMessage,
   ErrorMessage,
   LeaderboardMessage,
+  RoomJoinedMessage,
+  RoomListMessage,
+  RoomStateMessage,
+  RoundEndMessage,
   WelcomeMessage,
 } from "./protocol";
 
 export interface Connection {
-  // 접속(또는 재접속). token이 있으면 기존 holder 복구 시도.
+  // 접속(또는 재접속). token이 있으면 기존 holder 복구 시도. (레거시 브리지/목업 솔로 진입점)
   join(nickname: string, token?: string): void;
+
+  // ── 로비/방(다중 세션) ──
+  // 공개 방 목록 요청 → onRoomList로 응답(/topic/rooms).
+  listRooms(): void;
+  // 방 생성(생성 즉시 입장). onRoomJoined로 응답.
+  createRoom(name: string, nickname: string, token?: string): void;
+  // 방 입장. onRoomJoined로 응답(진행 중 방이면 onWelcome도).
+  joinRoom(roomId: string, nickname: string, token?: string): void;
+  // 방 안에서 라운드 시작(아무나 가능). 성공 시 onWelcome(전원) + onRoomState(PLAYING).
+  startRound(): void;
+  // 현재 방에서 나가 로비로.
+  leaveRoom(): void;
+
   // 출정/이동 명령 전송. ratio = 이번 출정에 보낼 병력 비율(0~1, UI 슬라이더). amount는 서버가 계산.
   sendSortie(from: number, to: number, ratio: number): void;
   // B1 경로 자동 출정. to는 인접이 아니어도 됨 — 서버가 내 영토를 따라 최단 경로로 연쇄 출정한다.
@@ -30,6 +47,11 @@ export interface Connection {
   onDelta(cb: (msg: DeltaMessage) => void): void;
   onError(cb: (msg: ErrorMessage) => void): void;
   onLeaderboard(cb: (msg: LeaderboardMessage) => void): void;
+  // 로비/방 이벤트 구독.
+  onRoomList(cb: (msg: RoomListMessage) => void): void;
+  onRoomJoined(cb: (msg: RoomJoinedMessage) => void): void;
+  onRoomState(cb: (msg: RoomStateMessage) => void): void;
+  onRoundEnd(cb: (msg: RoundEndMessage) => void): void;
   // 연결 상태 변화(true=연결/재연결됨, false=끊김). 실서버(STOMP)만 실제로 끊김을 알린다.
   // 목 서버는 항상 연결 상태라 join 시 true만 통지한다.
   onConnectionChange(cb: (connected: boolean) => void): void;
