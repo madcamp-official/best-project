@@ -35,15 +35,6 @@ export interface LogEntry {
 
 export type Rank = "동장" | "시장" | "도지사" | "대통령" | null;
 
-// 도지사 승급까지 남은 목표 — 내가 이미 시장(시군구 완전 장악)인 시도 중 진행도가
-// 가장 높은 곳을 골라, 마저 먹어야 할 시군구 이름들을 보여준다. computeDojisaProgress 참고.
-export interface DojisaProgress {
-  sidoName: string;
-  ownedSgg: number; // 그 시도 안에서 완전 장악한 시군구 수
-  totalSgg: number; // 그 시도의 전체 시군구 수
-  remainingSggNames: string[]; // 아직 완전 장악하지 못한 시군구 이름들
-}
-
 export interface DongStaticMeta {
   admIndex: number;
   code: string; // 법정동코드 8자리 ([시도2][시군구3][읍면동3])

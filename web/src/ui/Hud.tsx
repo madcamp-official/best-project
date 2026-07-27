@@ -16,7 +16,6 @@ export function Hud({ connection }: Props) {
   const myHolderId = useUIStore((s) => s.myHolderId);
   const envCells = useUIStore((s) => s.envCells);
   const myRank = useUIStore((s) => s.myRank);
-  const nextTarget = useUIStore((s) => s.nextTarget);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
   const sortieRatio = useUIStore((s) => s.sortieRatio);
@@ -78,24 +77,6 @@ export function Hud({ connection }: Props) {
         <div className="hud-rank">
           내 계급: <strong>{myRank ?? "무소속"}</strong>
         </div>
-        {nextTarget && (
-          <div
-            style={{
-              margin: "4px 0",
-              padding: "4px 8px",
-              borderRadius: 6,
-              background: "rgba(255,204,51,0.12)",
-              border: "1px solid rgba(255,224,130,0.4)",
-              color: "#ffe082",
-              fontSize: 12,
-              lineHeight: 1.4,
-            }}
-          >
-            🎯 도지사까지 — {nextTarget.sidoName} ({nextTarget.ownedSgg}/{nextTarget.totalSgg})
-            <br />
-            마저 먹어야 할 시·군·구: {nextTarget.remainingSggNames.join(", ")}
-          </div>
-        )}
         {shieldSecLeft > 0 && (
           <div
             style={{

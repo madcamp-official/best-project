@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { world, computeRank, computeDojisaProgress, myMissileCount } from "../world/worldView";
-import type { DojisaProgress, LogEntry, Rank } from "../game/types";
+import { world, computeRank, myMissileCount } from "../world/worldView";
+import type { LogEntry, Rank } from "../game/types";
 
 export interface SelectedInfo {
   index: number;
@@ -31,7 +31,6 @@ interface UIState {
   totalCells: number;
   myHolderId: number;
   myRank: Rank;
-  nextTarget: DojisaProgress | null; // 시장일 때 도지사까지 마저 먹어야 할 시군구 안내
   logEntries: LogEntry[];
   toast: string | null;
   // 우클릭 1회당 이동할 병력 비율(0~1). 오른쪽 아래 슬라이더로 조절. (기본 100%)
@@ -81,7 +80,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   totalCells: 0,
   myHolderId: 0,
   myRank: null,
-  nextTarget: null,
   logEntries: [],
   toast: null,
   sortieRatio: 1, // 출정 병력 기본값 100% (슬라이더 초기값)
@@ -128,13 +126,10 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     // 순위표는 서버 LEADERBOARD로 갱신되므로 여기서 건드리지 않는다.
     const myRank = computeRank(world.myHolderId);
-    // 시장이면(완전 장악 시군구 보유) 도지사까지 마저 먹어야 할 시군구를 안내한다.
-    const nextTarget = myRank === "시장" ? computeDojisaProgress(world.myHolderId) : null;
     set({
       selectedInfo,
       myHolderId: world.myHolderId,
       myRank,
-      nextTarget,
       missileCount: myMissileCount(),
       rallyIndex: world.myRally,
       airdropCooldownLeft: Math.max(0, get().airdropReadyAt - Date.now()),

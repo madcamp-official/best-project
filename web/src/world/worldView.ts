@@ -181,7 +181,6 @@ export function pruneArrivedOrders(nowMs: number) {
 export const drainDirty = () => core.drainDirty(world);
 export const getLeaderboard = () => core.getLeaderboard(world);
 export const computeRank = (holderId: number) => core.computeRank(world, holderId);
-export const computeDojisaProgress = (holderId: number) => core.computeDojisaProgress(world, holderId);
 export const envCellCount = () => core.envCellCount(world);
 
 // 미사일 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).

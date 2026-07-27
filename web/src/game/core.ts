@@ -1,5 +1,5 @@
 import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
-import type { DojisaProgress, DongStaticMeta, Holder, LogEntry, Order, Rank, ShieldInfo } from "./types";
+import type { DongStaticMeta, Holder, LogEntry, Order, Rank, ShieldInfo } from "./types";
 
 // ── 헥사고날 도메인 코어 ──────────────────────────────────────────────
 // 순수 게임 규칙만 둔다. React·MapLibre·Zustand·브라우저 시계에 의존하지 않는다.
@@ -788,76 +788,6 @@ export function computeRank(s: GameState, holderId: number): Rank {
   if (fullSgg > 0) return "시장"; // 시군구 하나를 통째로 장악
 
   return "동장";
-}
-
-// 도지사 승급 목표 안내 — 이미 시군구 하나 이상을 완전 장악(=시장)한 시도 중, 완전 장악
-// 시군구 비율이 가장 높은 곳을 골라 마저 먹어야 할 시군구 이름들을 돌려준다.
-// 아직 시장이 아니거나(완전 장악 시군구 0개) 이미 도지사 이상(그 시도를 다 먹음)이면 null.
-export function computeDojisaProgress(s: GameState, holderId: number): DojisaProgress | null {
-  if (holderId === NEUTRAL_HOLDER_ID || s.n === 0) return null;
-
-  const sidoSggTotal = new Map<string, Map<string, number>>();
-  const sidoSggOwned = new Map<string, Map<string, number>>();
-  const sggName = new Map<string, string>();
-  const sidoName = new Map<string, string>();
-
-  for (let i = 0; i < s.n; i++) {
-    const sido = s.meta[i].sidocd;
-    const sgg = s.meta[i].sggcd;
-    sggName.set(sgg, s.meta[i].sggnm);
-    sidoName.set(sido, s.meta[i].sidonm);
-
-    let totalMap = sidoSggTotal.get(sido);
-    if (!totalMap) {
-      totalMap = new Map();
-      sidoSggTotal.set(sido, totalMap);
-    }
-    totalMap.set(sgg, (totalMap.get(sgg) ?? 0) + 1);
-
-    if (s.ownerId[i] === holderId) {
-      let ownedMap = sidoSggOwned.get(sido);
-      if (!ownedMap) {
-        ownedMap = new Map();
-        sidoSggOwned.set(sido, ownedMap);
-      }
-      ownedMap.set(sgg, (ownedMap.get(sgg) ?? 0) + 1);
-    }
-  }
-
-  // 완전 장악 시군구가 1개 이상이고 아직 그 시도를 다 먹지는 않은 곳 중 진행도(비율) 최고를 고른다.
-  let bestSido: string | null = null;
-  let bestFullCount = 0;
-  let bestTotalSgg = 1;
-  for (const [sido, totalMap] of sidoSggTotal) {
-    const ownedMap = sidoSggOwned.get(sido);
-    if (!ownedMap) continue;
-    let fullCount = 0;
-    for (const [sgg, total] of totalMap) {
-      if ((ownedMap.get(sgg) ?? 0) === total) fullCount++;
-    }
-    if (fullCount === 0 || fullCount === totalMap.size) continue;
-    if (bestSido === null || fullCount / totalMap.size > bestFullCount / bestTotalSgg) {
-      bestSido = sido;
-      bestFullCount = fullCount;
-      bestTotalSgg = totalMap.size;
-    }
-  }
-  if (bestSido === null) return null;
-
-  const totalMap = sidoSggTotal.get(bestSido)!;
-  const ownedMap = sidoSggOwned.get(bestSido)!;
-  const remainingSggNames: string[] = [];
-  for (const [sgg, total] of totalMap) {
-    if ((ownedMap.get(sgg) ?? 0) !== total) remainingSggNames.push(sggName.get(sgg) ?? sgg);
-  }
-  remainingSggNames.sort();
-
-  return {
-    sidoName: sidoName.get(bestSido) ?? bestSido,
-    ownedSgg: bestFullCount,
-    totalSgg: bestTotalSgg,
-    remainingSggNames,
-  };
 }
 
 // ── 환경 세력 (E) — README §4.6 ──────────────────────────────────────
