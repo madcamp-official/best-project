@@ -707,8 +707,9 @@ export function MapView({ prepared, connection }: Props) {
               selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
             }
           }
-          // 공격/이동이 가능한 대상일 때만 화살표 끝을 그 동의 '중심'으로 자석처럼 스냅한다.
-          // (인접 동 = 공격/증원, 먼 내 동 = 자동 행군. 그 외엔 스냅하지 않고 커서를 따라간다.)
+          // 공격/이동이 가능한 동 위에서만 그 '중심'으로 자석처럼 스냅해 화살표를 그린다.
+          // (인접 동 = 공격/증원, 먼 내 동 = 자동 행군.) 이동 불가한 곳(먼 적/중립·빈 곳)에선
+          // 화살표를 아예 그리지 않는다 — 커서를 따라 그 너머로 뻗지 않게.
           if (dragging) {
             const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
             const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
@@ -717,10 +718,8 @@ export function MapView({ prepared, connection }: Props) {
               over !== dragSource &&
               ((world.neighborIndex[dragSource]?.includes(over) ?? false) ||
                 world.ownerId[over] === world.myHolderId);
-            const end: [number, number] = canTarget
-              ? (world.meta[over].centroid as [number, number])
-              : [e.lngLat.lng, e.lngLat.lat]; // 대상이 아니면 커서를 따라간다(스냅 안 함)
-            updateArrow(dragSource, end);
+            if (canTarget) updateArrow(dragSource, world.meta[over].centroid as [number, number]);
+            else updateArrow(-1, null); // 이동 불가 → 화살표 숨김
           }
         }
       });
