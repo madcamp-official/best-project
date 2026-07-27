@@ -607,7 +607,7 @@ object GameCore {
         }
         for (i in 0 until world.n) {
             if (world.ownerId[i] != holderId) continue
-            if (world.troops[i] <= config.offensiveMinTroops) continue // 병력이 MIN_TROOPS 초과인 동만 공세 참여
+            if (world.troops[i] < config.offensiveMinTroops) continue
             val myDist = distToTarget(i)
             // 이 동에서 목표로 향하는 방향 벡터(cosLat 보정). 이웃 이동 방향이 이것과 얼마나 정렬됐는지로 고른다.
             val ci = world.meta[i].centroid
@@ -632,11 +632,12 @@ object GameCore {
                     atkAlign = align; atk = nb
                 }
             }
-            // 최전선: OFFENSIVE_RATIO를 무시하고 남은 병력 전부로 공격한다. 이길 수 없어도 진격해 방어
-            // 병력을 깎고, 다음 주기에 다시 쳐서 결국 함락시킨다(체력 높은 상대도 소모전으로 점령 가능).
+            // 최전선: 전방 적·중립이 있으면 offensiveRatio·승리 여부를 무시하고 가진 병력 전부로 밀어붙인다.
+            // (troops[i]는 위 MIN_TROOPS 게이트로 이미 MIN 이상.) 한 번에 못 이겨도 반복 공세로 강한 방어를
+            // 갈아내 결국 점령한다 — 상한(예: 50)에 막혀 비율 공격으로는 못 뚫던 문제 해결.
             if (atk >= 0) {
                 val amount = world.troops[i]
-                world.troops[i] -= amount
+                world.troops[i] = 0
                 world.dirty.add(i)
                 val order = makeOrder(world, config, i, atk, amount, holderId, nowMs)
                 world.orders.add(order)

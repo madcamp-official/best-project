@@ -34,6 +34,8 @@ const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
 const FLASH_LAYER = "dong-flash";
 const FLASH_MS = 600; // 함락 플래시 지속 시간
+// 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨. (E AI·서버 기본값은 CONFIG.SORTIE_RATIO 그대로)
+const SORTIE_SEND_RATIO = 1;
 const ENCLOSED_LAYER = "dong-enclosed-blink"; // 포위(귀속 대기)된 동의 반짝임 채움
 const ARC_SOURCE = "arcs";
 const ADMIN_SGG_LAYER = "admin-sgg-boundary"; // 시군구 경계 — 소유권과 무관한 정적 강조선
@@ -1197,7 +1199,7 @@ export function MapView({ prepared, connection }: Props) {
         if (wasDragging) {
           if (picked.length >= 2) {
             // 새: 여러 인접 목표를 쓸었으면 균등 분할해 한 번에 출정(클릭 감소).
-            connection.sendMultiSortie(from, picked, useUIStore.getState().sortieRatio);
+            connection.sendMultiSortie(from, picked, SORTIE_SEND_RATIO);
           } else if (picked.length === 1) {
             doAttack(from, picked[0], connection); // 하나만 쓸었으면 단일 출정
           } else if (dragTarget >= 0) {
@@ -1590,7 +1592,7 @@ function handleSelect(idx: number, map: MaplibreMap) {
 //  · 인접 적/중립 → 전투    · 인접 내 동 → 증원    · 먼 내 동 → 경로 자동 출정(B1, 내 영토 따라 연쇄)
 // 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
 function doAttack(from: number, to: number, connection: Connection) {
-  const { showToast, sortieRatio } = useUIStore.getState();
+  const { showToast } = useUIStore.getState();
 
   if (from < 0 || world.ownerId[from] !== world.myHolderId) return; // 출발지가 내 동이 아니면 무시
   if (from === to) return; // 같은 동에 놓으면 취소
@@ -1600,7 +1602,7 @@ function doAttack(from: number, to: number, connection: Connection) {
   // 인접이 아니면: 내 동이면 경로 자동 출정(B1), 아니면 공격은 인접만 가능함을 안내.
   if (!adjacent) {
     if (world.ownerId[to] === world.myHolderId) {
-      connection.sendMarch(from, to, sortieRatio);
+      connection.sendMarch(from, to, SORTIE_SEND_RATIO);
     } else {
       showToast("먼 내 동은 자동 행군, 공격은 인접 동만 가능합니다.");
     }
@@ -1614,8 +1616,7 @@ function doAttack(from: number, to: number, connection: Connection) {
     return;
   }
 
-  // 이번 출정에 보낼 병력 비율 = 오른쪽 아래 슬라이더 값.
-  connection.sendSortie(from, to, sortieRatio);
+  connection.sendSortie(from, to, SORTIE_SEND_RATIO);
 }
 
 // 옛 방식(드래그 없이 우클릭한 경우): 좌클릭으로 선택해 둔 내 동을 출발지로 삼아 대상으로 파견한다.
