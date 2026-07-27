@@ -32,8 +32,7 @@ class WelcomeAssembler(private val configService: ConfigService) {
             holders = world.holders.values.toList(),
             orders = world.orders.toList(),
             missiles = (0 until world.n).filter { world.missile[it] },
-            rally = world.rally[holderId],
-            aggressive = world.aggressive[holderId] == 1,
+            offensive = world.offensive[holderId],
             shields = (0 until 256).mapNotNull { hid ->
                 val until = world.shieldUntil[hid]
                 if (until > nowMs) ShieldInfo(hid, until) else null
