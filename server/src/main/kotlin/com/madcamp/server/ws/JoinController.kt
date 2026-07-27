@@ -12,8 +12,9 @@ import org.springframework.stereotype.Controller
 import java.security.Principal
 
 /**
- * api-spec.md §2.1~§2.2 — 레거시 JOIN(C→S) → WELCOME(S→C, /user/queue/welcome). 과도기 브리지로
- * 기본 방(default)에 붙인다. 다중 방 정식 진입은 /app/lobby/(list·create·join)(LobbyController). Phase 7에서 제거 예정.
+ * 레거시/개발 호환 JOIN(C→S, /app/join) → WELCOME(S→C, /user/queue/welcome). 기본 방(default)에
+ * 붙는다. 정식 다중 방 진입은 /app/lobby/(list·create·join)(LobbyController)이며, 이 엔드포인트는
+ * /app/join·/topic/world를 쓰는 스모크테스트 도구(server/tools/smoke-test) 호환용으로 유지한다.
  */
 @Controller
 class JoinController(

@@ -29,9 +29,10 @@ import java.util.concurrent.TimeUnit
  * 어떤 방의 World에도 락이 필요 없다. 매 tick PLAYING 방을 순회하며 각 방의 accumulator로
  * 진행하고, 라운드 종료(51% 지배 또는 제한 시간)를 판정한다.
  *
- * 다중 방 전환 과도기(브리지): 서버 시작 시 기본 방 1개를 PLAYING으로 띄우고, 그 방의
- * 브로드캐스트를 레거시 전역 토픽(/topic/world, /topic/leaderboard)에도 미러링해 기존 클라가
- * 그대로 붙는다. (Phase 7에서 제거.)
+ * 레거시/개발 호환 브리지: 서버 시작 시 기본 방 1개를 PLAYING으로 띄우고, 그 방의 브로드캐스트를
+ * 레거시 전역 토픽(/topic/world, /topic/leaderboard)에도 미러링한다. 정식 클라는 로비(/app/lobby/…)로
+ * 진입하고 이 방/토픽을 쓰지 않지만, /app/join·/topic/world에 의존하는 스모크테스트 도구
+ * (server/tools/smoke-test)는 이 브리지로 계속 동작한다. 로비 목록에는 기본 방을 숨긴다.
  */
 @Component
 class GameLoop(
@@ -49,7 +50,7 @@ class GameLoop(
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
-        // 과도기 브리지: 기본 방을 PLAYING으로 띄운다(레거시 클라 호환).
+        // 레거시/스모크테스트 호환 브리지: 기본 방을 PLAYING으로 띄운다(정식 경로는 로비).
         val room = roomManager.createWithId(RoomManager.DEFAULT_ROOM_ID, "기본 방")
         room.world = createFreshWorld()
         room.state = RoomState.PLAYING
