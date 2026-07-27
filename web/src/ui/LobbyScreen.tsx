@@ -126,7 +126,7 @@ export function LobbyScreen({ connection }: Props) {
               <>
                 {idToken ? (
                   <p className="join-hint" style={{ marginBottom: 8 }}>
-                    ✓ {googleName ?? "구글 계정"}으로 로그인됨
+                    ✓ {googleName ?? "구글 Google 계정"}으로 로그인됨
                   </p>
                 ) : (
                   <button
@@ -136,7 +136,7 @@ export function LobbyScreen({ connection }: Props) {
                     onClick={handleGoogleSignIn}
                     style={{ marginBottom: 12 }}
                   >
-                    {authBusy ? "로그인 중…" : "구글로 계속하기"}
+                    {authBusy ? "로그인 중…" : "구글 Google로 계속하기"}
                   </button>
                 )}
               </>
