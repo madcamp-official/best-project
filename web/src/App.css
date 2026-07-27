@@ -594,6 +594,82 @@
   background: rgba(77, 91, 112, 0.4);
 }
 
+/* 로비 2단 셸 — 왼쪽 공개 방 리스트 / 오른쪽 브랜딩·닉네임·방 만들기 */
+.lobby-shell {
+  width: min(920px, 94vw);
+  height: min(600px, 88vh);
+  display: flex;
+  background: rgba(15, 20, 32, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.lobby-left {
+  flex: 1.25;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 22px;
+}
+
+.lobby-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 30px;
+  background: rgba(9, 13, 23, 0.55);
+  border-left: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+/* 왼쪽 방 리스트: 남은 높이를 채우고 스크롤 */
+.lobby-rooms {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+/* 오른쪽 폼 — 로고/태그라인 아래로 밀어 하단 정렬 */
+.lobby-form {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.lobby-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #8ea2be;
+  margin: 0 2px 7px;
+}
+
+@media (max-width: 760px) {
+  .lobby-shell {
+    flex-direction: column;
+    width: 94vw;
+    height: min(90vh, 760px);
+  }
+  .lobby-left {
+    order: 2;
+    padding: 18px 18px 20px;
+  }
+  .lobby-right {
+    order: 1;
+    padding: 22px 20px;
+    border-left: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  }
+  .lobby-form {
+    margin-top: 16px;
+  }
+}
+
 /* ── HUD: 상단 중앙 라운드 타이머 pill ── */
 .hud-timer {
   position: absolute;
