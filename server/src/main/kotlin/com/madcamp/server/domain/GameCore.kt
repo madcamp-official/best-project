@@ -557,27 +557,34 @@ object GameCore {
 
         val sggTotal = HashMap<String, Int>()
         val sggOwned = HashMap<String, Int>()
+        val sidoTotal = HashMap<String, Int>()
+        val sidoOwned = HashMap<String, Int>()
         var anyOwned = false
+        var ownedCells = 0
 
         for (i in 0 until world.n) {
             val sgg = world.meta[i].sggcd
+            val sido = world.meta[i].sidocd
             sggTotal[sgg] = (sggTotal[sgg] ?: 0) + 1
+            sidoTotal[sido] = (sidoTotal[sido] ?: 0) + 1
             if (world.ownerId[i] == holderId) {
                 anyOwned = true
+                ownedCells++
                 sggOwned[sgg] = (sggOwned[sgg] ?: 0) + 1
+                sidoOwned[sido] = (sidoOwned[sido] ?: 0) + 1
             }
         }
         if (!anyOwned) return null
 
-        var fullSgg = 0
-        for ((sgg, total) in sggTotal) {
-            if ((sggOwned[sgg] ?: 0) == total) fullSgg++
-        }
-        return when {
-            fullSgg == 0 -> Rank.DONGJANG
-            fullSgg == sggTotal.size -> Rank.DOJISA
-            else -> Rank.SIJANG
-        }
+        if (ownedCells == world.n) return Rank.PRESIDENT // 전국(모든 동) 완전 장악
+
+        val fullSido = sidoTotal.count { (sido, total) -> (sidoOwned[sido] ?: 0) == total }
+        if (fullSido > 0) return Rank.DOJISA // 시도(예: 강원도) 하나를 통째로 장악
+
+        val fullSgg = sggTotal.count { (sgg, total) -> (sggOwned[sgg] ?: 0) == total }
+        if (fullSgg > 0) return Rank.SIJANG // 시군구 하나를 통째로 장악
+
+        return Rank.DONGJANG
     }
 
     // ── 포위 귀속 (Encirclement Capture, web/src/game/core.ts tickAnnex 1:1) ────────────

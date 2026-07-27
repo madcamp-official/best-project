@@ -39,7 +39,7 @@ data class DongStaticMeta(
     val centroid: DoubleArray, // [lng, lat]
 )
 
-enum class Rank { DONGJANG, SIJANG, DOJISA }
+enum class Rank { DONGJANG, SIJANG, DOJISA, PRESIDENT }
 
 data class LeaderboardRow(
     val holderId: Int,

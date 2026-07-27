@@ -33,7 +33,7 @@ export interface LogEntry {
   message: string;
 }
 
-export type Rank = "동장" | "시장" | "도지사" | null;
+export type Rank = "동장" | "시장" | "도지사" | "대통령" | null;
 
 export interface DongStaticMeta {
   admIndex: number;

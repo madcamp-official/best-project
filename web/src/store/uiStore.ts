@@ -65,7 +65,7 @@ interface UIState {
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 계급 승급 토스트용 — 직전 계급 레벨. -1 = 아직 초기화 전(첫 계산은 토스트 안 함).
-const RANK_LEVEL: Record<string, number> = { 동장: 1, 시장: 2, 도지사: 3 };
+const RANK_LEVEL: Record<string, number> = { 동장: 1, 시장: 2, 도지사: 3, 대통령: 4 };
 let prevRankLevel = -1;
 
 export const useUIStore = create<UIState>((set, get) => ({

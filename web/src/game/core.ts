@@ -751,25 +751,40 @@ export function computeRank(s: GameState, holderId: number): Rank {
 
   const sggTotal = new Map<string, number>();
   const sggOwned = new Map<string, number>();
+  const sidoTotal = new Map<string, number>();
+  const sidoOwned = new Map<string, number>();
   let anyOwned = false;
+  let ownedCells = 0;
 
   for (let i = 0; i < s.n; i++) {
     const sgg = s.meta[i].sggcd;
+    const sido = s.meta[i].sidocd;
     sggTotal.set(sgg, (sggTotal.get(sgg) ?? 0) + 1);
+    sidoTotal.set(sido, (sidoTotal.get(sido) ?? 0) + 1);
     if (s.ownerId[i] === holderId) {
       anyOwned = true;
+      ownedCells++;
       sggOwned.set(sgg, (sggOwned.get(sgg) ?? 0) + 1);
+      sidoOwned.set(sido, (sidoOwned.get(sido) ?? 0) + 1);
     }
   }
   if (!anyOwned) return null;
+
+  if (ownedCells === s.n) return "대통령"; // 전국(모든 동) 완전 장악
+
+  let fullSido = 0;
+  for (const [sido, total] of sidoTotal) {
+    if ((sidoOwned.get(sido) ?? 0) === total) fullSido++;
+  }
+  if (fullSido > 0) return "도지사"; // 시도(예: 강원도) 하나를 통째로 장악
 
   let fullSgg = 0;
   for (const [sgg, total] of sggTotal) {
     if ((sggOwned.get(sgg) ?? 0) === total) fullSgg++;
   }
-  if (fullSgg === 0) return "동장";
-  if (fullSgg === sggTotal.size) return "도지사"; // 목업은 서울 단일 시도라 실질 도달은 어려움
-  return "시장";
+  if (fullSgg > 0) return "시장"; // 시군구 하나를 통째로 장악
+
+  return "동장";
 }
 
 // ── 환경 세력 (E) — README §4.6 ──────────────────────────────────────
