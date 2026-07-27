@@ -2,6 +2,7 @@ package com.madcamp.server.ws.dto
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.madcamp.server.config.GameConfig
+import com.madcamp.server.game.RoomState
 import com.madcamp.server.domain.DongStaticMeta
 import com.madcamp.server.domain.Holder
 import com.madcamp.server.domain.LeaderboardRow
@@ -14,6 +15,7 @@ import com.madcamp.server.domain.ShieldInfo
 data class JoinMessage(val nickname: String? = null, val token: String? = null)
 
 data class WelcomeMessage(
+    val roomId: String, // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
     val holderId: Int,
     val token: String,
     val paletteIdx: Int,
@@ -83,3 +85,50 @@ data class LeaderboardMessage(
     val envCells: Int,
     val totalCells: Int,
 )
+
+// ── 로비/방(다중 세션) ─────────────────────────────────────────────────
+
+/** 로비 목록의 방 한 개 요약(/topic/rooms). state는 "LOBBY"|"PLAYING"|"ENDED"로 직렬화. */
+data class RoomInfo(
+    val roomId: String,
+    val name: String,
+    val state: RoomState,
+    val memberCount: Int,
+    val maxMembers: Int,
+)
+
+/** 공개 방 목록(S→C, /topic/rooms). 멤버십·상태가 바뀔 때마다 브로드캐스트. */
+data class RoomListMessage(val rooms: List<RoomInfo>)
+
+/** 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). */
+data class MemberInfo(val nickname: String, val holderId: Int)
+
+/** 방 입장 응답(S→C, /user/queue/roomJoined). 입장한 방의 현재 상태·멤버를 알려준다. */
+data class RoomJoinedMessage(
+    val roomId: String,
+    val name: String,
+    val state: RoomState,
+    val members: List<MemberInfo>,
+)
+
+/** 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state). */
+data class RoomStateMessage(
+    val roomId: String,
+    val state: RoomState,
+    val members: List<MemberInfo>,
+)
+
+/** 라운드 종료 결과(S→C, /topic/room/{id}/state). reason="DOMINATION"|"TIMEOUT". */
+data class RoundEndMessage(
+    val roomId: String,
+    val reason: String,
+    val winnerHolderId: Int,
+    val winnerName: String?,
+    val leaderboard: List<LeaderboardRow>,
+)
+
+/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. */
+data class CreateRoomCommand(val name: String? = null, val nickname: String? = null, val token: String? = null)
+
+/** 방 입장(C→S, /app/lobby/join). */
+data class JoinRoomCommand(val roomId: String = "", val nickname: String? = null, val token: String? = null)

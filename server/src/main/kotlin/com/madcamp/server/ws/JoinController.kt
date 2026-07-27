@@ -25,12 +25,13 @@ class JoinController(
     fun join(@Payload msg: JoinMessage, principal: Principal) {
         val welcome = gameLoop.runOnRoom(GameLoop.DEFAULT_ROOM_ID) { world ->
             val config = configService.current
-            val (token, session) = sessionService.joinOrRestore(world, config, msg.nickname, msg.token)
+            val (token, session) = sessionService.joinOrRestore(GameLoop.DEFAULT_ROOM_ID, world, config, msg.nickname, msg.token)
             connectionRegistry.bind(principal.name, GameLoop.DEFAULT_ROOM_ID, session.holderId)
             val holder = world.holders.getValue(session.holderId)
             val nowMs = System.currentTimeMillis()
 
             WelcomeMessage(
+                roomId = GameLoop.DEFAULT_ROOM_ID,
                 holderId = session.holderId,
                 token = token,
                 paletteIdx = holder.paletteIdx,
