@@ -15,13 +15,15 @@ function fail(msg) {
 }
 
 async function main() {
-  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=0.3, MISSILE_MAX_TOTAL=200, ENV 확장 정지)...");
+  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=0.3, MISSILE_MAX_TOTAL=200, ENV 확장 정지, 방어막 최소화)...");
   // ENV_ACT_INTERVAL_SEC를 잠깐 멈춰(사실상 무한대) 야만인 세력이 이 봇의 BFS 확장을 방해하지
-  // 않게 한다 — 이 테스트는 미사일 발사 왕복 확인이 목적이라 E와는 무관하다.
+  // 않게 한다 — 이 테스트는 미사일 발사 왕복 확인이 목적이라 E와는 무관하다. SPAWN_SHIELD_SEC도
+  // 최소화 — 이 테스트는 자기 자신의 동에 자기 미사일을 쏘는데, 스폰 방어막은 소유자 무관하게
+  // 그 동을 보호하므로(방어막이 있으면 자기 미사일도 안 먹는다) 안 그러면 착탄 자체가 막힌다.
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.1, MISSILE_MAX_TOTAL: 300, ENV_ACT_INTERVAL_SEC: 999 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.1, MISSILE_MAX_TOTAL: 300, ENV_ACT_INTERVAL_SEC: 999, SPAWN_SHIELD_SEC: 0.1 }),
   });
 
   const state = { ownerId: null, myHolderId: -1, meta: null, neighborIndex: null, n: 0, missiles: new Set() };
@@ -119,7 +121,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3, SPAWN_SHIELD_SEC: 120 }),
   });
 
   client.deactivate();

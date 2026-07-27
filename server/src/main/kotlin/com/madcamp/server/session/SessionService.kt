@@ -1,5 +1,6 @@
 package com.madcamp.server.session
 
+import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.Palette
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.Holder
@@ -20,9 +21,9 @@ class SessionService {
     private val sessionsByToken = ConcurrentHashMap<String, PlayerSession>()
 
     /** 기존 토큰이면 그대로 복구, 아니면 새 holder를 World에 등록하고 새 토큰을 발급한다. */
-    fun joinOrRestore(world: World, nickname: String?, token: String?): Pair<String, PlayerSession> {
+    fun joinOrRestore(world: World, config: GameConfig, nickname: String?, token: String?): Pair<String, PlayerSession> {
         if (token != null) {
-            sessionsByToken[token]?.let { return token to it }
+            sessionsByToken[token]?.let { return token to it } // 재접속 — 방어막 재부여 없음(이미 하던 게임 이어감)
         }
         val newToken = UUID.randomUUID().toString()
         val holderId = allocateHolderId(world)
@@ -40,7 +41,9 @@ class SessionService {
         world.ownerId[startIndex] = holderId
         world.troops[startIndex] = world.troopCap[startIndex]
         world.dirty.add(startIndex)
-        GameCore.pushLog(world, "${world.meta[startIndex].name}에서 ${name}님이 시작합니다.", System.currentTimeMillis())
+        val nowMs = System.currentTimeMillis()
+        GameCore.applyShield(world, config, holderId, nowMs) // 신규 참가 스폰 방어막(SPAWN_SHIELD_SEC)
+        GameCore.pushLog(world, "${world.meta[startIndex].name}에서 ${name}님이 시작합니다.", nowMs)
 
         val session = PlayerSession(holderId, name)
         sessionsByToken[newToken] = session

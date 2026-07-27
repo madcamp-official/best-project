@@ -21,7 +21,7 @@ export function JoinScreen({ onJoin }: Props) {
     <div className="join-overlay">
       <div className="join-card">
         <h1 className="join-title">영토 점령</h1>
-        <p className="join-sub">실제 전국 행정동 지도 위에서 벌이는 영토 점령전</p>
+        <p className="join-sub">실제 전국 법정동 지도 위에서 벌이는 영토 점령전</p>
         <input
           className="join-input"
           type="text"

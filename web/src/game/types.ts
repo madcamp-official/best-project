@@ -21,6 +21,12 @@ export interface Order {
   airdrop?: boolean;
 }
 
+// 스폰 방어막 — holderId가 until(서버 epoch ms, stompConnection이 로컬 시간축으로 변환)까지 보호됨.
+export interface ShieldInfo {
+  holderId: number;
+  until: number;
+}
+
 export interface LogEntry {
   id: number;
   ts: number;

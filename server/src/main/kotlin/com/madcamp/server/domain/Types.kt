@@ -61,3 +61,9 @@ data class MissileLaunch(
     val neutralized: List<Int> = emptyList(),
     val reason: String = "",
 )
+
+/** 스폰 방어막 — holderId가 until(서버 epoch ms)까지 보호됨. WELCOME(전체)·DELTA(변경분)로 전파. */
+data class ShieldInfo(
+    val holderId: Int,
+    val until: Long,
+)

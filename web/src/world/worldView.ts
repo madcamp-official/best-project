@@ -48,6 +48,8 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.myHolderId = msg.holderId;
   world.myRally = msg.rally ?? -1;
   rallyTouched = true;
+  world.shieldUntil = new Float64Array(256);
+  for (const sh of msg.shields) world.shieldUntil[sh.holderId] = sh.until;
 }
 
 // 함락(소유권 변경)이 일어난 admIndex 큐 — 렌더러가 꺼내 플래시 연출에 쓴다.
@@ -92,6 +94,7 @@ export function applyDelta(msg: DeltaMessage) {
     for (const i of msg.missileRemove) world.missiles[i] = 0;
     missilesTouched = true;
   }
+  for (const sh of msg.shieldUpdates) world.shieldUntil[sh.holderId] = sh.until;
 
   // 패배 판정: 이번 delta 적용 전엔 살아있었는데(소유 동 > 0) 적용 후 0개가 됐으면 궤멸 순간이다.
   // 더 이상 서버가 같은 delta에 새 동을 자동으로 얹어주지 않으므로 이 전이만 보면 된다.

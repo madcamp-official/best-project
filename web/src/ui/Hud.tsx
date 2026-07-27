@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
 import { ENV_PALETTE_IDX, PALETTE } from "../config";
@@ -33,13 +34,22 @@ export function Hud({ connection }: Props) {
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
+  // 방어막 카운트다운 — world.shieldUntil은 rAF 루프가 아니라 여기서 직접 읽으므로,
+  // 표시를 갱신하려면 0.5초마다 리렌더를 스스로 트리거해야 한다(전투 로직과는 무관, 표시 전용).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 500);
+    return () => clearInterval(id);
+  }, []);
+  const shieldSecLeft = Math.max(0, Math.ceil((world.shieldUntil[myHolderId] - nowTick) / 1000));
+
   if (phase === "loading") {
     return (
       <div className="hud-overlay hud-center">
         <div className="loading-box">
           <div className="loading-spinner" />
           <p className="loading-title">전국 지도를 준비하는 중…</p>
-          <p className="loading-sub">3,500개 행정동의 경계·인접 그래프를 계산하고 있어요</p>
+          <p className="loading-sub">5,000여 개 법정동의 경계·인접 그래프를 계산하고 있어요</p>
         </div>
       </div>
     );
@@ -64,6 +74,23 @@ export function Hud({ connection }: Props) {
         <div className="hud-rank">
           내 계급: <strong>{myRank ?? "무소속"}</strong>
         </div>
+        {shieldSecLeft > 0 && (
+          <div
+            style={{
+              margin: "4px 0",
+              padding: "3px 8px",
+              borderRadius: 6,
+              background: "rgba(111,214,255,0.15)",
+              border: "1px solid rgba(211,244,255,0.5)",
+              color: "#d3f4ff",
+              fontSize: 13,
+              fontWeight: 700,
+              display: "inline-block",
+            }}
+          >
+            🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+          </div>
+        )}
         <ol className="hud-leaderboard">
           {leaderboard.map((row) => (
             <li key={row.holderId} className={row.holderId === myHolderId ? "me" : ""}>

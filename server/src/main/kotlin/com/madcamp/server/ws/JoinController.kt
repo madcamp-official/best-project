@@ -1,6 +1,7 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.domain.ShieldInfo
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.session.SessionService
 import com.madcamp.server.ws.dto.JoinMessage
@@ -23,16 +24,18 @@ class JoinController(
     @MessageMapping("/join")
     fun join(@Payload msg: JoinMessage, principal: Principal) {
         val welcome = gameLoop.runOnLoop { world ->
-            val (token, session) = sessionService.joinOrRestore(world, msg.nickname, msg.token)
+            val config = configService.current
+            val (token, session) = sessionService.joinOrRestore(world, config, msg.nickname, msg.token)
             connectionRegistry.bind(principal.name, session.holderId)
             val holder = world.holders.getValue(session.holderId)
+            val nowMs = System.currentTimeMillis()
 
             WelcomeMessage(
                 holderId = session.holderId,
                 token = token,
                 paletteIdx = holder.paletteIdx,
-                config = configService.current,
-                serverTimeMs = System.currentTimeMillis(),
+                config = config,
+                serverTimeMs = nowMs,
                 meta = world.meta.toList(),
                 neighborIndex = world.neighborIndex.toList(),
                 ownerId = world.ownerId.copyOf(),
@@ -42,6 +45,10 @@ class JoinController(
                 orders = world.orders.toList(),
                 missiles = (0 until world.n).filter { world.missile[it] },
                 rally = world.rally[session.holderId],
+                shields = (0 until 256).mapNotNull { hid ->
+                    val until = world.shieldUntil[hid]
+                    if (until > nowMs) ShieldInfo(hid, until) else null
+                },
             )
         }
         messagingTemplate.convertAndSendToUser(principal.name, "/queue/welcome", welcome)

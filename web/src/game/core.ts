@@ -1,5 +1,5 @@
 import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
-import type { DongStaticMeta, Holder, LogEntry, Order, Rank } from "./types";
+import type { DongStaticMeta, Holder, LogEntry, Order, Rank, ShieldInfo } from "./types";
 
 // ── 헥사고날 도메인 코어 ──────────────────────────────────────────────
 // 순수 게임 규칙만 둔다. React·MapLibre·Zustand·브라우저 시계에 의존하지 않는다.
@@ -27,6 +27,10 @@ export interface GameState {
   rally: Int32Array;
   // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
   airdropReadyAt: Float64Array;
+  // 스폰 방어막: holderId → 보호 종료 시각(ms, 호출자의 시간축 그대로 — 시뮬레이터는 wallNowMs).
+  // 0=방어막 없음. 크기 256. applyShield가 설정, resolveArrival/launchMissile/tickAnnex/
+  // resolveAirdrop이 참조한다.
+  shieldUntil: Float64Array;
   // 포위 귀속(README §포위): 경계 동 마스크(0/1, 정적)와, 각 동이 현재 어느 플레이어에게
   // 언제부터 포위됐는지(-1=포위 안 됨). ANNEX_HOLD_SEC 유지 판정용.
   borderMask: Uint8Array;
@@ -78,6 +82,7 @@ export function createGameState(
     missiles: new Uint8Array(n),
     rally: new Int32Array(256).fill(-1),
     airdropReadyAt: new Float64Array(256),
+    shieldUntil: new Float64Array(256),
     borderMask: borderMask ?? new Uint8Array(n),
     enclosedBy: new Int32Array(n).fill(-1),
     enclosedSince: new Float64Array(n),
@@ -88,6 +93,7 @@ export function createGameState(
   if (n > 0) {
     ownerId[startIndex] = MY_HOLDER_ID;
     troops[startIndex] = troopCap[startIndex];
+    applyShield(s, MY_HOLDER_ID, wallNowMs); // 시작 스폰 방어막(SPAWN_SHIELD_SEC)
     pushLog(s, `${meta[startIndex].name}에서 시작합니다.`, wallNowMs);
   }
   return s;
@@ -302,9 +308,13 @@ function resolveArrival(s: GameState, order: Order, nowMs: number, wallNowMs: nu
       s.dirty.add(from);
     }
   } else {
+    const prevOwner = s.ownerId[to];
+    if (isShielded(s, prevOwner, wallNowMs)) {
+      // 방어막에 막힘 — 공격 병력 소멸, 방어측 무피해(스폰 방어막 보호 기간).
+      return null;
+    }
     const remaining = s.troops[to] - amount; // 부호 있는 일반 number 연산으로 먼저 계산
     if (remaining < 0) {
-      const prevOwner = s.ownerId[to];
       const prevHolder = s.holders.get(prevOwner);
       const nextHolder = s.holders.get(holderId);
       s.ownerId[to] = holderId;
@@ -426,6 +436,7 @@ export function launchMissile(
   const neutralized: number[] = [];
   for (const h of hits) {
     if (h < 0 || h >= s.n) continue;
+    if (isShielded(s, s.ownerId[h], wallNowMs)) continue; // 방어막 보호 — 중립화 안 됨
     s.ownerId[h] = NEUTRAL_HOLDER_ID;
     s.troops[h] = 0;
     s.troopAccum[h] = 0;
@@ -643,6 +654,7 @@ function resolveAirdrop(s: GameState, dest: number, amount: number, holderId: nu
       }
       for (const nb of s.neighborIndex[d]) if (!visited[nb]) { visited[nb] = 1; queue.push(nb); }
     } else {
+      if (isShielded(s, s.ownerId[d], wallNowMs)) continue; // 방어막 — 투하 불가, 통과도 불가
       const defenders = s.troops[d];
       if (remaining > defenders) {
         s.ownerId[d] = holderId;
@@ -692,8 +704,24 @@ export function respawnPlayer(s: GameState, holderId: number, wallNowMs: number)
   s.ownerId[newCell] = holderId;
   s.troops[newCell] = s.troopCap[newCell];
   s.dirty.add(newCell);
+  applyShield(s, holderId, wallNowMs);
   pushLog(s, `${holder.name}님이 재시작해 ${s.meta[newCell].name}에서 다시 시작합니다.`, wallNowMs);
   return true;
+}
+
+// ── 스폰 방어막 ───────────────────────────────────────────────────────
+// 신규 참가(createGameState)·재시작(respawnPlayer) 직후 SPAWN_SHIELD_SEC 동안 그 플레이어의
+// 동은 전투/미사일/포위/공수로부터 보호된다("시작하자마자 죽는다" 피드백 대응). 시작 계기가
+// 뭐든 규칙은 하나 — 이 함수 하나로 부여한다.
+export function applyShield(s: GameState, holderId: number, wallNowMs: number): ShieldInfo {
+  const until = wallNowMs + CONFIG.SPAWN_SHIELD_SEC * 1000;
+  s.shieldUntil[holderId] = until;
+  return { holderId, until };
+}
+
+// holderId가 지금(nowMs 기준) 방어막으로 보호되는 실제 플레이어인가.
+function isShielded(s: GameState, holderId: number, nowMs: number): boolean {
+  return isRealPlayer(holderId) && nowMs < s.shieldUntil[holderId];
 }
 
 // README §4.6, §8 — 순위표는 중립·환경 세력(E)을 제외한 플레이어만.
@@ -769,8 +797,8 @@ export function tickAnnex(s: GameState, nowMs: number, wallNowMs: number): numbe
             }
           }
         }
-        // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유이면 포위 후보.
-        if (!touchesBorder && singleOwner && isRealPlayer(owner0)) {
+        // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유 + 방어막 없음이면 포위 후보.
+        if (!touchesBorder && singleOwner && isRealPlayer(owner0) && !isShielded(s, owner0, wallNowMs)) {
           for (const c of comp) curBy[c] = P;
         }
       }

@@ -8,7 +8,7 @@
 
 // CONFIG는 `typeof CONFIG`로 값 타입을 뽑아 쓰므로 값 import (verbatimModuleSyntax).
 import { CONFIG } from "../config";
-import type { DongStaticMeta, Holder, LogEntry, Order } from "../game/types";
+import type { DongStaticMeta, Holder, LogEntry, Order, ShieldInfo } from "../game/types";
 
 // ── C→S ──────────────────────────────────────────────────────────────
 
@@ -82,6 +82,7 @@ export interface WelcomeMessage {
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
   rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
+  shields: ShieldInfo[]; // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
 }
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
@@ -114,6 +115,7 @@ export interface DeltaMessage {
   // 없는 정보라, 그 holder의 첫 cells 변경과 "같은" DELTA에 실려 온다 — paletteIdx를 몰라
   // 땅 색을 잘못(fallback 회색) 칠하는 순간이 아예 생기지 않는다.
   newHolders: Holder[];
+  shieldUpdates: ShieldInfo[]; // 이번 구간에 새로 생기거나 갱신된 방어막(신규 참가·재시작)
 }
 
 // api-spec §2.6 — 순위표 (1Hz). E는 rows에서 제외, envCells는 잔존 표시용

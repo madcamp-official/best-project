@@ -32,6 +32,10 @@ class World(
     // web/src/game/core.ts GameState.airdropReadyAt 대응.
     val airdropReadyAt: LongArray = LongArray(256)
 
+    // 스폰 방어막: holderId → 보호 종료 벽시계 시각(ms). 0=방어막 없음. 크기 256.
+    // 신규 참가·재시작 시 SPAWN_SHIELD_SEC 뒤로 설정된다(GameCore.applyShield).
+    val shieldUntil: LongArray = LongArray(256)
+
     // 시도(sido)별 admIndex 목록 — 미사일 스폰을 지역 균등(시도 먼저 균등 추첨)으로 뽑을 때 쓴다.
     // 동 개수가 시도별로 크게 달라서(서울·부산은 동이 촘촘히 쪼개져 있음) 동 단위로 그냥
     // 균등 추첨하면 그쪽에 쏠린다(GameCore.trySpawnMissile 참조). World 생성 시 1회 계산.
@@ -48,6 +52,7 @@ class World(
     val pendingMissileAdd: MutableList<Int> = mutableListOf()
     val pendingMissileRemove: MutableList<Int> = mutableListOf()
     val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
+    val pendingShields: MutableList<ShieldInfo> = mutableListOf() // 새로 생기거나 갱신된 방어막
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
     var nextLogId: Int = 1

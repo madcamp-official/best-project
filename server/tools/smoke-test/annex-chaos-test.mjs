@@ -32,11 +32,13 @@ function connectAndJoin(nickname) {
 }
 
 async function main() {
-  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, ANNEX_HOLD_SEC=2)...");
+  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, ANNEX_HOLD_SEC=2, 방어막 최소화)...");
+  // 스폰 방어막(기본 120초)이 있으면 갓 접속한 봇들 서로가 이 테스트 내내(45초) 보호돼
+  // 포위 흡수 자체가 안 걸린다 — 이 테스트는 포위 귀속 로직 검증이 목적이라 최소화한다.
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, ANNEX_HOLD_SEC: 2 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, ANNEX_HOLD_SEC: 2, SPAWN_SHIELD_SEC: 0.1 }),
   });
 
   const annexLogs = [];
@@ -95,7 +97,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, ANNEX_HOLD_SEC: 5 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, ANNEX_HOLD_SEC: 5, SPAWN_SHIELD_SEC: 120 }),
   });
 
   for (const b of bots) b.client.deactivate();

@@ -6,7 +6,7 @@
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadDong";
 import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
-import type { Order } from "../game/types";
+import type { Order, ShieldInfo } from "../game/types";
 import type { Connection } from "./connection";
 import type {
   DeltaMessage,
@@ -41,6 +41,7 @@ export class LocalConnection implements Connection {
   private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
+  private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -242,7 +243,8 @@ export class LocalConnection implements Connection {
 
   // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
   sendRestart(): void {
-    core.respawnPlayer(this.gs, this.holderId, Date.now()); // 다음 tick의 flushDelta로 dirty 전파
+    const ok = core.respawnPlayer(this.gs, this.holderId, Date.now()); // 다음 tick의 flushDelta로 dirty 전파
+    if (ok) this.pendingShields.push({ holderId: this.holderId, until: this.gs.shieldUntil[this.holderId] });
   }
 
   sendAirdrop(sources: number[], dest: number): void {
@@ -338,17 +340,30 @@ export class LocalConnection implements Connection {
     this.pendingMissileAdd = [];
     this.pendingMissileRemove = [];
 
+    const shieldUpdates = this.pendingShields;
+    this.pendingShields = [];
+
     if (
       cells.length === 0 &&
       newOrders.length === 0 &&
       events.length === 0 &&
       missileAdd.length === 0 &&
-      missileRemove.length === 0
+      missileRemove.length === 0 &&
+      shieldUpdates.length === 0
     ) {
       return;
     }
     // 목 서버는 단일 로컬 플레이어라 접속 중 새 holder가 생기는 시나리오가 없다 — 항상 빈 배열.
-    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove, newHolders: [] });
+    this.deltaCb?.({
+      serverTimeMs: now,
+      cells,
+      newOrders,
+      events,
+      missileAdd,
+      missileRemove,
+      newHolders: [],
+      shieldUpdates,
+    });
   }
 
   private flushLeaderboard(): void {
@@ -375,7 +390,20 @@ export class LocalConnection implements Connection {
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
       rally: this.gs.rally[this.holderId],
+      shields: this.collectShields(),
     };
+  }
+
+  // 지금(Date.now() 기준) 활성 상태인 방어막 전체 스냅샷(만료분 제외). 표시(카운트다운)
+  // 용도라 서버 offsetMs 번역 없이 벽시계 그대로 전달 — 실서버도 epoch ms 그대로 보낸다.
+  private collectShields(): ShieldInfo[] {
+    const now = Date.now();
+    const out: ShieldInfo[] = [];
+    for (let holderId = 0; holderId < this.gs.shieldUntil.length; holderId++) {
+      const until = this.gs.shieldUntil[holderId];
+      if (until > now) out.push({ holderId, until });
+    }
+    return out;
   }
 
   private collectMissiles(): number[] {

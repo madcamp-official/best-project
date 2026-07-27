@@ -37,6 +37,15 @@ function connectAndJoin(nickname) {
 }
 
 async function main() {
+  // 스폰 방어막(SPAWN_SHIELD_SEC, 기본 120초)이 있으면 갓 접속한 B가 이 테스트 내내
+  // 보호받아 미사일이 안 먹는다 — 방어막 자체는 shield-test.mjs가 따로 검증하니,
+  // 이 테스트(재시작 흐름)에서는 최소화해 무관하게 만든다.
+  await fetch(ADMIN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ SPAWN_SHIELD_SEC: 0.1 }),
+  });
+
   console.log("[1] B(피해자) 접속...");
   const b = await connectAndJoin("피해자B");
   const Y = b.welcome.ownerId.findIndex((o) => o === b.welcome.holderId);
@@ -122,7 +131,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3, SPAWN_SHIELD_SEC: 120 }),
   });
 
   const bOwnsAny = bState.ownerId.some((o) => o === b.welcome.holderId);

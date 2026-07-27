@@ -214,6 +214,10 @@ object GameCore {
             }
         } else {
             val prevOwner = world.ownerId[to]
+            if (isShielded(world, prevOwner, nowMs)) {
+                // 방어막에 막힘 — 공격 병력 소멸, 방어측 무피해(스폰 방어막 보호 기간).
+                return null
+            }
             val remaining = world.troops[to] - amount
             if (remaining < 0) {
                 val prevHolder = world.holders[prevOwner]
@@ -322,6 +326,7 @@ object GameCore {
         val neutralized = ArrayList<Int>()
         for (h in hits) {
             if (h < 0 || h >= world.n) continue
+            if (isShielded(world, world.ownerId[h], wallNowMs)) continue // 방어막 보호 — 중립화 안 됨
             world.ownerId[h] = HolderIds.NEUTRAL
             world.troops[h] = 0
             world.troopAccum[h] = 0.0
@@ -429,6 +434,7 @@ object GameCore {
                 }
                 for (nb in world.neighborIndex[d]) if (!visited[nb]) { visited[nb] = true; queue.add(nb) }
             } else {
+                if (isShielded(world, world.ownerId[d], wallNowMs)) continue // 방어막 — 투하 불가, 통과도 불가
                 val defenders = world.troops[d]
                 if (remaining > defenders) {
                     world.ownerId[d] = holderId
@@ -603,8 +609,8 @@ object GameCore {
                             }
                         }
                     }
-                    // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유이면 포위 후보.
-                    if (!touchesBorder && singleOwner && isRealPlayer(owner0)) {
+                    // 경계(바깥)에 못 닿고(=P가 완전 봉쇄) + 전부 단일 실제 플레이어 소유 + 방어막 없음이면 포위 후보.
+                    if (!touchesBorder && singleOwner && isRealPlayer(owner0) && !isShielded(world, owner0, nowMs)) {
                         for (c in comp) curBy[c] = p
                     }
                 }
@@ -666,7 +672,7 @@ object GameCore {
     // RestartController가 이 함수를 호출한다 — 예전엔 매 tick 자동으로 재배정했지만, 그러면
     // 게임오버 순간 자체가 안 보여서(바로 다음 tick에 이미 부활해 있음) 유저 요청 시로 바꿨다.
     // 아직 살아있으면(소유 동 > 0) 무시. E(255)는 대상 아님(재스폰 없음, README §4.6).
-    fun respawnPlayer(world: World, holderId: Int, wallNowMs: Long): Boolean {
+    fun respawnPlayer(world: World, config: GameConfig, holderId: Int, wallNowMs: Long): Boolean {
         val holder = world.holders[holderId] ?: return false
         if (!isRealPlayer(holderId)) return false
         if (ownedCount(world, holderId) > 0) return false // 아직 안 죽음 — 무시
@@ -675,7 +681,22 @@ object GameCore {
         world.ownerId[newCell] = holderId
         world.troops[newCell] = world.troopCap[newCell]
         world.dirty.add(newCell)
+        applyShield(world, config, holderId, wallNowMs)
         pushLog(world, "${holder.name}님이 재시작해 ${world.meta[newCell].name}에서 다시 시작합니다.", wallNowMs)
         return true
     }
+
+    // ── 스폰 방어막 ───────────────────────────────────────────────────
+    // 신규 참가·재시작 직후 SPAWN_SHIELD_SEC 동안 그 플레이어의 동은 전투/미사일/포위/공수로부터
+    // 보호된다("시작하자마자 죽는다" 실사용 피드백 대응). SessionService(신규 참가)와
+    // respawnPlayer(재시작) 둘 다 이 함수로 부여한다 — 시작 계기가 뭐든 규칙은 하나.
+    fun applyShield(world: World, config: GameConfig, holderId: Int, wallNowMs: Long) {
+        val until = wallNowMs + (config.spawnShieldSec * 1000).toLong()
+        world.shieldUntil[holderId] = until
+        world.pendingShields.add(ShieldInfo(holderId, until))
+    }
+
+    // holderId가 지금(wallNowMs 기준) 방어막으로 보호되는 실제 플레이어인가.
+    fun isShielded(world: World, holderId: Int, wallNowMs: Long): Boolean =
+        isRealPlayer(holderId) && wallNowMs < world.shieldUntil[holderId]
 }

@@ -56,6 +56,9 @@ const AIRDROP_RANGE_SOURCE = "airdrop-range"; // 공수 사거리 원(목적지 
 const AIRDROP_RANGE_FILL = "airdrop-range-fill";
 const AIRDROP_RANGE_LINE = "airdrop-range-line";
 const AIM_BLINK_LAYER = "dong-aim-blink"; // 조준에 걸린 동의 하얀 반짝 테두리
+const SHIELD_SOURCE = "spawn-shield"; // 스폰 방어막 돔(신규 참가·재시작 후 SPAWN_SHIELD_SEC초 보호)
+const SHIELD_FILL = "spawn-shield-fill";
+const SHIELD_LINE = "spawn-shield-line";
 const EXPLOSION_SOURCE = "explosions";
 const EXPLOSION_FILL = "explosions-fill";
 const EXPLOSION_RING = "explosions-ring";
@@ -91,8 +94,10 @@ export function MapView({ prepared, connection }: Props) {
         sources: {},
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1220" } }],
       },
-      center: myStartCenter(prepared), // 시작 시 내 영토로 카메라 이동
-      zoom: 11,
+      // 전국을 살짝 보여준 뒤(줌 아웃 상태로 시작) load 핸들러 끝에서 내 시작 동으로 flyTo —
+      // 재시작 때와 같은 "확대돼서 어디 배정받았는지 보이는" 연출을 최초 접속에도 준다.
+      center: averageCenter(prepared),
+      zoom: 6.4,
       attributionControl: false,
       doubleClickZoom: false, // 더블클릭 확대 비활성화 (동을 빠르게 두 번 클릭할 때 오확대 방지)
     });
@@ -158,6 +163,81 @@ export function MapView({ prepared, connection }: Props) {
               },
             ]
           : [];
+      src.setData({ type: "FeatureCollection", features });
+    };
+
+    // 방어막 돔 갱신 — 지금(Date.now() 기준) 보호 중인 모든 holder의 현재 영토를 감싸는 동심원
+    // 돔을 그린다. 영토가 넓어지면(방어막 동안 확장) 반경도 같이 커진다. 안쪽일수록 밝은 원을
+    // 겹쳐 그려 유리 돔처럼 보이게 하고, now 기반 사인파로 아주 은은하게 숨쉬듯 흔든다.
+    let shieldWasActive = false;
+    const updateShieldDomes = (m: MaplibreMap, now: number) => {
+      const src = m.getSource(SHIELD_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      const wallNow = Date.now();
+      const activeHolders: number[] = [];
+      for (let h = 1; h < 256; h++) if (world.shieldUntil[h] > wallNow) activeHolders.push(h);
+
+      if (activeHolders.length === 0) {
+        if (shieldWasActive) {
+          src.setData({ type: "FeatureCollection", features: [] });
+          shieldWasActive = false;
+        }
+        return;
+      }
+      shieldWasActive = true;
+
+      const pulse = 1 + Math.sin(now / 450) * 0.035; // 아주 은은한 숨쉬기 효과
+      const features: {
+        type: "Feature";
+        properties: { opacity: number; lineOpacity: number; lineWidth: number };
+        geometry: { type: "Polygon"; coordinates: [number, number][][] };
+      }[] = [];
+      for (const holderId of activeHolders) {
+        let sx = 0;
+        let sy = 0;
+        let cnt = 0;
+        for (let i = 0; i < world.n; i++) {
+          if (world.ownerId[i] !== holderId) continue;
+          sx += world.meta[i].centroid[0];
+          sy += world.meta[i].centroid[1];
+          cnt++;
+        }
+        if (cnt === 0) continue; // 방어막은 있지만 지금은 소유 동 0개(궤멸 직후 등) — 그릴 게 없음
+        const cx = sx / cnt;
+        const cy = sy / cnt;
+        let maxD = 0;
+        for (let i = 0; i < world.n; i++) {
+          if (world.ownerId[i] !== holderId) continue;
+          const c = world.meta[i].centroid;
+          const dx = c[0] - cx;
+          const dy = c[1] - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > maxD) maxD = d;
+        }
+        const baseR = (maxD + 0.045) * pulse; // 영토 전체를 여유 있게 감싸는 반경 + 펄스
+        const cosLat = Math.cos((cy * Math.PI) / 180);
+        // 겹치는 3겹 동심원(바깥→안쪽 순서로 그려야 안쪽이 위에 덮인다): 바깥은 옅고 테두리만
+        // 뚜렷하게, 안쪽일수록 채움이 밝아져 유리 돔에 빛이 모인 느낌을 낸다.
+        const rings = [
+          { mul: 1.0, opacity: 0.05, lineOpacity: 0.5, lineWidth: 2 },
+          { mul: 0.7, opacity: 0.06, lineOpacity: 0, lineWidth: 0 },
+          { mul: 0.4, opacity: 0.09, lineOpacity: 0, lineWidth: 0 },
+        ];
+        for (const ring of rings) {
+          const r = baseR * ring.mul;
+          const rLng = r / cosLat;
+          const coords: [number, number][] = [];
+          for (let i = 0; i <= 56; i++) {
+            const a = (i / 56) * 2 * Math.PI;
+            coords.push([cx + Math.cos(a) * rLng, cy + Math.sin(a) * r]);
+          }
+          features.push({
+            type: "Feature",
+            properties: { opacity: ring.opacity, lineOpacity: ring.lineOpacity, lineWidth: ring.lineWidth },
+            geometry: { type: "Polygon", coordinates: [coords] },
+          });
+        }
+      }
       src.setData({ type: "FeatureCollection", features });
     };
 
@@ -692,6 +772,33 @@ export function MapView({ prepared, connection }: Props) {
           "line-opacity": 0.9,
         },
       });
+
+      // 스폰 방어막 돔 — 보호 중인 플레이어 영토를 감싸는 동심원 여러 겹(중심일수록 밝게)으로
+      // 유리 돔처럼 보이게 한다. 매 프레임 world.shieldUntil를 읽어 updateShieldDomes가 갱신한다.
+      map.addSource(SHIELD_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: SHIELD_FILL,
+        type: "fill",
+        source: SHIELD_SOURCE,
+        paint: {
+          "fill-color": "#6fd6ff",
+          "fill-opacity": ["coalesce", ["get", "opacity"], 0.06],
+        },
+      });
+      map.addLayer({
+        id: SHIELD_LINE,
+        type: "line",
+        source: SHIELD_SOURCE,
+        paint: {
+          "line-color": "#d3f4ff",
+          "line-width": ["coalesce", ["get", "lineWidth"], 0],
+          "line-opacity": ["coalesce", ["get", "lineOpacity"], 0],
+          "line-blur": 0.5,
+        },
+      });
       // 조준에 걸린 동의 하얀 반짝 테두리 — feature-state "aim"(0~1)을 rAF가 펄스로 흔든다.
       map.addLayer({
         id: AIM_BLINK_LAYER,
@@ -764,6 +871,10 @@ export function MapView({ prepared, connection }: Props) {
       updateRallyMarker(map);
       drainRallyTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
+
+      // 전국 개관 → 내 시작 동으로 확대 이동(재시작 flyTo와 동일 연출) — 어디서 시작했는지
+      // 한눈에 보이도록. 첫 페인트가 끝난 뒤라 이동 경로가 시각적으로 보인다.
+      map.flyTo({ center: myStartCenter(prepared), zoom: 11, duration: 1400 });
 
       let hovered: number | null = null;
       map.on("mousemove", FILL_LAYER, (e) => {
@@ -1050,6 +1161,9 @@ export function MapView({ prepared, connection }: Props) {
       if (respawnCell !== null) {
         map.flyTo({ center: world.meta[respawnCell].centroid as [number, number], zoom: 11, duration: 1200 });
       }
+
+      // 스폰 방어막 돔 — 매 프레임 갱신(보호 중인 플레이어가 있을 때만 실질 비용 발생).
+      updateShieldDomes(map, now);
 
       // 미사일 조준: 원/타격 갱신 + 걸린 동의 하얀 반짝 펄스
       const aimingNow = useUIStore.getState().isAiming;

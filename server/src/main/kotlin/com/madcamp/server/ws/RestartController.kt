@@ -1,5 +1,6 @@
 package com.madcamp.server.ws
 
+import com.madcamp.server.config.ConfigService
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.loop.GameLoop
 import org.springframework.messaging.handler.annotation.MessageMapping
@@ -15,12 +16,14 @@ import java.security.Principal
 class RestartController(
     private val gameLoop: GameLoop,
     private val connectionRegistry: ConnectionRegistry,
+    private val configService: ConfigService,
 ) {
     @MessageMapping("/restart")
     fun restart(principal: Principal) {
         val holderId = connectionRegistry.holderIdOf(principal.name) ?: return
+        val config = configService.current
         gameLoop.submitOnLoop { world ->
-            GameCore.respawnPlayer(world, holderId, System.currentTimeMillis())
+            GameCore.respawnPlayer(world, config, holderId, System.currentTimeMillis())
         }
     }
 }

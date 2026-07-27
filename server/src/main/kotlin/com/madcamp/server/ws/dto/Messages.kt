@@ -6,6 +6,7 @@ import com.madcamp.server.domain.Holder
 import com.madcamp.server.domain.LeaderboardRow
 import com.madcamp.server.domain.LogEvent
 import com.madcamp.server.domain.Order
+import com.madcamp.server.domain.ShieldInfo
 
 // docs/api-spec.md §2 그대로 대응하는 STOMP 페이로드. 필드 하나하나가 문서의 표와 1:1.
 
@@ -26,6 +27,7 @@ data class WelcomeMessage(
     val orders: List<Order>,
     val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
     val rally: Int, // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 복구용.
+    val shields: List<ShieldInfo>, // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
 )
 
 // ratio: 플레이어가 UI 슬라이더로 정한 이번 출정 병력 비율(0~1). 생략/비정상값이면
@@ -65,6 +67,7 @@ data class DeltaMessage(
     // 없는 정보라, 그 holder의 첫 cells 변경과 "같은" DELTA에 실어 보낸다 — 그래야 클라가
     // paletteIdx를 몰라 땅 색을 잘못(fallback) 칠하는 순간이 아예 생기지 않는다.
     val newHolders: List<Holder>,
+    val shieldUpdates: List<ShieldInfo>, // 이번 구간에 새로 생기거나 갱신된 방어막(신규 참가·재시작)
 )
 
 data class LeaderboardMessage(
