@@ -203,7 +203,7 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-primary" : "io-btn-ghost"}`}
+            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-amber" : "io-btn-primary"}`}
             style={{ marginTop: 6 }}
             disabled={missileCount === 0 && !isAiming}
             onClick={() => setAiming(!isAiming)}
@@ -240,7 +240,7 @@ export function Hud({ connection, isMock }: Props) {
           </div>
           <button
             type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-ghost"}`}
+            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-primary"}`}
             style={{ marginTop: 6 }}
             disabled={airdropCooldownLeft > 0 && !isTransporting}
             onClick={() => setTransporting(!isTransporting)}
