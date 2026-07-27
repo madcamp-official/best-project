@@ -590,11 +590,11 @@ object GameCore {
         }
     }
 
-    // 목표(target)의 '지리적' 방향으로 경사를 만들어(목표 중심까지의 거리) holderId의 동들을 그 방향으로
-    // 움직인다 — 홉 최단경로가 아니라 물이 목표 쪽으로 흘러내리듯 실제 방향으로 전진한다:
-    //  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
-    //  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
-    // 즉 후방 병력도 예전 집결지 보급처럼 목표 방향으로 전방에 계속 모인다.
+    // 각 동에서 목표(target)를 향한 '직선 방향'에 가장 잘 맞는 전방 이웃으로 병력을 보낸다 — 병력은
+    // 인접 동끼리만 이동하므로 완전한 직선은 아니지만, 그래프가 허용하는 한 목표로 곧게 뻗는 경로가 된다:
+    //  · 전방 인접 적·중립 중 가장 직선에 가까운 동 → '이길 만하면' 출정(전투).
+    //  · 전방 인접 '내 동' 중 가장 직선에 가까운 동 → 그 내 동으로 병력을 흘려보낸다(전투 없음).
+    // '전방' = 목표에 더 가까운 이웃(단조 전진 보장), '직선' = 이동 방향이 목표 방향과 가장 정렬(코사인 최대).
     private fun offensiveAdvance(world: World, config: GameConfig, holderId: Int, target: Int, nowMs: Long) {
         // 목표 중심까지의 지리적 제곱거리(경도는 cosLat로 보정). 작을수록 목표에 가깝다.
         val tc = world.meta[target].centroid
@@ -609,18 +609,27 @@ object GameCore {
             if (world.ownerId[i] != holderId) continue
             if (world.troops[i] < config.offensiveMinTroops) continue
             val myDist = distToTarget(i)
-            // 목표에 지리적으로 더 가까운 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+            // 이 동에서 목표로 향하는 방향 벡터(cosLat 보정). 이웃 이동 방향이 이것과 얼마나 정렬됐는지로 고른다.
+            val ci = world.meta[i].centroid
+            val tdx = (tc[0] - ci[0]) * cosLat
+            val tdy = tc[1] - ci[1]
+            val tlen = sqrt(tdx * tdx + tdy * tdy).let { if (it == 0.0) 1.0 else it }
+            // 전방(목표에 더 가까운) 이웃 중 목표 직선 방향과 가장 정렬된(코사인 최대) 동을 공격/보급으로 각각.
             var atk = -1
-            var atkDist = myDist
+            var atkAlign = -Double.MAX_VALUE
             var sup = -1
-            var supDist = myDist
+            var supAlign = -Double.MAX_VALUE
             for (nb in world.neighborIndex[i]) {
-                val d = distToTarget(nb)
-                if (d >= myDist) continue // 목표에 더 가까운 이웃만(전방)
+                if (distToTarget(nb) >= myDist) continue // 목표에 더 가까운 전방 이웃만(단조 전진)
+                val cn = world.meta[nb].centroid
+                val sdx = (cn[0] - ci[0]) * cosLat
+                val sdy = cn[1] - ci[1]
+                val slen = sqrt(sdx * sdx + sdy * sdy).let { if (it == 0.0) 1.0 else it }
+                val align = (sdx * tdx + sdy * tdy) / (slen * tlen) // 이동 방향과 목표 방향의 코사인(1=일직선)
                 if (world.ownerId[nb] == holderId) {
-                    if (d < supDist) { supDist = d; sup = nb }
-                } else if (d < atkDist) {
-                    atkDist = d; atk = nb
+                    if (align > supAlign) { supAlign = align; sup = nb }
+                } else if (align > atkAlign) {
+                    atkAlign = align; atk = nb
                 }
             }
             // 최전선: 이길 만하면 전방 적·중립을 출정. (성공하면 이 동은 이번 주기 소임을 다한 것.)

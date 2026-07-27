@@ -622,11 +622,11 @@ export function tickOffensive(s: GameState, nowMs: number): Order[] {
   return out;
 }
 
-// 목표(target)의 '지리적' 방향으로 경사를 만들어(목표 중심까지의 거리) holderId의 동들을 그 방향으로
-// 움직인다 — 홉 최단경로가 아니라 물이 목표 쪽으로 흘러내리듯 실제 방향으로 전진한다:
-//  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
-//  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
-// 즉 후방 병력도 예전 집결지 보급처럼 목표 방향으로 전방에 계속 모인다.
+// 각 동에서 목표(target)를 향한 '직선 방향'에 가장 잘 맞는 전방 이웃으로 병력을 보낸다 — 병력은
+// 인접 동끼리만 이동하므로 완전한 직선은 아니지만, 그래프가 허용하는 한 목표로 곧게 뻗는 경로가 된다:
+//  · 전방 인접 적·중립 중 가장 직선에 가까운 동 → '이길 만하면' 출정(전투).
+//  · 전방 인접 '내 동' 중 가장 직선에 가까운 동 → 그 내 동으로 병력을 흘려보낸다(전투 없음).
+// '전방' = 목표에 더 가까운 이웃(단조 전진 보장), '직선' = 이동 방향이 목표 방향과 가장 정렬(코사인 최대).
 function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs: number, out: Order[]) {
   // 목표 중심까지의 지리적 제곱거리(경도는 cosLat로 보정해 동서·남북을 같은 척도로). 작을수록 목표에 가깝다.
   const tc = s.meta[target].centroid;
@@ -641,21 +641,30 @@ function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs:
     if (s.ownerId[i] !== holderId) continue;
     if (s.troops[i] < CONFIG.OFFENSIVE_MIN_TROOPS) continue;
     const myDist = distToTarget(i);
-    // 목표에 지리적으로 더 가까운 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+    // 이 동에서 목표로 향하는 방향 벡터(cosLat 보정). 이웃 이동 방향이 이것과 얼마나 정렬됐는지로 고른다.
+    const ci = s.meta[i].centroid;
+    const tdx = (tc[0] - ci[0]) * cosLat;
+    const tdy = tc[1] - ci[1];
+    const tlen = Math.hypot(tdx, tdy) || 1;
+    // 전방(목표에 더 가까운) 이웃 중 목표 직선 방향과 가장 정렬된(코사인 최대) 동을 공격/보급으로 각각.
     let atk = -1;
-    let atkDist = myDist;
+    let atkAlign = -Infinity;
     let sup = -1;
-    let supDist = myDist;
+    let supAlign = -Infinity;
     for (const nb of s.neighborIndex[i]) {
-      const d = distToTarget(nb);
-      if (d >= myDist) continue; // 목표에 더 가까운 이웃만(전방)
+      if (distToTarget(nb) >= myDist) continue; // 목표에 더 가까운 전방 이웃만(단조 전진)
+      const cn = s.meta[nb].centroid;
+      const sdx = (cn[0] - ci[0]) * cosLat;
+      const sdy = cn[1] - ci[1];
+      const slen = Math.hypot(sdx, sdy) || 1;
+      const align = (sdx * tdx + sdy * tdy) / (slen * tlen); // 이동 방향과 목표 방향의 코사인(1=일직선)
       if (s.ownerId[nb] === holderId) {
-        if (d < supDist) {
-          supDist = d;
+        if (align > supAlign) {
+          supAlign = align;
           sup = nb;
         }
-      } else if (d < atkDist) {
-        atkDist = d;
+      } else if (align > atkAlign) {
+        atkAlign = align;
         atk = nb;
       }
     }
