@@ -110,6 +110,9 @@ export interface DeltaMessage {
   events: LogEntry[]; // 함락/침공/토벌 로그(append-only)
   missileAdd: number[]; // 이번 구간에 미사일이 새로 스폰된 동
   missileRemove: number[]; // 이번 구간에 미사일이 사라진 동(발사 소모 등)
+  // 이번 구간에 미사일이 착탄한 동(중립화 대상 전부). 렌더러가 폭발 충격파를 터뜨린다.
+  // 소유권 변화로 착탄을 추론하면 "이미 중립인 동"을 맞출 때 모션이 안 뜨므로 명시적으로 싣는다.
+  missileImpacts?: number[];
   // 이번 구간에 새로 생긴 holder(신규 참가자). 이미 접속 중인 다른 클라의 world.holders엔
   // 없는 정보라, 그 holder의 첫 cells 변경과 "같은" DELTA에 실려 온다 — paletteIdx를 몰라
   // 땅 색을 잘못(fallback 회색) 칠하는 순간이 아예 생기지 않는다.

@@ -71,11 +71,17 @@ export function applyDelta(msg: DeltaMessage) {
   // 실려 오므로, 아래 cells 루프가 색을 찾기 전에 먼저 world.holders에 채워둔다.
   for (const h of msg.newHolders) world.holders.set(h.id, h);
 
+  // 미사일 착탄 연출: 서버가 명시적 목록(missileImpacts)을 주면 그걸 신뢰한다 — "이미 중립이던
+  // 동"을 맞춰 소유권 변화가 없는 경우도 폭발이 뜬다. 목록이 없는(구버전) 서버는 아래 cells 루프의
+  // 소유권 전이(non-중립→중립) 추론으로 폴백한다(둘을 겹쳐 쓰면 같은 동에 폭발이 두 번 뜬다).
+  const explicitImpacts = msg.missileImpacts;
+  if (explicitImpacts) for (const i of explicitImpacts) missileImpacts.push(i);
+
   for (const [admIndex, owner, troops] of msg.cells) {
     const prev = world.ownerId[admIndex];
     if (prev !== owner) {
       captureFlashes.push(admIndex); // 소유권 변경 = 함락
-      if (owner === 0 && prev !== 0) missileImpacts.push(admIndex); // non-중립→중립 = 미사일 착탄
+      if (!explicitImpacts && owner === 0 && prev !== 0) missileImpacts.push(admIndex); // 폴백: 전이 추론
       if (!wasAlive && owner === me) respawnCellQueue.push(admIndex); // 재시작으로 받은 새 동
     }
     world.ownerId[admIndex] = owner;

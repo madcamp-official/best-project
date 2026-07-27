@@ -42,6 +42,7 @@ export class LocalConnection implements Connection {
   private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
+  private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -237,6 +238,8 @@ export class LocalConnection implements Connection {
       return;
     }
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
+    // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
+    this.pendingMissileImpacts.push(...res.neutralized);
   }
 
   sendRally(index: number): void {
@@ -338,20 +341,23 @@ export class LocalConnection implements Connection {
 
     const missileAdd = this.pendingMissileAdd;
     const missileRemove = this.pendingMissileRemove;
+    const missileImpacts = this.pendingMissileImpacts;
     this.pendingMissileAdd = [];
     this.pendingMissileRemove = [];
+    this.pendingMissileImpacts = [];
 
     if (
       cells.length === 0 &&
       newOrders.length === 0 &&
       events.length === 0 &&
       missileAdd.length === 0 &&
-      missileRemove.length === 0
+      missileRemove.length === 0 &&
+      missileImpacts.length === 0
     ) {
       return;
     }
     // 목 서버는 단일 로컬 플레이어라 접속 중 새 holder가 생기는 시나리오가 없다 — 항상 빈 배열.
-    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove, newHolders: [] });
+    this.deltaCb?.({ serverTimeMs: now, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders: [] });
   }
 
   private flushLeaderboard(): void {

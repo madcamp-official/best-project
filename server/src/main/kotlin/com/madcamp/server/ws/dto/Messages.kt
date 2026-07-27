@@ -61,6 +61,9 @@ data class DeltaMessage(
     val events: List<LogEvent>,
     val missileAdd: List<Int>, // 이번 구간에 새로 스폰된 미사일 동
     val missileRemove: List<Int>, // 이번 구간에 사라진 미사일 동(발사 소모)
+    // 이번 구간에 미사일이 착탄한 동(중립화 대상 전부). 클라가 폭발 충격파를 터뜨린다 — "이미 중립이던
+    // 동"을 맞춰 소유권 변화가 없어도 모션이 뜨도록 명시적으로 싣는다(worldView.ts missileImpacts와 대응).
+    val missileImpacts: List<Int>,
     // 이번 구간에 새로 생긴 holder(신규 참가자). 이미 접속 중인 다른 클라의 world.holders엔
     // 없는 정보라, 그 holder의 첫 cells 변경과 "같은" DELTA에 실어 보낸다 — 그래야 클라가
     // paletteIdx를 몰라 땅 색을 잘못(fallback) 칠하는 순간이 아예 생기지 않는다.

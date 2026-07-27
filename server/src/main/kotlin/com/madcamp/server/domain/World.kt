@@ -47,6 +47,7 @@ class World(
     val pendingEvents: MutableList<LogEvent> = mutableListOf()
     val pendingMissileAdd: MutableList<Int> = mutableListOf()
     val pendingMissileRemove: MutableList<Int> = mutableListOf()
+    val pendingMissileImpacts: MutableList<Int> = mutableListOf() // 이번 구간 미사일 착탄 동(폭발 연출용)
     val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
