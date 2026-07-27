@@ -794,7 +794,11 @@ export function MapView({ prepared, connection }: Props) {
           source: MISSILE_SOURCE,
           layout: {
             "icon-image": MISSILE_IMAGE_ID,
-            "icon-size": 1,
+            "icon-size": 0.8,
+            // 동 중심(이름·병력 숫자)과 겹치지 않게, 아이콘 왼쪽 끝을 기준점에 두고(anchor: left)
+            // 이름 줄 높이(위)로 올려 오른쪽으로 밀어 — 지역 이름 오른쪽에 붙는다.
+            "icon-anchor": "left",
+            "icon-offset": [20, -20],
             "icon-allow-overlap": true, // 밀집해도 미사일은 항상 보이게
             "icon-ignore-placement": true,
           },
