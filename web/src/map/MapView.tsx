@@ -4,6 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadDong";
 import {
   world,
+  airdropInRange,
+  airdropOrigin,
   drainDirty,
   pruneArrivedOrders,
   drainCaptureFlashes,
@@ -49,6 +51,9 @@ const RALLY_EMOJI = "🚩";
 const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
+const AIRDROP_RANGE_SOURCE = "airdrop-range"; // 공수 사거리 원(목적지 선택 단계)
+const AIRDROP_RANGE_FILL = "airdrop-range-fill";
+const AIRDROP_RANGE_LINE = "airdrop-range-line";
 const AIM_BLINK_LAYER = "dong-aim-blink"; // 조준에 걸린 동의 하얀 반짝 테두리
 const EXPLOSION_SOURCE = "explosions";
 const EXPLOSION_FILL = "explosions-fill";
@@ -160,6 +165,8 @@ export function MapView({ prepared, connection }: Props) {
     let rightDownDong = -1; // 우클릭이 눌린 동(내 동일 때만 드래그 출발지가 된다)
     let dragging = false;
     let dragSource = -1;
+    let dragTargets: number[] = []; // 이번 드래그에서 갈 수 있는 동들(드래그 확정 시 1회 계산)
+    let dragTargetSet = new Set<number>();
 
     // 출발지(from)에서 커서로 이어지는 공격 화살표(본선 + 화살촉)를 그린다. from<0이면 비운다.
     const updateArrow = (from: number, cursor: [number, number] | null) => {
@@ -173,6 +180,33 @@ export function MapView({ prepared, connection }: Props) {
         type: "FeatureCollection",
         features: arrowPolygon(world.meta[from].centroid as [number, number], cursor),
       });
+    };
+
+    // 드래그 중 화살표가 가리킬(= 놓았을 때 실제로 보낼) 대상 동을 정한다.
+    //  · 커서 아래 동이 갈 수 있는 대상이면 그 동
+    //  · 아니면(그 방향으로 더 멀거나 불가한 곳) 갈 수 있는 동 중 커서에 가장 가까운 동 = 그 방향 최대치
+    //  · 출발지 위이거나 갈 수 있는 동이 없으면 -1(화살표 없음)
+    const resolveDragTarget = (point: { x: number; y: number }, lngLat: [number, number]): number => {
+      if (!dragging || dragTargets.length === 0) return -1;
+      const hits = map.queryRenderedFeatures([point.x, point.y], { layers: [FILL_LAYER] });
+      const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+      if (over === dragSource) return -1;
+      if (over >= 0 && dragTargetSet.has(over)) return over;
+      const [cx, cy] = lngLat;
+      const cosLat = Math.cos((cy * Math.PI) / 180);
+      let best = -1;
+      let bestD = Infinity;
+      for (const c of dragTargets) {
+        const m = world.meta[c].centroid;
+        const dx = (m[0] - cx) * cosLat;
+        const dy = m[1] - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      return best;
     };
 
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
@@ -230,7 +264,30 @@ export function MapView({ prepared, connection }: Props) {
       useUIStore.getState().setAiming(false);
     };
 
-    // 공수 조준 종료 — 소스/목적지 하이라이트·원을 비우고 단계를 리셋한다.
+    // 공수 사거리 원(반경 = AIRDROP_MAX_RANGE_DEG)을 origin 중심으로 그린다. 거리 판정은 raw 도
+    // (centroidDistance)지만, 표시는 화면상 원형이 자연스러워 경도를 cosLat로 보정해 그린다
+    // (미사일 조준 원과 동일 방식 — Mercator 위도 늘어남 상쇄). 판정 경계와 미세하게 다를 수 있다.
+    const drawAirdropRange = (center: [number, number]) => {
+      const r = CONFIG.AIRDROP_MAX_RANGE_DEG;
+      const rLng = r / Math.cos((center[1] * Math.PI) / 180); // 경도 반경 보정 → 화면상 원형
+      const ring: [number, number][] = [];
+      for (let i = 0; i <= 64; i++) {
+        const a = (i / 64) * 2 * Math.PI;
+        ring.push([center[0] + Math.cos(a) * rLng, center[1] + Math.sin(a) * r]);
+      }
+      (map.getSource(AIRDROP_RANGE_SOURCE) as GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }],
+      });
+    };
+    const clearAirdropRange = () => {
+      (map.getSource(AIRDROP_RANGE_SOURCE) as GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [],
+      });
+    };
+
+    // 공수 조준 종료 — 소스/목적지 하이라이트·원(선택 원·사거리 원)을 비우고 단계를 리셋한다.
     const clearAirdrop = () => {
       for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
       airdropSet.clear();
@@ -242,6 +299,7 @@ export function MapView({ prepared, connection }: Props) {
       airdropPhase = "source";
       const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
       circleSrc?.setData({ type: "FeatureCollection", features: [] });
+      clearAirdropRange();
     };
 
     // 공수 클릭: source 단계면 원 안 내 동을 출발지로 확정(→dest 단계), dest 단계면 목적지로 발송.
@@ -258,11 +316,17 @@ export function MapView({ prepared, connection }: Props) {
           type: "FeatureCollection",
           features: [],
         });
-        st.showToast(`출발 ${airdropSources.length}개 동 — 목적지를 클릭하세요`);
+        const origin = airdropOrigin(airdropSources); // 사거리 원 중심 = 삼각형 출발 동
+        if (origin >= 0) drawAirdropRange(world.meta[origin].centroid);
+        st.showToast(`출발 ${airdropSources.length}개 동 — 사거리 원 안 목적지를 클릭하세요`);
       } else {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const dest = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
         if (dest < 0) return;
+        if (!airdropInRange(airdropSources, dest)) {
+          st.showToast("공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.");
+          return; // 사거리 밖 — 모드 유지, 쿨타임 소모 안 함
+        }
         connection.sendAirdrop(airdropSources, dest);
         st.startAirdropCooldown(CONFIG.AIRDROP_COOLDOWN_SEC * 1000);
         clearAirdrop();
@@ -601,6 +665,30 @@ export function MapView({ prepared, connection }: Props) {
           "line-opacity": 0.9,
         },
       });
+
+      // 공수 사거리 원(목적지 선택 단계) — 출발점 중심, 반경 AIRDROP_MAX_RANGE_DEG. 앰버 옅은 채움 +
+      // 점선 테두리. 이 원 밖의 동은 투하 불가(하이라이트도 안 되고 클릭 시 사거리 밖 안내).
+      map.addSource(AIRDROP_RANGE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: AIRDROP_RANGE_FILL,
+        type: "fill",
+        source: AIRDROP_RANGE_SOURCE,
+        paint: { "fill-color": "#ffd24a", "fill-opacity": 0.06 },
+      });
+      map.addLayer({
+        id: AIRDROP_RANGE_LINE,
+        type: "line",
+        source: AIRDROP_RANGE_SOURCE,
+        paint: {
+          "line-color": "#ffd24a",
+          "line-width": 2,
+          "line-dasharray": [3, 2],
+          "line-opacity": 0.9,
+        },
+      });
       // 조준에 걸린 동의 하얀 반짝 테두리 — feature-state "aim"(0~1)을 rAF가 펄스로 흔든다.
       map.addLayer({
         id: AIM_BLINK_LAYER,
@@ -704,18 +792,16 @@ export function MapView({ prepared, connection }: Props) {
             if (moved > DRAG_THRESHOLD_PX && rightDownDong >= 0 && world.ownerId[rightDownDong] === world.myHolderId) {
               dragging = true;
               dragSource = rightDownDong;
+              dragTargets = reachableTargets(dragSource); // 갈 수 있는 동을 이번 드래그 시작 시 1회 계산
+              dragTargetSet = new Set(dragTargets);
               selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
             }
           }
-          // 화살표 끝을 커서가 아니라 커서 아래 동의 '중심'으로 자석처럼 스냅한다.
+          // 갈 수 있는 대상 위면 그 동, 아니면 그 방향으로 갈 수 있는 최대치 동을 가리킨다(resolveDragTarget).
           if (dragging) {
-            const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-            const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-            const end: [number, number] =
-              over >= 0 && over !== dragSource
-                ? (world.meta[over].centroid as [number, number])
-                : [e.lngLat.lng, e.lngLat.lat]; // 동 밖이거나 출발지 위면 커서를 따라간다
-            updateArrow(dragSource, end);
+            const t = resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]);
+            if (t >= 0) updateArrow(dragSource, world.meta[t].centroid as [number, number]);
+            else updateArrow(-1, null);
           }
         }
       });
@@ -763,17 +849,24 @@ export function MapView({ prepared, connection }: Props) {
         if (e.originalEvent.button !== 2 || !rightDownPoint) return; // 우클릭 뗄 때만
         const wasDragging = dragging;
         const from = dragSource;
+        // 드래그면 화살표가 가리키던 대상(그 방향 최대치)을 그대로 쓴다 — 리셋 전에 계산.
+        const dragTarget = wasDragging ? resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]) : -1;
+
         rightDownPoint = null; // 상태 리셋
         rightDownDong = -1;
         dragging = false;
         dragSource = -1;
+        dragTargets = [];
+        dragTargetSet = new Set();
         updateArrow(-1, null); // 화살표 지우기
 
-        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-        const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-        if (target < 0) return; // 빈 곳에 뗌 = 취소
-        if (wasDragging) doAttack(from, target, connection); // 새: 드래그 출발지 → 대상
-        else doAttackFromSelected(target, connection); // 옛: 좌클릭으로 선택해 둔 내 동 → 대상
+        if (wasDragging) {
+          if (dragTarget >= 0) doAttack(from, dragTarget, connection); // 새: 화살표가 가리킨 동으로
+        } else {
+          const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+          const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+          if (target >= 0) doAttackFromSelected(target, connection); // 옛: 좌클릭 선택 동 → 클릭한 대상
+        }
       });
 
       // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
@@ -946,10 +1039,12 @@ export function MapView({ prepared, connection }: Props) {
         }
         const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
         for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: pulse });
+        let destOk = true;
         if (airdropPhase === "dest" && destHover >= 0) {
-          map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: pulse });
+          destOk = airdropInRange(airdropSources, destHover); // 사거리 안일 때만 흰 펄스
+          map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: destOk ? pulse : 0 });
         }
-        map.getCanvas().style.cursor = "crosshair";
+        map.getCanvas().style.cursor = airdropPhase === "dest" && !destOk ? "not-allowed" : "crosshair";
       } else if (wasTransporting) {
         clearAirdrop();
         map.getCanvas().style.cursor = "";
@@ -1098,6 +1193,35 @@ function doAttackFromSelected(to: number, connection: Connection) {
   doAttack(selectedIndex, to, connection);
 }
 
+// 드래그 공격에서 이 출발지로부터 '갈 수 있는' 동 목록:
+//  · 행군/증원 가능한 내 영토 연결요소(소유 인접으로 이어진 내 동들, 출발지 제외)
+//  · 공격 가능한 인접 적/중립(1홉)
+// 커서가 유효 대상 밖일 때 '그 방향으로 갈 수 있는 최대치'를 이 목록 중 커서 최근접으로 고른다.
+function reachableTargets(source: number): number[] {
+  const me = world.myHolderId;
+  const out: number[] = [];
+  const seen = new Uint8Array(world.n);
+  seen[source] = 1;
+  const q = [source];
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h];
+    if (cur !== source) out.push(cur); // 내 영토 연결요소(행군/증원 대상)
+    for (const nb of world.neighborIndex[cur]) {
+      if (!seen[nb] && world.ownerId[nb] === me) {
+        seen[nb] = 1;
+        q.push(nb);
+      }
+    }
+  }
+  for (const nb of world.neighborIndex[source]) {
+    if (!seen[nb] && world.ownerId[nb] !== me) {
+      seen[nb] = 1;
+      out.push(nb); // 인접 적/중립(공격 대상, 1홉)
+    }
+  }
+  return out;
+}
+
 // 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
 // 얇게 시작해 넓어지는 테이퍼 샤프트 + 그보다 넓은 삼각 촉으로 굵고 또렷한 공세 화살표를 만든다.
 // 경도는 위도에 따라 실제 거리가 달라 cosLat로 스케일해 방향/수직 벡터를 계산한 뒤 lng/lat로 환산한다.
@@ -1113,11 +1237,17 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   const px = -uy; // 왼쪽 수직(단위)
   const py = ux;
 
-  const shaftW = Math.min(0.006, Math.max(0.0014, len * 0.09)); // 샤프트 반폭
-  const headW = shaftW * 2.3; // 화살촉 반폭(샤프트보다 넓게)
-  const headLen = Math.min(len * 0.55, Math.max(len * 0.3, headW * 1.6)); // 화살촉 길이
-  const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
-  const startW = shaftW * 0.55; // 시작부는 얇게(테이퍼)
+  // 동 중심 간 거리가 너무 짧으면 폭이 길이보다 커져 화살표가 뭉개진다. 렌더 길이에 최소값을 둬서
+  // (짧을 땐 대상 방향으로 살짝만 연장) 폭·촉을 그 길이에 비례시켜 항상 화살표 비율을 유지한다.
+  const MIN_LEN = 0.009;
+  const eff = Math.max(len, MIN_LEN);
+
+  // 얇게 시작해 촉으로 갈수록 넓어지는 형태(폭은 렌더 길이에 비례, 상한만 둠).
+  const shaftW = Math.min(0.0038, eff * 0.055); // 촉 밑변쪽 샤프트 반폭
+  const startW = shaftW * 0.5; // 시작부는 얇게
+  const headW = shaftW * 2.0; // 화살촉 날개 반폭(가장 넓음)
+  const headLen = Math.min(eff * 0.5, Math.max(eff * 0.28, headW * 1.4)); // 화살촉 길이
+  const baseLen = eff - headLen; // 샤프트 끝(=촉 밑변)까지 거리
 
   // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
   const P = (along: number, side: number): [number, number] => [
@@ -1126,13 +1256,13 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   ];
 
   const ring: [number, number][] = [
-    P(0, startW),
-    P(baseLen, shaftW),
-    P(baseLen, headW), // 촉 왼쪽 날개
-    P(len, 0), // 뾰족한 끝(타깃)
+    P(0, startW), // 시작부 왼쪽(얇음)
+    P(baseLen, shaftW), // 촉 밑변 왼쪽(넓어짐)
+    P(baseLen, headW), // 촉 왼쪽 날개(가장 넓음)
+    P(eff, 0), // 뾰족한 끝(짧으면 대상 너머로 약간 연장)
     P(baseLen, -headW), // 촉 오른쪽 날개
-    P(baseLen, -shaftW),
-    P(0, -startW),
+    P(baseLen, -shaftW), // 촉 밑변 오른쪽
+    P(0, -startW), // 시작부 오른쪽(얇음)
     P(0, startW), // 닫기
   ];
   return [

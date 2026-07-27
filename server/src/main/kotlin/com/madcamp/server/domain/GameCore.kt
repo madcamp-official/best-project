@@ -350,6 +350,9 @@ object GameCore {
         if (total <= 0) return SortieResult.Err(SortieErrorCode.NO_TROOPS, "수송할 병력이 없습니다.")
 
         val origin = nearestSourceToCentroid(world, valid, holderId) // 삼각형 유닛 출발 위치(원 중심 근사)
+        if (centroidDistance(world, origin, dest) > config.airdropMaxRangeDeg) {
+            return SortieResult.Err(SortieErrorCode.AIRDROP_RANGE, "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.")
+        }
         for (i in valid) if (world.troops[i] > 0) {
             world.troops[i] = 0 // 전부(100%) 실어 보낸다
             world.dirty.add(i)

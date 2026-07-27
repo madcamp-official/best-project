@@ -52,7 +52,7 @@ sealed interface SortieResult {
     data class Err(val code: SortieErrorCode, val message: String) : SortieResult
 }
 
-enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL, NO_PATH, AIRDROP_COOLDOWN }
+enum class SortieErrorCode { NOT_OWNER, NOT_ADJACENT, NO_TROOPS, ALREADY_FULL, NO_PATH, AIRDROP_COOLDOWN, AIRDROP_RANGE }
 
 /** 미사일 발사 결과. removed = 소모된(미사일이 얹혀 있던) 동, neutralized = 중립화된 동들. */
 data class MissileLaunch(

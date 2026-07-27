@@ -519,7 +519,7 @@ function supplyToward(
 
 export type AirdropResult =
   | { ok: true }
-  | { ok: false; reason: string; code: "AIRDROP_COOLDOWN" | "NO_TROOPS" };
+  | { ok: false; reason: string; code: "AIRDROP_COOLDOWN" | "NO_TROOPS" | "AIRDROP_RANGE" };
 
 // 공수 발주. sources는 호출자(전송 계층)가 내 소유로 걸러 보낸 목록이라고 가정하되 여기서도 재확인한다.
 // 쿨타임이 남아 있으면 거부. 성공 시 sources 병력 전부를 빼고 삼각형 order 1개를 띄운다.
@@ -546,6 +546,9 @@ export function tryAirdrop(
   if (total <= 0) return { ok: false, reason: "수송할 병력이 없습니다.", code: "NO_TROOPS" };
 
   const origin = nearestSourceToCentroid(s, valid, holderId); // 삼각형 유닛 출발 위치(원 중심 근사)
+  if (centroidDistance(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
+    return { ok: false, reason: "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.", code: "AIRDROP_RANGE" };
+  }
   for (const i of valid) {
     if (s.troops[i] > 0) {
       s.troops[i] = 0; // 전부(100%) 실어 보낸다
@@ -586,6 +589,23 @@ function nearestSourceToCentroid(s: GameState, sources: number[], holderId: numb
     }
   }
   return best;
+}
+
+// 공수 사거리 판정(클라 UX용) — 삼각형 출발 동(origin)에서 dest까지 거리가 상한 이내인가.
+// tryAirdrop과 같은 origin·거리 기준을 써서 클라 하이라이트와 서버 검증이 어긋나지 않게 한다.
+export function airdropInRange(s: GameState, sources: number[], dest: number, holderId: number): boolean {
+  if (dest < 0 || dest >= s.n) return false;
+  const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
+  if (valid.length === 0) return false;
+  const origin = nearestSourceToCentroid(s, valid, holderId);
+  return centroidDistance(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
+}
+
+// 공수 삼각형 출발 동(사거리 원의 중심) — airdropInRange/tryAirdrop과 같은 origin. 유효 소스 없으면 -1.
+export function airdropOrigin(s: GameState, sources: number[], holderId: number): number {
+  const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
+  if (valid.length === 0) return -1;
+  return nearestSourceToCentroid(s, valid, holderId);
 }
 
 // 공수 착륙: dest에 투하하고 상한 초과분을 목적지→인접 BFS로 순차 flood한다. 단일 스트림(remaining)이
