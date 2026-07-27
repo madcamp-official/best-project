@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { PreparedMap } from "../data/loadDong";
 import {
   world,
+  airdropInRange,
   drainDirty,
   pruneArrivedOrders,
   drainCaptureFlashes,
@@ -292,6 +293,10 @@ export function MapView({ prepared, connection }: Props) {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const dest = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
         if (dest < 0) return;
+        if (!airdropInRange(airdropSources, dest)) {
+          st.showToast("공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.");
+          return; // 사거리 밖 — 모드 유지, 쿨타임 소모 안 함
+        }
         connection.sendAirdrop(airdropSources, dest);
         st.startAirdropCooldown(CONFIG.AIRDROP_COOLDOWN_SEC * 1000);
         clearAirdrop();
@@ -980,10 +985,12 @@ export function MapView({ prepared, connection }: Props) {
         }
         const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
         for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: pulse });
+        let destOk = true;
         if (airdropPhase === "dest" && destHover >= 0) {
-          map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: pulse });
+          destOk = airdropInRange(airdropSources, destHover); // 사거리 안일 때만 흰 펄스
+          map.setFeatureState({ source: SOURCE_ID, id: destHover }, { aim: destOk ? pulse : 0 });
         }
-        map.getCanvas().style.cursor = "crosshair";
+        map.getCanvas().style.cursor = airdropPhase === "dest" && !destOk ? "not-allowed" : "crosshair";
       } else if (wasTransporting) {
         clearAirdrop();
         map.getCanvas().style.cursor = "";

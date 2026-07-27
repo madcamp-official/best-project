@@ -82,7 +82,15 @@ export interface WelcomeMessage {
 
 // api-spec §2.4 — SORTIE 거부 시 요청자에게만
 export interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE" | "NO_PATH" | "AIRDROP_COOLDOWN";
+  code:
+    | "NOT_OWNER"
+    | "NOT_ADJACENT"
+    | "NO_TROOPS"
+    | "ALREADY_FULL"
+    | "NO_MISSILE"
+    | "NO_PATH"
+    | "AIRDROP_COOLDOWN"
+    | "AIRDROP_RANGE";
   message: string; // 사용자 표시용(한국어)
   from: number;
   to: number;
