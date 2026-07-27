@@ -50,8 +50,6 @@ interface UIState {
   myRank: Rank;
   logEntries: LogEntry[];
   toast: string | null;
-  // 우클릭 1회당 이동할 병력 비율(0~1). 오른쪽 아래 슬라이더로 조절. (기본 100%)
-  sortieRatio: number;
   missileCount: number; // 내 보유 미사일 수 (오른쪽 아래 표시)
   isAiming: boolean; // 미사일 조준 모드(발사 버튼 누른 상태)
   isNukeAiming: boolean; // 전술핵 조준 모드(사일로 보유자 전용, 반경 3배)
@@ -73,7 +71,6 @@ interface UIState {
   setMyReady: (v: boolean) => void;
   setRoundResult: (r: RoundEndMessage | null) => void;
   setRoundEndsAt: (t: number) => void;
-  setSortieRatio: (ratio: number) => void;
   setAiming: (v: boolean) => void;
   setNukeAiming: (v: boolean) => void;
   setTransporting: (v: boolean) => void;
@@ -117,7 +114,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   myRank: null,
   logEntries: [],
   toast: null,
-  sortieRatio: 1, // 출정 병력 기본값 100% (슬라이더 초기값)
   missileCount: 0,
   isAiming: false,
   isNukeAiming: false,
@@ -139,7 +135,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   setMyReady: (myReady) => set({ myReady }),
   setRoundResult: (roundResult) => set({ roundResult }),
   setRoundEndsAt: (roundEndsAt) => set({ roundEndsAt }),
-  setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
   // 미사일·전술핵 조준·공수 모드는 상호 배타 — 하나를 켜면 나머지는 끈다.
   setAiming: (v) =>
     set(v ? { isAiming: true, isNukeAiming: false, isTransporting: false } : { isAiming: false }),

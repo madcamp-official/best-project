@@ -34,6 +34,8 @@ const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
 const FLASH_LAYER = "dong-flash";
 const FLASH_MS = 600; // 함락 플래시 지속 시간
+// 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨. (E AI·서버 기본값은 CONFIG.SORTIE_RATIO 그대로)
+const SORTIE_SEND_RATIO = 1;
 const ENCLOSED_LAYER = "dong-enclosed-blink"; // 포위(귀속 대기)된 동의 반짝임 채움
 const ARC_SOURCE = "arcs";
 const ADMIN_SGG_LAYER = "admin-sgg-boundary"; // 시군구 경계 — 소유권과 무관한 정적 강조선
@@ -1197,7 +1199,7 @@ export function MapView({ prepared, connection }: Props) {
         if (wasDragging) {
           if (picked.length >= 2) {
             // 새: 여러 인접 목표를 쓸었으면 균등 분할해 한 번에 출정(클릭 감소).
-            connection.sendMultiSortie(from, picked, useUIStore.getState().sortieRatio);
+            connection.sendMultiSortie(from, picked, SORTIE_SEND_RATIO);
           } else if (picked.length === 1) {
             doAttack(from, picked[0], connection); // 하나만 쓸었으면 단일 출정
           } else if (dragTarget >= 0) {

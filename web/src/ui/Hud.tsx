@@ -19,8 +19,6 @@ export function Hud({ connection, isMock }: Props) {
   const myRank = useUIStore((s) => s.myRank);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
-  const sortieRatio = useUIStore((s) => s.sortieRatio);
-  const setSortieRatio = useUIStore((s) => s.setSortieRatio);
   const missileCount = useUIStore((s) => s.missileCount);
   const isAiming = useUIStore((s) => s.isAiming);
   const setAiming = useUIStore((s) => s.setAiming);
@@ -43,7 +41,6 @@ export function Hud({ connection, isMock }: Props) {
   const currentRoom = useUIStore((s) => s.currentRoom);
   const roundEndsAt = useUIStore((s) => s.roundEndsAt);
   const totalCells = useUIStore((s) => s.totalCells);
-  const sortiePct = Math.round(sortieRatio * 100);
   const offensiveName =
     offensiveIndex >= 0 && offensiveIndex < world.n ? world.meta[offensiveIndex].name : null;
 
@@ -128,7 +125,7 @@ export function Hud({ connection, isMock }: Props) {
             </div>
             {selectedInfo.isMine && (
               <div className="hud-sortie">
-                이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
+                이동/출정: {selectedInfo.troops}명 (전 병력)
                 <br />
                 인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
               </div>
@@ -186,22 +183,9 @@ export function Hud({ connection, isMock }: Props) {
       </div>
 
       <div className="hud-panel hud-bottom-right">
-        <div className="hud-ratio-head">
-          <span className="hud-title">출정 병력</span>
-          <strong className="hud-ratio-value">{sortiePct}%</strong>
-        </div>
-        <input
-          type="range"
-          className="hud-ratio-slider"
-          min={5}
-          max={100}
-          step={5}
-          value={sortiePct}
-          onChange={(e) => setSortieRatio(Number(e.currentTarget.value) / 100)}
-          aria-label="출정 병력 비율"
-        />
+        {/* 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨 */}
         <div className="hud-ratio-hint">
-          우클릭 1회당 선택한 동 병력의 {sortiePct}%를 보냅니다
+          우클릭 = 선택한 동 병력 <strong>전부(100%)</strong> 출정
           <br />
           내 동에서 우클릭 드래그로 여러 인접 지역을 <strong>쓸면</strong> 병력을 나눠 한 번에 출정합니다
         </div>
