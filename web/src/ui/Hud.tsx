@@ -33,6 +33,9 @@ export function Hud({ connection, isMock }: Props) {
   const setDefeated = useUIStore((s) => s.setDefeated);
   const connectionLost = useUIStore((s) => s.connectionLost);
   const setPhase = useUIStore((s) => s.setPhase);
+  const currentRoom = useUIStore((s) => s.currentRoom);
+  const roundEndsAt = useUIStore((s) => s.roundEndsAt);
+  const totalCells = useUIStore((s) => s.totalCells);
   const sortiePct = Math.round(sortieRatio * 100);
   const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
@@ -44,6 +47,11 @@ export function Hud({ connection, isMock }: Props) {
     return () => clearInterval(id);
   }, []);
   const shieldSecLeft = Math.max(0, Math.ceil((world.shieldUntil[myHolderId] - nowTick) / 1000));
+
+  // 라운드 남은 시간(ms). roundEndsAt=0이면 제한 없음(브리지/목업) — 타이머 미표시.
+  const remainMs = roundEndsAt > 0 ? Math.max(0, roundEndsAt - nowTick) : -1;
+  const timerMin = Math.floor(remainMs / 60000);
+  const timerSec = Math.floor(remainMs / 1000) % 60;
 
   if (phase === "loading") {
     return (
@@ -71,48 +79,91 @@ export function Hud({ connection, isMock }: Props) {
 
   return (
     <div className="hud-overlay">
-      <div className="hud-panel hud-top-left">
-        <div className="hud-title">영토 점령 게임 · 목업</div>
-        <div className="hud-rank">
-          내 계급: <strong>{myRank ?? "무소속"}</strong>
+      {/* 상단 중앙: 라운드 타이머 pill (io 스타일). 남은 1분부터 빨갛게 깜빡인다. */}
+      {remainMs >= 0 && (
+        <div className={`hud-timer ${remainMs < 60_000 ? "urgent" : ""}`}>
+          ⏱ {timerMin}:{String(timerSec).padStart(2, "0")}
         </div>
-        {shieldSecLeft > 0 && (
-          <div
-            style={{
-              margin: "4px 0",
-              padding: "3px 8px",
-              borderRadius: 6,
-              background: "rgba(111,214,255,0.15)",
-              border: "1px solid rgba(211,244,255,0.5)",
-              color: "#d3f4ff",
-              fontSize: 13,
-              fontWeight: 700,
-              display: "inline-block",
-            }}
-          >
-            🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+      )}
+
+      {/* 좌상단: 내 정보 + 선택한 동 정보(세로 스택) */}
+      <div className="hud-col hud-col-left">
+        <div className="hud-panel">
+          <div className="hud-title">{currentRoom?.name ?? "영토점령.io"}</div>
+          <div className="hud-rank">
+            내 계급: <strong>{myRank ?? "무소속"}</strong>
+          </div>
+          {shieldSecLeft > 0 && (
+            <div
+              style={{
+                margin: "4px 0",
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: "rgba(111,214,255,0.15)",
+                border: "1px solid rgba(211,244,255,0.5)",
+                color: "#d3f4ff",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "inline-block",
+              }}
+            >
+              🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+            </div>
+          )}
+        </div>
+        {selectedInfo && (
+          <div className="hud-panel">
+            <div className="hud-title">{selectedInfo.name}</div>
+            <div>소유자: {selectedInfo.ownerName}</div>
+            <div>
+              병력: {selectedInfo.troops} / {selectedInfo.cap}
+            </div>
+            {selectedInfo.isMine && (
+              <div className="hud-sortie">
+                이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
+                <br />
+                인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
+              </div>
+            )}
           </div>
         )}
-        <ol className="hud-leaderboard">
-          {leaderboard.map((row) => (
-            <li key={row.holderId} className={row.holderId === myHolderId ? "me" : ""}>
-              <span
-                className="hud-swatch"
-                style={{ background: PALETTE[row.paletteIdx]?.stroke }}
-              />
-              {row.name} — {row.count}개 동
-            </li>
-          ))}
-        </ol>
-        <div className="hud-env">
-          {envCells > 0 ? (
-            <>
-              <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
-              야만인 잔존: {envCells}개 동
-            </>
-          ) : (
-            <span className="hud-env-clear">야만인 정리됨 ✓</span>
-          )}
+      </div>
+
+      {/* 우상단: 점유율 바 순위표 (io 게임 표준 위치) */}
+      <div className="hud-col hud-col-right">
+        <div className="hud-panel">
+          <div className="hud-title">순위</div>
+          {leaderboard.slice(0, 8).map((row, i) => {
+            const pct = totalCells > 0 ? (row.count / totalCells) * 100 : 0;
+            const color = PALETTE[row.paletteIdx]?.stroke;
+            return (
+              <div className="hud-lb-row" key={row.holderId}>
+                <div className={`hud-lb-line ${row.holderId === myHolderId ? "me" : ""}`}>
+                  <span className="hud-swatch" style={{ background: color }} />
+                  <span className="hud-lb-name">
+                    {i + 1}. {row.name}
+                  </span>
+                  <span className="hud-lb-pct">{pct.toFixed(1)}%</span>
+                </div>
+                <div className="hud-lb-bar">
+                  <div
+                    className="hud-lb-fill"
+                    style={{ width: `${Math.max(pct, 1)}%`, background: color }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          <div className="hud-env">
+            {envCells > 0 ? (
+              <>
+                <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
+                야만인 잔존: {envCells}개 동
+              </>
+            ) : (
+              <span className="hud-env-clear">야만인 정리됨 ✓</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -224,23 +275,6 @@ export function Hud({ connection, isMock }: Props) {
         </div>
       </div>
 
-      {selectedInfo && (
-        <div className="hud-panel hud-top-right">
-          <div className="hud-title">{selectedInfo.name}</div>
-          <div>소유자: {selectedInfo.ownerName}</div>
-          <div>
-            병력: {selectedInfo.troops} / {selectedInfo.cap}
-          </div>
-          {selectedInfo.isMine && (
-            <div className="hud-sortie">
-              이동/출정: {Math.floor(selectedInfo.troops * sortieRatio)}명 ({sortiePct}%)
-              <br />
-              인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
-            </div>
-          )}
-        </div>
-      )}
-
       {connectionLost && (
         <div className="hud-conn-lost">
           <span className="hud-conn-dot" /> 연결 끊김 — 재연결 중…
@@ -281,6 +315,7 @@ export function Hud({ connection, isMock }: Props) {
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               <button
+                className="io-btn io-btn-ghost"
                 type="button"
                 onClick={() => {
                   setDefeated(false);
@@ -292,36 +327,18 @@ export function Hud({ connection, isMock }: Props) {
                     setPhase("lobby");
                   }
                 }}
-                style={{
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  border: "1px solid #ffffff33",
-                  background: "#3a4a5e",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
-                }}
               >
-                메인 화면
+                {isMock ? "메인 화면" : "로비로"}
               </button>
               <button
+                className="io-btn io-btn-primary"
                 type="button"
                 onClick={() => {
                   connection?.sendRestart();
                   setDefeated(false);
                 }}
-                style={{
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  border: "1px solid #ffffff33",
-                  background: "#c0392b",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
               >
-                재시작
+                ▶ 재시작
               </button>
             </div>
           </div>

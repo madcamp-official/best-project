@@ -5,11 +5,17 @@ interface Props {
   connection: Connection;
 }
 
-// 대기실 — 현재 방의 멤버 목록 + 시작(아무나) + 나가기. 라운드가 시작되면 WELCOME이 오며 지도로 전환된다.
+// 대기실(io 스타일) — 방 이름 + 플레이어 슬롯 그리드(빈 자리 표시) + 큰 시작 버튼.
+// 누구나 시작할 수 있고(최소 1명), 라운드가 시작되면 WELCOME이 와서 지도로 전환된다.
 export function RoomWaitScreen({ connection }: Props) {
   const currentRoom = useUIStore((s) => s.currentRoom);
   const members = useUIStore((s) => s.members);
+  const rooms = useUIStore((s) => s.rooms);
   const setPhase = useUIStore((s) => s.setPhase);
+
+  // 정원은 방 목록(/topic/rooms)에서 조회 — 목록에 없으면(직후 타이밍) 기본 8.
+  const maxMembers = rooms.find((r) => r.roomId === currentRoom?.roomId)?.maxMembers ?? 8;
+  const slots = Array.from({ length: maxMembers }, (_, i) => members[i] ?? null);
 
   const leave = () => {
     connection.leaveRoom();
@@ -19,50 +25,41 @@ export function RoomWaitScreen({ connection }: Props) {
 
   return (
     <div className="join-overlay">
-      <div className="join-card" style={{ minWidth: 380, maxWidth: 480 }}>
-        <h1 className="join-title" style={{ fontSize: 26 }}>
+      <div className="join-card io-card">
+        <span className="io-badge waiting">대기실</span>
+        <h1 className="io-logo" style={{ fontSize: 28, marginTop: 8 }}>
           {currentRoom?.name ?? "방"}
         </h1>
-        <p className="join-sub">모두 모이면 아무나 시작을 누르세요 (최소 1명, 혼자면 야만인이 상대)</p>
-        <div style={{ margin: "12px 0", display: "flex", flexDirection: "column", gap: 6 }}>
-          {members.map((m, i) => (
-            <div
-              key={`${m.nickname}-${i}`}
-              style={{
-                background: "#0e1826",
-                border: "1px solid #ffffff14",
-                borderRadius: 8,
-                padding: "9px 12px",
-                color: "#e6edf6",
-                textAlign: "left",
-              }}
-            >
-              {m.nickname}
-            </div>
-          ))}
+        <p className="io-tagline">
+          누구나 시작할 수 있어요 — 혼자 시작하면 야만인(환경 세력)과 대결합니다
+        </p>
+
+        <div className="io-slots">
+          {slots.map((m, i) =>
+            m ? (
+              <div key={`m-${i}`} className="io-slot">
+                <span className="io-slot-dot" />
+                {m.nickname}
+              </div>
+            ) : (
+              <div key={`e-${i}`} className="io-slot empty">
+                <span className="io-slot-dot" />
+                빈 자리
+              </div>
+            )
+          )}
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+
+        <div className="io-row">
           <button
-            className="join-button"
+            className="io-btn io-btn-green io-btn-lg"
             type="button"
-            style={{ flex: 1, margin: 0 }}
+            style={{ flex: 1 }}
             onClick={() => connection.startRound()}
           >
-            게임 시작
+            ▶ 게임 시작
           </button>
-          <button
-            type="button"
-            onClick={leave}
-            style={{
-              padding: "0 18px",
-              borderRadius: 8,
-              border: "1px solid #ffffff33",
-              background: "#3a4a5e",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 14,
-            }}
-          >
+          <button className="io-btn io-btn-ghost" type="button" onClick={leave}>
             나가기
           </button>
         </div>
