@@ -5,10 +5,11 @@ import { ENV_PALETTE_IDX, PALETTE } from "../config";
 import type { Connection } from "../net/connection";
 
 interface Props {
-  connection: Connection | null; // GAME OVER 오버레이의 재시작 버튼이 sendRestart를 보내는 데 씀
+  connection: Connection | null; // GAME OVER 오버레이의 재시작/나가기 버튼이 명령을 보내는 데 씀
+  isMock: boolean; // 목업이면 "메인 화면"이 로비가 아니라 닉네임 접속 화면(join)으로 간다
 }
 
-export function Hud({ connection }: Props) {
+export function Hud({ connection, isMock }: Props) {
   const phase = useUIStore((s) => s.phase);
   const errorMessage = useUIStore((s) => s.errorMessage);
   const selectedInfo = useUIStore((s) => s.selectedInfo);
@@ -56,8 +57,8 @@ export function Hud({ connection }: Props) {
     );
   }
 
-  // 접속 화면(닉네임 입력) 표시 중에는 HUD를 감춘다 — JoinScreen이 화면을 덮는다.
-  if (phase === "join") return null;
+  // 접속/로비/대기실/결과 화면 중에는 게임 HUD를 감춘다 — 각 화면 오버레이가 덮는다.
+  if (phase === "join" || phase === "lobby" || phase === "room" || phase === "results") return null;
 
   if (phase === "error") {
     return (
@@ -283,7 +284,13 @@ export function Hud({ connection }: Props) {
                 type="button"
                 onClick={() => {
                   setDefeated(false);
-                  setPhase("join");
+                  if (isMock) {
+                    setPhase("join");
+                  } else {
+                    connection?.leaveRoom();
+                    connection?.listRooms();
+                    setPhase("lobby");
+                  }
                 }}
                 style={{
                   padding: "9px 18px",

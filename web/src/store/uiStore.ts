@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { world, computeRank, myMissileCount } from "../world/worldView";
 import type { LogEntry, Rank } from "../game/types";
+import type { MemberInfo, RoomInfo, RoomState, RoundEndMessage } from "../net/protocol";
+
+// 현재 참가 중인 방 요약(대기실/결과 화면 표시용).
+export interface CurrentRoom {
+  roomId: string;
+  name: string;
+  state: RoomState;
+}
 
 export interface SelectedInfo {
   index: number;
@@ -22,8 +30,14 @@ export interface LeaderboardRowUI {
 // README.md §1 기술 스택 — "UI 상태(선택 동, HUD)"만 Zustand에 둔다.
 // 3,500개 동 배열 자체는 world/worldView.ts(React 밖, 서버 상태 사본)에 두고 요약만 끌어온다.
 interface UIState {
-  phase: "loading" | "join" | "ready" | "error";
+  // loading→(mock)join / (real)lobby→room→ready→results. error는 로드 실패.
+  phase: "loading" | "join" | "lobby" | "room" | "ready" | "results" | "error";
   errorMessage: string | null;
+  // 로비/방(다중 세션)
+  rooms: RoomInfo[]; // 공개 방 목록(/topic/rooms)
+  currentRoom: CurrentRoom | null; // 지금 참가 중인 방
+  members: MemberInfo[]; // 현재 방의 멤버 목록
+  roundResult: RoundEndMessage | null; // 방금 끝난 라운드 결과(결과 화면용)
   selectedIndex: number | null;
   selectedInfo: SelectedInfo | null;
   leaderboard: LeaderboardRowUI[];
@@ -45,6 +59,10 @@ interface UIState {
   connectionLost: boolean; // 실서버 연결이 끊겨 재연결 중(끊김 배너 표시)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
+  setRooms: (rooms: RoomInfo[]) => void;
+  setCurrentRoom: (room: CurrentRoom | null) => void;
+  setMembers: (members: MemberInfo[]) => void;
+  setRoundResult: (r: RoundEndMessage | null) => void;
   setSortieRatio: (ratio: number) => void;
   setAiming: (v: boolean) => void;
   setTransporting: (v: boolean) => void;
@@ -71,6 +89,10 @@ let prevRankLevel = -1;
 export const useUIStore = create<UIState>((set, get) => ({
   phase: "loading",
   errorMessage: null,
+  rooms: [],
+  currentRoom: null,
+  members: [],
+  roundResult: null,
   selectedIndex: null,
   selectedInfo: null,
   leaderboard: [],
@@ -91,6 +113,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   connectionLost: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
+  setRooms: (rooms) => set({ rooms }),
+  setCurrentRoom: (currentRoom) => set({ currentRoom }),
+  setMembers: (members) => set({ members }),
+  setRoundResult: (roundResult) => set({ roundResult }),
   setSortieRatio: (ratio) => set({ sortieRatio: Math.min(1, Math.max(0.05, ratio)) }),
   // 미사일 조준·공수 모드는 상호 배타 — 하나를 켜면 나머지는 끈다.
   setAiming: (v) =>

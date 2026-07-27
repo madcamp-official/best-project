@@ -3,6 +3,9 @@ import "./App.css";
 import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
 import { JoinScreen } from "./ui/JoinScreen";
+import { LobbyScreen } from "./ui/LobbyScreen";
+import { RoomWaitScreen } from "./ui/RoomWaitScreen";
+import { ResultsOverlay } from "./ui/ResultsOverlay";
 import { loadDong } from "./data/loadDong";
 import type { PreparedMap } from "./data/loadDong";
 import { LocalConnection } from "./net/localConnection";
@@ -31,6 +34,8 @@ function App() {
   const everConnectedRef = useRef(false); // 재연결 토스트를 최초 연결 때는 안 띄우기 위한 플래그
   const phase = useUIStore((s) => s.phase);
   const setPhase = useUIStore((s) => s.setPhase);
+  // 목업(브라우저 내 목 서버)은 로비가 없어 join()으로 솔로 진행, 실서버는 로비 흐름.
+  const isMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
 
   useEffect(() => {
     let cancelled = false;
@@ -40,15 +45,15 @@ function App() {
         if (cancelled) return;
 
         // Connection 생성(기본: 실서버 STOMP) + 서버→클라 메시지 배선.
-        const useLocalMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
-        const connection: Connection = useLocalMock ? new LocalConnection(map) : new StompConnection();
+        const connection: Connection = isMock ? new LocalConnection(map) : new StompConnection();
         connection.onWelcome((msg) => {
           applyWelcome(msg);
           localStorage.setItem("token", msg.token); // 재접속용
           // 첫 LEADERBOARD 메시지(최대 1s 뒤) 전 빈 순위표 깜빡임 방지용 시드.
           useUIStore.getState().setLeaderboard(getLeaderboard(), envCellCount(), world.n);
+          useUIStore.getState().setRoundResult(null); // 새 라운드 — 이전 결과 화면 정리
           setPrepared(map); // 스냅샷 반영 후 지도 렌더 시작
-          setPhase("ready");
+          setPhase("ready"); // WELCOME = 라운드 진행 중 → 지도로 전환
         });
         connection.onDelta((msg) => {
           applyDelta(msg);
@@ -60,6 +65,26 @@ function App() {
         connection.onLeaderboard((msg) =>
           useUIStore.getState().setLeaderboard(msg.rows, msg.envCells, msg.totalCells)
         );
+        // 로비/방(다중 세션) 이벤트 배선.
+        connection.onRoomList((msg) => useUIStore.getState().setRooms(msg.rooms));
+        connection.onRoomJoined((msg) => {
+          const st = useUIStore.getState();
+          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state });
+          st.setMembers(msg.members);
+          // 진행 중 방에 난입한 경우엔 곧 WELCOME이 와서 ready로 바꾸므로 여기선 대기실로 내리지 않는다.
+          if (msg.state !== "PLAYING") setPhase("room");
+        });
+        connection.onRoomState((msg) => {
+          const st = useUIStore.getState();
+          st.setMembers(msg.members);
+          if (st.currentRoom && st.currentRoom.roomId === msg.roomId) {
+            st.setCurrentRoom({ ...st.currentRoom, state: msg.state });
+          }
+        });
+        connection.onRoundEnd((msg) => {
+          useUIStore.getState().setRoundResult(msg);
+          setPhase("results");
+        });
         // 연결 끊김 → 배너 표시, 재연결 → 배너 해제(+최초 연결이 아니면 재연결 토스트).
         connection.onConnectionChange((connected) => {
           useUIStore.getState().setConnectionLost(!connected);
@@ -70,8 +95,13 @@ function App() {
         });
         connectionRef.current = connection;
 
-        // 데이터 준비 완료 → 접속 화면(닉네임 입력)으로.
-        setPhase("join");
+        // 데이터 준비 완료 → 목업이면 닉네임 접속 화면, 실서버면 로비로.
+        if (isMock) {
+          setPhase("join");
+        } else {
+          setPhase("lobby");
+          connection.listRooms();
+        }
       } catch (err) {
         if (cancelled) return;
         setPhase("error", err instanceof Error ? err.message : String(err));
@@ -82,7 +112,7 @@ function App() {
       connectionRef.current?.dispose();
       connectionRef.current = null;
     };
-  }, [setPhase]);
+  }, [setPhase, isMock]);
 
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
@@ -105,8 +135,11 @@ function App() {
       {prepared && connectionRef.current && (
         <MapView prepared={prepared} connection={connectionRef.current} />
       )}
-      <Hud connection={connectionRef.current} />
+      <Hud connection={connectionRef.current} isMock={isMock} />
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
+      {phase === "lobby" && connectionRef.current && <LobbyScreen connection={connectionRef.current} />}
+      {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
+      {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
     </div>
   );
 }
