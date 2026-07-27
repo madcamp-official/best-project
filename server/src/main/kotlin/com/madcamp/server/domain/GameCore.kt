@@ -590,8 +590,11 @@ object GameCore {
         }
     }
 
-    // 목표(target)에서 전체 그래프로 BFS해 각 동의 목표까지 홉 거리를 구하고, holderId의 각 최전선 동이
-    // 자기보다 목표에 더 가까운 인접 non-소유 동을 골라 '이길 만하면' 출정한다 — 전선이 목표를 향해 전진.
+    // 목표(target)에서 전체 그래프로 BFS해 각 동의 목표까지 홉 거리를 구한 뒤, holderId의 동들을 그
+    // 경사를 따라 목표 쪽으로 움직인다:
+    //  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
+    //  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
+    // 즉 후방 병력도 예전 집결지 보급처럼 목표를 향해 전방으로 계속 모인다.
     private fun offensiveAdvance(world: World, config: GameConfig, holderId: Int, target: Int, nowMs: Long) {
         val dist = IntArray(world.n) { -1 }
         dist[target] = 0
@@ -610,24 +613,46 @@ object GameCore {
             if (world.ownerId[i] != holderId) continue
             if (world.troops[i] < config.offensiveMinTroops) continue
             if (dist[i] < 0) continue // 목표와 그래프상 연결 안 됨(섬 등)
-            // 목표에 더 가까운(dist가 작은) 인접 non-소유 동 중 가장 가까운 것을 노린다(=목표 방향 전진).
-            var best = -1
-            var bestDist = dist[i]
+            // 목표에 더 가까운(dist가 작은) 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+            var atk = -1
+            var atkDist = dist[i]
+            var sup = -1
+            var supDist = dist[i]
             for (nb in world.neighborIndex[i]) {
-                if (world.ownerId[nb] == holderId) continue
-                if (dist[nb] in 0 until bestDist) {
-                    bestDist = dist[nb]
-                    best = nb
+                val d = dist[nb]
+                if (d < 0 || d >= dist[i]) continue // 목표에 더 가까운 이웃만(전방)
+                if (world.ownerId[nb] == holderId) {
+                    if (d < supDist) { supDist = d; sup = nb }
+                } else if (d < atkDist) {
+                    atkDist = d; atk = nb
                 }
             }
-            if (best < 0) continue // 목표 쪽으로 전진할 인접 적·중립이 없음(최전선 아님/목표 반대쪽)
-            val amount = floor(world.troops[i] * config.offensiveRatio).toInt()
-            if (amount <= world.troops[best]) continue // 이길 수 없으면 보류
-            world.troops[i] -= amount
-            world.dirty.add(i)
-            val order = makeOrder(world, config, i, best, amount, holderId, nowMs)
-            world.orders.add(order)
-            world.pendingNewOrders.add(order)
+            // 최전선: 이길 만하면 전방 적·중립을 출정. (성공하면 이 동은 이번 주기 소임을 다한 것.)
+            if (atk >= 0) {
+                val amount = floor(world.troops[i] * config.offensiveRatio).toInt()
+                if (amount > world.troops[atk]) {
+                    world.troops[i] -= amount
+                    world.dirty.add(i)
+                    val order = makeOrder(world, config, i, atk, amount, holderId, nowMs)
+                    world.orders.add(order)
+                    world.pendingNewOrders.add(order)
+                    continue
+                }
+                // 못 이기면(병력 부족) 아래 보급으로 떨어져, 전방 내 동이 있으면 그쪽으로 병력을 넘긴다.
+            }
+            // 후방 보급: 목표에 더 가까운 내 동으로 병력을 흘려보낸다(전투 없음, 상한 여유만큼).
+            if (sup >= 0) {
+                val space = world.troopCap[sup] - world.troops[sup]
+                if (space <= 0) continue // 앞이 가득 차면 출발 안 함(불필요한 왕복 방지)
+                var amt = floor(world.troops[i] * config.offensiveRatio).toInt()
+                if (amt < 1) continue
+                if (amt > space) amt = space
+                world.troops[i] -= amt
+                world.dirty.add(i)
+                val order = makeOrder(world, config, i, sup, amt, holderId, nowMs)
+                world.orders.add(order)
+                world.pendingNewOrders.add(order)
+            }
         }
     }
 

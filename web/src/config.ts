@@ -40,9 +40,9 @@ export const CONFIG = {
   MARCH_MAX_HOPS: 60, // 자동 경로 최대 홉(원거리 남용/BFS 비용 방지)
 
   // 공세 목표 — 적·중립 동을 더블클릭해 목표로 지정하면, 그 목표를 향한 최전선이 매 주기 전진한다.
-  OFFENSIVE_INTERVAL_SEC: 1.0, // 공세 전진 판정 주기(초)
-  OFFENSIVE_RATIO: 0.5, // 공세 1회당 최전선 동에서 내보내는 병력 비율
-  OFFENSIVE_MIN_TROOPS: 8, // 이 수 미만이면 공세 전진 안 함(수비 병력 확보 + 잔챙이 남발 방지)
+  OFFENSIVE_INTERVAL_SEC: 0.3, // 공세 전진 판정 주기(초)
+  OFFENSIVE_RATIO: 0.8, // 공세 1회당 최전선 동에서 내보내는 병력 비율
+  OFFENSIVE_MIN_TROOPS: 4, // 이 수 미만이면 공세 전진 안 함(수비 병력 확보 + 잔챙이 남발 방지)
 
   // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 삼각형 유닛으로 목적지에 투하.
   // 상한 초과분은 목적지에서 인접 BFS로 순차 flood(적/중립은 전투로 점령).
