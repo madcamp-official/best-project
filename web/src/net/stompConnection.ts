@@ -7,6 +7,7 @@
 // 구독하고 재입장을 재발행해 원래 방으로 복구한다.
 
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
+import { safeUuid } from "../util/uuid";
 import type { Connection } from "./connection";
 import type {
   DeltaMessage,
@@ -41,7 +42,7 @@ export const SERVER_WS_URL: string =
 function getClientId(): string {
   let id = localStorage.getItem("clientId");
   if (!id) {
-    id = crypto.randomUUID();
+    id = safeUuid();
     localStorage.setItem("clientId", id);
   }
   return id;

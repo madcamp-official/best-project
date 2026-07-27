@@ -6,6 +6,7 @@
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadDong";
 import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { safeUuid } from "../util/uuid";
 import type { Order, ShieldInfo } from "../game/types";
 import type { Connection } from "./connection";
 import type {
@@ -197,7 +198,7 @@ export class LocalConnection implements Connection {
   }
 
   join(nickname: string, token?: string, _idToken?: string): void {
-    this.token = token && token.length > 0 ? token : crypto.randomUUID();
+    this.token = token && token.length > 0 ? token : safeUuid();
     const holder = this.gs.holders.get(this.holderId);
     if (holder && nickname.trim()) holder.name = nickname.trim().slice(0, 12);
 
