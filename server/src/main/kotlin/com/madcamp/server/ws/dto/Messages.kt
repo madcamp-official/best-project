@@ -1,5 +1,6 @@
 package com.madcamp.server.ws.dto
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.domain.DongStaticMeta
 import com.madcamp.server.domain.Holder
@@ -71,6 +72,10 @@ data class DeltaMessage(
     // paletteIdx를 몰라 땅 색을 잘못(fallback) 칠하는 순간이 아예 생기지 않는다.
     val newHolders: List<Holder>,
     val shieldUpdates: List<ShieldInfo>, // 이번 구간에 새로 생기거나 갱신된 방어막(신규 참가·재시작)
+    // 현재 포위(귀속 대기)된 동 전체. 집합이 바뀐 tick에만 실어 보낸다(안 바뀌면 null → 클라가 유지).
+    // 클라가 이 동들을 반짝이게 한다(worldView.ts enclosed와 대응).
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val enclosed: List<Int>? = null,
 )
 
 data class LeaderboardMessage(

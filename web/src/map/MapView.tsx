@@ -14,6 +14,8 @@ import {
   drainRallyTouched,
   drainRespawnCell,
   setMyRally,
+  enclosedSet,
+  drainEnclosedTouched,
 } from "../world/worldView";
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
@@ -32,6 +34,7 @@ const HOVER_LAYER = "dong-hover";
 const SELECT_LAYER = "dong-select";
 const FLASH_LAYER = "dong-flash";
 const FLASH_MS = 600; // 함락 플래시 지속 시간
+const ENCLOSED_LAYER = "dong-enclosed-blink"; // 포위(귀속 대기)된 동의 반짝임 채움
 const ARC_SOURCE = "arcs";
 const FRONTIER_GLOW = "frontier-glow";
 const FRONTIER_LAYER = "frontier";
@@ -111,7 +114,7 @@ export function MapView({ prepared, connection }: Props) {
     map.boxZoom.disable();
     // 개발 편의용 디버그 훅 (프로덕션 빌드에선 제외됨).
     if (import.meta.env.DEV) {
-      Object.assign(window, { __map: map, __world: world });
+      Object.assign(window, { __map: map, __world: world, __arrowPolygon: arrowPolygon });
     }
 
     map.on("error", (e) => {
@@ -516,6 +519,17 @@ export function MapView({ prepared, connection }: Props) {
         paint: {
           "fill-color": "#ffffff",
           "fill-opacity": ["coalesce", ["feature-state", "flash"], 0],
+        },
+      });
+      // 포위(귀속 대기)된 동의 반짝임 — feature-state "enclosed"(0~1)를 rAF가 펄스로 흔든다.
+      // 곧 흡수됨을 경고하는 앰버 채움. 흰 함락 플래시·조준과 색으로 구분된다.
+      map.addLayer({
+        id: ENCLOSED_LAYER,
+        type: "fill",
+        source: SOURCE_ID,
+        paint: {
+          "fill-color": "#ffcc33",
+          "fill-opacity": ["coalesce", ["feature-state", "enclosed"], 0],
         },
       });
 
@@ -1114,6 +1128,7 @@ export function MapView({ prepared, connection }: Props) {
     let hadUnits = false;
     let lastPanNow = 0; // WASD 연속 패닝용 직전 프레임 시각
     const flashing = new Map<number, number>(); // admIndex → 플래시 시작 시각
+    const enclosedRendered = new Set<number>(); // 지금 반짝임(enclosed feature-state)을 켠 동
     const loop = (now: number) => {
       // WASD/화살표 연속 패닝 — 눌린 방향으로 매 프레임 dt(초)만큼 부드럽게 이동.
       const dt = lastPanNow ? Math.min(0.05, (now - lastPanNow) / 1000) : 0; // dt 상한: 탭 복귀 시 급점프 방지
@@ -1160,6 +1175,23 @@ export function MapView({ prepared, connection }: Props) {
           flashing.delete(idx);
         } else {
           map.setFeatureState({ source: SOURCE_ID, id: idx }, { flash: a * 0.6 });
+        }
+      }
+
+      // 포위(귀속 대기) 동 반짝임 — 집합이 바뀌면 빠진 동의 반짝임을 끄고, 현재 집합을 앰버로 펄스.
+      if (drainEnclosedTouched()) {
+        for (const idx of enclosedRendered) {
+          if (!enclosedSet.has(idx)) {
+            map.setFeatureState({ source: SOURCE_ID, id: idx }, { enclosed: 0 });
+            enclosedRendered.delete(idx);
+          }
+        }
+        for (const idx of enclosedSet) enclosedRendered.add(idx);
+      }
+      if (enclosedRendered.size > 0) {
+        const ePulse = 0.15 + 0.4 * (0.5 + 0.5 * Math.sin(now / 180)); // 0.15~0.55 사이로 깜빡
+        for (const idx of enclosedRendered) {
+          map.setFeatureState({ source: SOURCE_ID, id: idx }, { enclosed: ePulse });
         }
       }
 
@@ -1427,17 +1459,15 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   const px = -uy; // 왼쪽 수직(단위)
   const py = ux;
 
-  // 동 중심 간 거리가 너무 짧으면 폭이 길이보다 커져 화살표가 뭉개진다. 렌더 길이에 최소값을 둬서
-  // (짧을 땐 대상 방향으로 살짝만 연장) 폭·촉을 그 길이에 비례시켜 항상 화살표 비율을 유지한다.
-  const MIN_LEN = 0.009;
-  const eff = Math.max(len, MIN_LEN);
-
-  // 얇게 시작해 촉으로 갈수록 넓어지는 형태(폭은 렌더 길이에 비례, 상한만 둠).
-  const shaftW = Math.min(0.0038, eff * 0.055); // 촉 밑변쪽 샤프트 반폭
+  // 화살표 끝은 '항상 대상 동 중심(b)'에 정확히 맞춘다. 예전엔 거리가 짧을 때 렌더 길이를
+  // 최소값(대상 너머로 연장)으로 늘려, 화살표가 실제 공격 대상과 어긋나 보였고 아주 가까우면
+  // 엉뚱한 동을 가리켰다. 대신 폭·촉을 '실제 거리(len)'에 비례시켜 짧아도 뭉개지지 않게 한다
+  // (짧으면 그만큼 작은 화살표 — 위치는 항상 정확).
+  const shaftW = Math.min(0.0038, len * 0.055); // 촉 밑변쪽 샤프트 반폭(길이에 비례, 상한만)
   const startW = shaftW * 0.5; // 시작부는 얇게
   const headW = shaftW * 2.0; // 화살촉 날개 반폭(가장 넓음)
-  const headLen = Math.min(eff * 0.5, Math.max(eff * 0.28, headW * 1.4)); // 화살촉 길이
-  const baseLen = eff - headLen; // 샤프트 끝(=촉 밑변)까지 거리
+  const headLen = Math.min(len * 0.5, Math.max(len * 0.28, headW * 1.4)); // 화살촉 길이
+  const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
 
   // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
   const P = (along: number, side: number): [number, number] => [
@@ -1449,7 +1479,7 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
     P(0, startW), // 시작부 왼쪽(얇음)
     P(baseLen, shaftW), // 촉 밑변 왼쪽(넓어짐)
     P(baseLen, headW), // 촉 왼쪽 날개(가장 넓음)
-    P(eff, 0), // 뾰족한 끝(짧으면 대상 너머로 약간 연장)
+    P(len, 0), // 뾰족한 끝 = 대상 동 중심(b)에 정확히 안착
     P(baseLen, -headW), // 촉 오른쪽 날개
     P(baseLen, -shaftW), // 촉 밑변 오른쪽
     P(0, -startW), // 시작부 오른쪽(얇음)

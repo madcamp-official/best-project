@@ -44,6 +44,7 @@ export class LocalConnection implements Connection {
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
   private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
+  private lastEnclosedKey = ""; // 직전에 보낸 포위 동 집합의 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
   private prepared: PreparedMap;
 
   constructor(prepared: PreparedMap) {
@@ -351,6 +352,13 @@ export class LocalConnection implements Connection {
     const shieldUpdates = this.pendingShields;
     this.pendingShields = [];
 
+    // 현재 포위(귀속 대기) 동 집합 — enclosedBy>=0인 동. 직전과 다를 때만 enclosed를 싣는다
+    // (매 tick 전송 방지). 집합이 바뀌면 다른 변경이 없어도 DELTA를 강제해 반짝임이 즉시 갱신되게.
+    const enclosedList: number[] = [];
+    for (let i = 0; i < this.gs.n; i++) if (this.gs.enclosedBy[i] >= 0) enclosedList.push(i);
+    const enclosedKey = enclosedList.join(",");
+    const enclosedChanged = enclosedKey !== this.lastEnclosedKey;
+
     if (
       cells.length === 0 &&
       newOrders.length === 0 &&
@@ -358,10 +366,12 @@ export class LocalConnection implements Connection {
       missileAdd.length === 0 &&
       missileRemove.length === 0 &&
       missileImpacts.length === 0 &&
-      shieldUpdates.length === 0
+      shieldUpdates.length === 0 &&
+      !enclosedChanged
     ) {
       return;
     }
+    this.lastEnclosedKey = enclosedKey;
     // 목 서버는 단일 로컬 플레이어라 접속 중 새 holder가 생기는 시나리오가 없다 — 항상 빈 배열.
     this.deltaCb?.({
       serverTimeMs: now,
@@ -373,6 +383,7 @@ export class LocalConnection implements Connection {
       missileImpacts,
       newHolders: [],
       shieldUpdates,
+      ...(enclosedChanged ? { enclosed: enclosedList } : {}),
     });
   }
 

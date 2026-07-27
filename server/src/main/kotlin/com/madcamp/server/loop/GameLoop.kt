@@ -44,6 +44,7 @@ class GameLoop(
     private val rng = java.util.Random()
     private var missileAccumSec = 0.0
     private var supplyAccumSec = 0.0
+    private var lastEnclosedKey = "" // 직전에 보낸 포위 동 집합 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
@@ -140,17 +141,29 @@ class GameLoop(
         world.pendingNewHolders.clear()
         val shieldUpdates = world.pendingShields.toList()
         world.pendingShields.clear()
+
+        // 현재 포위(귀속 대기) 동 집합 — enclosedBy>=0. 직전과 다를 때만 enclosed를 싣고, 집합이
+        // 바뀌면 다른 변경이 없어도 DELTA를 강제해 클라 반짝임이 즉시 갱신되게 한다.
+        val enclosedList = (0 until world.n).filter { world.enclosedBy[it] >= 0 }
+        val enclosedKey = enclosedList.joinToString(",")
+        val enclosedChanged = enclosedKey != lastEnclosedKey
+
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
             missileAdd.isEmpty() && missileRemove.isEmpty() && missileImpacts.isEmpty() &&
-            newHolders.isEmpty() && shieldUpdates.isEmpty()
+            newHolders.isEmpty() && shieldUpdates.isEmpty() && !enclosedChanged
         ) {
             return
         }
+        lastEnclosedKey = enclosedKey
 
         val cells = dirty.map { intArrayOf(it, world.ownerId[it], world.troops[it]) }
         messagingTemplate.convertAndSend(
             "/topic/world",
-            DeltaMessage(nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders, shieldUpdates),
+            DeltaMessage(
+                nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders,
+                shieldUpdates,
+                enclosed = if (enclosedChanged) enclosedList else null,
+            ),
         )
     }
 

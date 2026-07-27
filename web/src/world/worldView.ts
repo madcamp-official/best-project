@@ -50,6 +50,8 @@ export function applyWelcome(msg: WelcomeMessage) {
   rallyTouched = true;
   world.shieldUntil = new Float64Array(256);
   for (const sh of msg.shields) world.shieldUntil[sh.holderId] = sh.until;
+  enclosedSet.clear(); // 재접속 스냅샷 — 포위 반짝임은 이후 DELTA(enclosed)로 다시 채운다
+  enclosedTouched = true;
 }
 
 // 함락(소유권 변경)이 일어난 admIndex 큐 — 렌더러가 꺼내 플래시 연출에 쓴다.
@@ -63,6 +65,10 @@ let defeatFlag = false;
 // 재시작으로 새로 배정받은 시작 동의 admIndex 큐 — MapView가 꺼내 그 동으로 카메라를 옮긴다.
 // (죽어있던 상태(소유 동 0개)에서만 채워지므로, 적 동을 뺏어 얻은 경우와 헷갈리지 않는다.)
 export const respawnCellQueue: number[] = [];
+// 현재 포위(귀속 대기)된 동 집합 — 서버 DELTA의 enclosed로 갱신. 렌더러가 이 동들을 반짝이게 한다.
+export const enclosedSet = new Set<number>();
+// 포위 집합이 바뀌면 set — 렌더러가 반짝임 대상(feature-state)을 다시 맞춘다.
+let enclosedTouched = false;
 
 // DELTA 적용 — 변경된 동만 갱신하고 dirty에 모은다(렌더러가 배치 반영).
 export function applyDelta(msg: DeltaMessage) {
@@ -101,6 +107,12 @@ export function applyDelta(msg: DeltaMessage) {
     missilesTouched = true;
   }
   for (const sh of msg.shieldUpdates) world.shieldUntil[sh.holderId] = sh.until;
+  // 포위 집합 갱신 — 필드가 실려 온 DELTA에서만 통째로 교체한다(없으면 기존 집합 유지).
+  if (msg.enclosed) {
+    enclosedSet.clear();
+    for (const i of msg.enclosed) enclosedSet.add(i);
+    enclosedTouched = true;
+  }
 
   // 패배 판정: 이번 delta 적용 전엔 살아있었는데(소유 동 > 0) 적용 후 0개가 됐으면 궤멸 순간이다.
   // 더 이상 서버가 같은 delta에 새 동을 자동으로 얹어주지 않으므로 이 전이만 보면 된다.
@@ -112,6 +124,13 @@ export function applyDelta(msg: DeltaMessage) {
 export function drainCaptureFlashes(): number[] {
   if (captureFlashes.length === 0) return [];
   return captureFlashes.splice(0, captureFlashes.length);
+}
+
+// 포위 집합이 바뀌었으면 true 반환 후 플래그를 내린다(렌더러가 반짝임 대상을 다시 맞춘다).
+export function drainEnclosedTouched(): boolean {
+  if (!enclosedTouched) return false;
+  enclosedTouched = false;
+  return true;
 }
 
 export function drainMissileImpacts(): number[] {
