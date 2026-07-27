@@ -590,37 +590,33 @@ object GameCore {
         }
     }
 
-    // 목표(target)에서 전체 그래프로 BFS해 각 동의 목표까지 홉 거리를 구한 뒤, holderId의 동들을 그
-    // 경사를 따라 목표 쪽으로 움직인다:
+    // 목표(target)의 '지리적' 방향으로 경사를 만들어(목표 중심까지의 거리) holderId의 동들을 그 방향으로
+    // 움직인다 — 홉 최단경로가 아니라 물이 목표 쪽으로 흘러내리듯 실제 방향으로 전진한다:
     //  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
     //  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
-    // 즉 후방 병력도 예전 집결지 보급처럼 목표를 향해 전방으로 계속 모인다.
+    // 즉 후방 병력도 예전 집결지 보급처럼 목표 방향으로 전방에 계속 모인다.
     private fun offensiveAdvance(world: World, config: GameConfig, holderId: Int, target: Int, nowMs: Long) {
-        val dist = IntArray(world.n) { -1 }
-        dist[target] = 0
-        val q = ArrayList<Int>()
-        q.add(target)
-        var k = 0
-        while (k < q.size) {
-            val cur = q[k]; k++
-            for (nb in world.neighborIndex[cur]) {
-                if (dist[nb] != -1) continue
-                dist[nb] = dist[cur] + 1
-                q.add(nb)
-            }
+        // 목표 중심까지의 지리적 제곱거리(경도는 cosLat로 보정). 작을수록 목표에 가깝다.
+        val tc = world.meta[target].centroid
+        val cosLat = cos(tc[1] * Math.PI / 180.0).let { if (it == 0.0) 1.0 else it }
+        fun distToTarget(idx: Int): Double {
+            val c = world.meta[idx].centroid
+            val dx = (c[0] - tc[0]) * cosLat
+            val dy = c[1] - tc[1]
+            return dx * dx + dy * dy
         }
         for (i in 0 until world.n) {
             if (world.ownerId[i] != holderId) continue
             if (world.troops[i] < config.offensiveMinTroops) continue
-            if (dist[i] < 0) continue // 목표와 그래프상 연결 안 됨(섬 등)
-            // 목표에 더 가까운(dist가 작은) 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+            val myDist = distToTarget(i)
+            // 목표에 지리적으로 더 가까운 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
             var atk = -1
-            var atkDist = dist[i]
+            var atkDist = myDist
             var sup = -1
-            var supDist = dist[i]
+            var supDist = myDist
             for (nb in world.neighborIndex[i]) {
-                val d = dist[nb]
-                if (d < 0 || d >= dist[i]) continue // 목표에 더 가까운 이웃만(전방)
+                val d = distToTarget(nb)
+                if (d >= myDist) continue // 목표에 더 가까운 이웃만(전방)
                 if (world.ownerId[nb] == holderId) {
                     if (d < supDist) { supDist = d; sup = nb }
                 } else if (d < atkDist) {

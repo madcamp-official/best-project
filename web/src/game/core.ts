@@ -622,35 +622,33 @@ export function tickOffensive(s: GameState, nowMs: number): Order[] {
   return out;
 }
 
-// 목표(target)에서 전체 그래프로 BFS해 각 동의 목표까지 홉 거리를 구한 뒤, holderId의 동들을 그
-// 경사를 따라 목표 쪽으로 움직인다:
+// 목표(target)의 '지리적' 방향으로 경사를 만들어(목표 중심까지의 거리) holderId의 동들을 그 방향으로
+// 움직인다 — 홉 최단경로가 아니라 물이 목표 쪽으로 흘러내리듯 실제 방향으로 전진한다:
 //  · 최전선 동(목표에 더 가까운 인접 적·중립이 있는 동) → '이길 만하면' 그 적·중립을 출정(전투).
 //  · 후방 동(목표에 더 가까운 인접 '내 동'만 있는 동) → 그 내 동으로 병력을 흘려보낸다(전투 없음).
-// 즉 후방 병력도 예전 집결지 보급처럼 목표를 향해 전방으로 계속 모인다.
+// 즉 후방 병력도 예전 집결지 보급처럼 목표 방향으로 전방에 계속 모인다.
 function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs: number, out: Order[]) {
-  const dist = new Int32Array(s.n).fill(-1);
-  dist[target] = 0;
-  const q = [target];
-  for (let k = 0; k < q.length; k++) {
-    const cur = q[k];
-    for (const nb of s.neighborIndex[cur]) {
-      if (dist[nb] !== -1) continue;
-      dist[nb] = dist[cur] + 1;
-      q.push(nb);
-    }
-  }
+  // 목표 중심까지의 지리적 제곱거리(경도는 cosLat로 보정해 동서·남북을 같은 척도로). 작을수록 목표에 가깝다.
+  const tc = s.meta[target].centroid;
+  const cosLat = Math.cos((tc[1] * Math.PI) / 180) || 1;
+  const distToTarget = (idx: number): number => {
+    const c = s.meta[idx].centroid;
+    const dx = (c[0] - tc[0]) * cosLat;
+    const dy = c[1] - tc[1];
+    return dx * dx + dy * dy;
+  };
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] !== holderId) continue;
     if (s.troops[i] < CONFIG.OFFENSIVE_MIN_TROOPS) continue;
-    if (dist[i] < 0) continue; // 목표와 그래프상 연결 안 됨(섬 등)
-    // 목표에 더 가까운(dist가 작은) 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
+    const myDist = distToTarget(i);
+    // 목표에 지리적으로 더 가까운 인접 동을 공격 대상(non-소유)과 보급 대상(내 동)으로 나눠 각각 최근접.
     let atk = -1;
-    let atkDist = dist[i];
+    let atkDist = myDist;
     let sup = -1;
-    let supDist = dist[i];
+    let supDist = myDist;
     for (const nb of s.neighborIndex[i]) {
-      const d = dist[nb];
-      if (d < 0 || d >= dist[i]) continue; // 목표에 더 가까운 이웃만(전방)
+      const d = distToTarget(nb);
+      if (d >= myDist) continue; // 목표에 더 가까운 이웃만(전방)
       if (s.ownerId[nb] === holderId) {
         if (d < supDist) {
           supDist = d;
