@@ -57,6 +57,10 @@ export interface AirdropCommand {
   dest: number;
 }
 
+// 궤멸(소유 동 0개) 재시작 요청(C→S). 페이로드 없음 — 서버가 요청자 holderId로 소유 동 0개인지
+// 확인하고, 맞으면 새 시작 동을 배정한다(DELTA로 전파). 아직 소유 동이 있으면 조용히 무시한다.
+export type RestartCommand = Record<string, never>;
+
 // ── S→C ──────────────────────────────────────────────────────────────
 
 // api-spec §2.2 — JOIN 응답. 전체 스냅샷 1회, 이후 변경분은 DELTA로만.

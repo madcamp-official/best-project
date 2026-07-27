@@ -22,6 +22,8 @@ export interface Connection {
   sendRally(index: number): void;
   // B3 공수부대(병력 수송). sources = 원 안 내 소유 동 admIndex(클라 계산), dest = 투하 목적지(인접 불필요).
   sendAirdrop(sources: number[], dest: number): void;
+  // 궤멸(소유 동 0개) 후 재시작 요청. 아직 소유 동이 있으면 서버가 무시한다.
+  sendRestart(): void;
 
   // 서버 → 클라 이벤트 구독. 각 1개 콜백만 등록(단순화).
   onWelcome(cb: (msg: WelcomeMessage) => void): void;

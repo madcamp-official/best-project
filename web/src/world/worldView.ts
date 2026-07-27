@@ -55,18 +55,14 @@ export const captureFlashes: number[] = [];
 // 미사일로 중립화된 동 큐 — 렌더러가 꺼내 폭발 충격파를 터뜨린다.
 // (현재 규칙상 동이 중립(0)으로 바뀌는 건 오직 미사일뿐이므로 이게 착탄 신호가 된다.)
 export const missileImpacts: number[] = [];
-// 내가 소유 동 0개(궤멸)였다가 서버가 새 동을 배정해줘서 다시 생긴 admIndex 큐.
-// (server GameCore.respawnEliminatedPlayers — 미사일 등으로 전멸해도 영구 탈락은 아니다.)
-export const respawnEvents: number[] = [];
-// 내 영토가 이번 delta에 전부 사라진 순간(패배) 신호 — App이 소진해 패배 오버레이를 띄운다.
+// 내 영토가 이번 delta에 전부 사라진 순간(패배) 신호 — App이 소진해 GAME OVER 오버레이를 띄운다.
+// 재시작은 더 이상 자동이 아니라 유저가 오버레이에서 직접 선택해야 한다(connection.sendRestart).
 let defeatFlag = false;
 
 // DELTA 적용 — 변경된 동만 갱신하고 dirty에 모은다(렌더러가 배치 반영).
 export function applyDelta(msg: DeltaMessage) {
   const me = world.myHolderId;
-  const hadNoCells = me !== 0 && core.ownedCount(world, me) === 0;
-  let lostMine = false; // 이번 delta에 내 동을 하나라도 잃었는가
-  let gainedFromNeutral = 0; // 이번 delta에 '중립'에서 새로 얻은 내 동 수(=자동 재배정 판정용)
+  const wasAlive = me !== 0 && core.ownedCount(world, me) > 0; // 이번 delta 적용 전 생존 여부
 
   // 신규 참가자 holder(색상 포함) 반영 — 이 DELTA의 cells에 그 holder의 첫 동이 같이
   // 실려 오므로, 아래 cells 루프가 색을 찾기 전에 먼저 world.holders에 채워둔다.
@@ -77,11 +73,6 @@ export function applyDelta(msg: DeltaMessage) {
     if (prev !== owner) {
       captureFlashes.push(admIndex); // 소유권 변경 = 함락
       if (owner === 0 && prev !== 0) missileImpacts.push(admIndex); // non-중립→중립 = 미사일 착탄
-      if (hadNoCells && owner === me) respawnEvents.push(admIndex); // 궤멸 후 재시작
-      if (me !== 0) {
-        if (prev === me && owner !== me) lostMine = true; // 내 동을 잃음
-        if (owner === me && prev === 0) gainedFromNeutral++; // 중립에서 새로 얻음(재배정 형태)
-      }
     }
     world.ownerId[admIndex] = owner;
     world.troops[admIndex] = troops;
@@ -98,10 +89,9 @@ export function applyDelta(msg: DeltaMessage) {
     missilesTouched = true;
   }
 
-  // 패배 판정: 이번 delta에 내 동을 잃었고, 지금 남은 내 동이 없거나(재배정 전) 전부 이번에 중립에서
-  // 새로 배정받은 것뿐이면(같은 delta 자동 재시작) → 기존 영토를 전부 잃은 '궤멸' 순간이다.
-  // (적 동을 뺏어 얻은 경우는 gainedFromNeutral에 안 잡혀 오검출되지 않는다.)
-  if (me !== 0 && lostMine && core.ownedCount(world, me) === gainedFromNeutral) {
+  // 패배 판정: 이번 delta 적용 전엔 살아있었는데(소유 동 > 0) 적용 후 0개가 됐으면 궤멸 순간이다.
+  // 더 이상 서버가 같은 delta에 새 동을 자동으로 얹어주지 않으므로 이 전이만 보면 된다.
+  if (wasAlive && core.ownedCount(world, me) === 0) {
     defeatFlag = true;
   }
 }
@@ -116,12 +106,7 @@ export function drainMissileImpacts(): number[] {
   return missileImpacts.splice(0, missileImpacts.length);
 }
 
-export function drainRespawnEvents(): number[] {
-  if (respawnEvents.length === 0) return [];
-  return respawnEvents.splice(0, respawnEvents.length);
-}
-
-// 이번 delta에 내 영토가 전부 사라졌으면 true를 한 번 반환한다(App이 패배 오버레이를 띄운다).
+// 이번 delta에 내 영토가 전부 사라졌으면 true를 한 번 반환한다(App이 GAME OVER 오버레이를 띄운다).
 export function drainDefeat(): boolean {
   if (!defeatFlag) return false;
   defeatFlag = false;

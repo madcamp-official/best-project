@@ -1,8 +1,13 @@
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
 import { ENV_PALETTE_IDX, PALETTE } from "../config";
+import type { Connection } from "../net/connection";
 
-export function Hud() {
+interface Props {
+  connection: Connection | null; // GAME OVER 오버레이의 재시작 버튼이 sendRestart를 보내는 데 씀
+}
+
+export function Hud({ connection }: Props) {
   const phase = useUIStore((s) => s.phase);
   const errorMessage = useUIStore((s) => s.errorMessage);
   const selectedInfo = useUIStore((s) => s.selectedInfo);
@@ -233,8 +238,8 @@ export function Hud() {
               minWidth: 280,
             }}
           >
-            <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: 6, color: "#ff5a5a" }}>
-              패배
+            <div style={{ fontSize: 38, fontWeight: 900, letterSpacing: 3, color: "#ff5a5a" }}>
+              GAME OVER
             </div>
             <p style={{ margin: "12px 0 22px", color: "#cdd6e4", fontSize: 14 }}>
               영토를 모두 잃었습니다.
@@ -260,7 +265,10 @@ export function Hud() {
               </button>
               <button
                 type="button"
-                onClick={() => setDefeated(false)}
+                onClick={() => {
+                  connection?.sendRestart();
+                  setDefeated(false);
+                }}
                 style={{
                   padding: "9px 18px",
                   borderRadius: 8,
