@@ -707,14 +707,19 @@ export function MapView({ prepared, connection }: Props) {
               selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
             }
           }
-          // 화살표 끝을 커서가 아니라 커서 아래 동의 '중심'으로 자석처럼 스냅한다.
+          // 공격/이동이 가능한 대상일 때만 화살표 끝을 그 동의 '중심'으로 자석처럼 스냅한다.
+          // (인접 동 = 공격/증원, 먼 내 동 = 자동 행군. 그 외엔 스냅하지 않고 커서를 따라간다.)
           if (dragging) {
             const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
             const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
-            const end: [number, number] =
-              over >= 0 && over !== dragSource
-                ? (world.meta[over].centroid as [number, number])
-                : [e.lngLat.lng, e.lngLat.lat]; // 동 밖이거나 출발지 위면 커서를 따라간다
+            const canTarget =
+              over >= 0 &&
+              over !== dragSource &&
+              ((world.neighborIndex[dragSource]?.includes(over) ?? false) ||
+                world.ownerId[over] === world.myHolderId);
+            const end: [number, number] = canTarget
+              ? (world.meta[over].centroid as [number, number])
+              : [e.lngLat.lng, e.lngLat.lat]; // 대상이 아니면 커서를 따라간다(스냅 안 함)
             updateArrow(dragSource, end);
           }
         }
@@ -1113,11 +1118,12 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   const px = -uy; // 왼쪽 수직(단위)
   const py = ux;
 
-  const shaftW = Math.min(0.006, Math.max(0.0014, len * 0.09)); // 샤프트 반폭
-  const headW = shaftW * 2.3; // 화살촉 반폭(샤프트보다 넓게)
-  const headLen = Math.min(len * 0.55, Math.max(len * 0.3, headW * 1.6)); // 화살촉 길이
+  // 출발부가 가장 넓고 촉으로 갈수록 좁아지는(역테이퍼) 형태. 폭은 전반적으로 축소.
+  const startW = Math.min(0.0038, Math.max(0.001, len * 0.055)); // 출발부 반폭(가장 넓음)
+  const neckW = startW * 0.35; // 촉 앞 목(가장 좁음)
+  const headW = startW * 0.8; // 화살촉 날개 반폭(목보다 넓지만 출발부보단 좁게)
+  const headLen = Math.min(len * 0.5, Math.max(len * 0.28, startW * 2.5)); // 화살촉 길이
   const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
-  const startW = shaftW * 0.55; // 시작부는 얇게(테이퍼)
 
   // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
   const P = (along: number, side: number): [number, number] => [
@@ -1126,13 +1132,13 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   ];
 
   const ring: [number, number][] = [
-    P(0, startW),
-    P(baseLen, shaftW),
+    P(0, startW), // 출발부 왼쪽(가장 넓음)
+    P(baseLen, neckW), // 목 왼쪽(좁아짐)
     P(baseLen, headW), // 촉 왼쪽 날개
     P(len, 0), // 뾰족한 끝(타깃)
     P(baseLen, -headW), // 촉 오른쪽 날개
-    P(baseLen, -shaftW),
-    P(0, -startW),
+    P(baseLen, -neckW), // 목 오른쪽
+    P(0, -startW), // 출발부 오른쪽
     P(0, startW), // 닫기
   ];
   return [
