@@ -21,6 +21,8 @@ let roomId = null;
 let welcome = null;
 let sawPlayingState = false;
 let sawRoomDelta = false;
+let sawNotFound = false; // 없는 방 입장 → ROOM_NOT_FOUND 에러 수신 확인
+let roundEndsOk = false; // WELCOME.roundEndsAtMs가 미래 시각(라운드 타이머)인지 확인
 
 client.onConnect = () => {
   console.log("connected to", PORT);
@@ -56,23 +58,39 @@ client.onConnect = () => {
   client.subscribe("/user/queue/welcome", (m) => {
     welcome = JSON.parse(m.body);
     const myCell = welcome.ownerId.findIndex((o) => o === welcome.holderId);
-    console.log("WELCOME: roomId=", welcome.roomId, "holderId=", welcome.holderId, "myCell=", myCell, "cells=", welcome.ownerId.length);
+    console.log(
+      "WELCOME: roomId=", welcome.roomId, "holderId=", welcome.holderId, "myCell=", myCell,
+      "cells=", welcome.ownerId.length, "roundEndsAtMs=", welcome.roundEndsAtMs,
+    );
     if (welcome.roomId !== roomId) fail(`welcome.roomId(${welcome.roomId}) != joined room(${roomId})`);
     if (myCell === -1) fail("no owned cell in WELCOME snapshot");
+    // 라운드 타이머: 제한 시각이 미래 epoch ms여야 한다(서버 ROUND_DURATION_SEC 기반).
+    roundEndsOk = welcome.roundEndsAtMs > welcome.serverTimeMs;
   });
 
-  client.subscribe("/user/queue/error", (m) => console.log("ERROR:", JSON.parse(m.body)));
+  client.subscribe("/user/queue/error", (m) => {
+    const err = JSON.parse(m.body);
+    console.log("ERROR:", err.code, "-", err.message);
+    if (err.code === "ROOM_NOT_FOUND") sawNotFound = true;
+  });
 
   client.publish({ destination: "/app/lobby/list", body: "{}" });
+  // 없는 방 입장 시도 → ROOM_NOT_FOUND 에러가 와야 한다(무응답이면 클라가 멈춘다).
+  setTimeout(() => {
+    console.log("-> join bogus room (expect ROOM_NOT_FOUND)");
+    client.publish({ destination: "/app/lobby/join", body: JSON.stringify({ roomId: "nope", nickname: "로비봇" }) });
+  }, 150);
   setTimeout(() => {
     console.log("-> create room");
     client.publish({ destination: "/app/lobby/create", body: JSON.stringify({ name: "테스트방", nickname: "로비봇" }) });
-  }, 300);
+  }, 400);
 
   setTimeout(() => {
     clearTimeout(timeout);
-    const ok = roomId && welcome && sawPlayingState && sawRoomDelta;
-    console.log("--- RESULT ---", { roomId: !!roomId, welcome: !!welcome, sawPlayingState, sawRoomDelta });
+    const ok = roomId && welcome && sawPlayingState && sawRoomDelta && sawNotFound && roundEndsOk;
+    console.log("--- RESULT ---", {
+      roomId: !!roomId, welcome: !!welcome, sawPlayingState, sawRoomDelta, sawNotFound, roundEndsOk,
+    });
     console.log(ok ? "LOBBY E2E OK" : "LOBBY E2E INCOMPLETE");
     client.deactivate();
     process.exit(ok ? 0 : 1);
