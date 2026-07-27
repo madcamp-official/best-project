@@ -44,4 +44,6 @@ out/
 /data/
 # 데이터 생성 스크립트/스모크 테스트용 Node 툴링
 tools/**/node_modules/
+# 구글 로그인(feat/google-login) — Firebase 서비스 계정 키 등 비밀 파일. 각자 로컬에만 둔다.
+/secrets/
 

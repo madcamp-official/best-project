@@ -12,6 +12,7 @@
   "dependencies": {
     "@stomp/stompjs": "^7.3.0",
     "admdongkor": "^0.4.0",
+    "firebase": "^12.16.0",
     "maplibre-gl": "^6.0.0",
     "polylabel": "^2.1.0",
     "react": "^19.2.7",

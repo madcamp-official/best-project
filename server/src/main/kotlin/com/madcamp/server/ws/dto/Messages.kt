@@ -12,7 +12,9 @@ import com.madcamp.server.domain.ShieldInfo
 
 // docs/api-spec.md §2 그대로 대응하는 STOMP 페이로드. 필드 하나하나가 문서의 표와 1:1.
 
-data class JoinMessage(val nickname: String? = null, val token: String? = null)
+// idToken: 구글 로그인(feat/google-login) — Firebase가 발급한 ID 토큰. 있으면 서버가 검증 후
+// 그 계정의 닉네임을 우선한다(AccountService.resolveNickname). 없으면 기존 게스트 흐름 그대로.
+data class JoinMessage(val nickname: String? = null, val token: String? = null, val idToken: String? = null)
 
 data class WelcomeMessage(
     val roomId: String, // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
@@ -129,11 +131,21 @@ data class RoundEndMessage(
     val leaderboard: List<LeaderboardRow>,
 )
 
-/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. */
-data class CreateRoomCommand(val name: String? = null, val nickname: String? = null, val token: String? = null)
+/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. idToken은 JoinMessage 참고. */
+data class CreateRoomCommand(
+    val name: String? = null,
+    val nickname: String? = null,
+    val token: String? = null,
+    val idToken: String? = null,
+)
 
-/** 방 입장(C→S, /app/lobby/join). */
-data class JoinRoomCommand(val roomId: String = "", val nickname: String? = null, val token: String? = null)
+/** 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고. */
+data class JoinRoomCommand(
+    val roomId: String = "",
+    val nickname: String? = null,
+    val token: String? = null,
+    val idToken: String? = null,
+)
 
 /** 대기실 준비 토글(C→S, /app/room/ready). 방장이 아닌 멤버가 사용. */
 data class SetReadyCommand(val ready: Boolean = false)

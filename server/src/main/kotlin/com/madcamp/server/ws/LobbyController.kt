@@ -1,5 +1,7 @@
 package com.madcamp.server.ws
 
+import com.madcamp.server.auth.AccountService
+import com.madcamp.server.auth.GoogleAuthException
 import com.madcamp.server.config.ConfigService
 import com.madcamp.server.game.Member
 import com.madcamp.server.game.Room
@@ -30,6 +32,7 @@ class LobbyController(
     private val configService: ConfigService,
     private val welcomeAssembler: WelcomeAssembler,
     private val broadcaster: RoomBroadcaster,
+    private val accountService: AccountService,
     private val messaging: SimpMessagingTemplate,
 ) {
     @MessageMapping("/lobby/list")
@@ -39,6 +42,7 @@ class LobbyController(
 
     @MessageMapping("/lobby/create")
     fun create(@Payload cmd: CreateRoomCommand, principal: Principal) {
+        val nickname = resolveNicknameOrNotify(principal, cmd.nickname, cmd.idToken) ?: return
         gameLoop.submitRoomTask {
             val openRooms = roomManager.list().count { it.id != RoomManager.DEFAULT_ROOM_ID }
             if (openRooms >= RoomManager.MAX_ROOMS) {
@@ -49,12 +53,13 @@ class LobbyController(
             val name = cmd.name?.trim()?.takeUnless { it.isEmpty() }?.take(20) ?: "새 방"
             val room = roomManager.create(name)
             room.hostPrincipal = principal.name // 생성자가 방장 — 시작 권한 보유
-            addMemberAndReply(room, principal, cmd.nickname, cmd.token)
+            addMemberAndReply(room, principal, nickname, cmd.token)
         }
     }
 
     @MessageMapping("/lobby/join")
     fun join(@Payload cmd: JoinRoomCommand, principal: Principal) {
+        val nickname = resolveNicknameOrNotify(principal, cmd.nickname, cmd.idToken) ?: return
         gameLoop.submitRoomTask {
             // 명시적으로 고른 방(roomId)이 항상 우선. 비어 있을 때만(새로고침 뒤 자동 복구 등)
             // 토큰이 기억하는 방으로 폴백한다 — 안 그러면 "방 A를 나가고 방 B를 클릭했는데
@@ -72,17 +77,28 @@ class LobbyController(
                 broadcaster.broadcastRoomList()
                 return@submitRoomTask
             }
-            addMemberAndReply(room, principal, cmd.nickname, cmd.token)
+            addMemberAndReply(room, principal, nickname, cmd.token)
         }
     }
+
+    // 구글 로그인(idToken) 검증은 네트워크 I/O가 있을 수 있어 GameLoop 스레드(submitRoomTask) 밖,
+    // 즉 여기서 먼저 끝낸다 — GameLoop는 항상 로컬 연산만 도는 게 전제라 블로킹하면 전체 방 tick이 밀린다.
+    // 실패하면 에러를 보내고 null을 돌려주며, 호출자는 그대로 return해 방 작업을 건너뛴다.
+    private fun resolveNicknameOrNotify(principal: Principal, nickname: String?, idToken: String?): String? =
+        try {
+            accountService.resolveNickname(nickname, idToken)
+        } catch (e: GoogleAuthException) {
+            sendRoomError(principal, "GOOGLE_LOGIN_FAILED", e.message ?: "구글 로그인에 실패했습니다.")
+            null
+        }
 
     private fun sendRoomError(principal: Principal, code: String, message: String) {
         messaging.convertAndSendToUser(principal.name, "/queue/error", ErrorMessage(code, message, -1, -1))
     }
 
     // 멤버 등록 + 입장 응답 + 브로드캐스트. (executor 스레드에서만 호출)
-    private fun addMemberAndReply(room: Room, principal: Principal, nickname: String?, token: String?) {
-        val name = nickname?.trim()?.takeUnless { it.isEmpty() }?.take(12) ?: "player"
+    // name은 이미 확정된 닉네임(resolveNicknameOrNotify가 게스트 트림/구글 로그인 계정 반영까지 끝냄).
+    private fun addMemberAndReply(room: Room, principal: Principal, name: String, token: String?) {
         val member = room.members.getOrPut(principal.name) { Member(principal.name, name, token ?: "") }
         member.nickname = name
 

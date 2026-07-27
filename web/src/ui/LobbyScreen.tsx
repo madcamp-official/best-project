@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import type { Connection } from "../net/connection";
+import { isFirebaseConfigured, onAuthStateChanged, signInWithGoogle } from "../auth/firebase";
 
 interface Props {
   connection: Connection;
@@ -12,7 +13,40 @@ export function LobbyScreen({ connection }: Props) {
   const rooms = useUIStore((s) => s.rooms);
   const [nickname, setNickname] = useState(() => localStorage.getItem("nickname") ?? "");
   const [roomName, setRoomName] = useState("");
-  const nameOk = nickname.trim().length > 0;
+  // 구글 로그인(feat/google-login) — 로그인하면 이 ID 토큰을 create/join에 실어 보낸다.
+  // 서버가 검증해 그 계정의 닉네임을 우선하므로, 명목상 nickname state는 그대로 두되 화면엔
+  // "OO님으로 로그인됨"을 보여준다.
+  const [idToken, setIdToken] = useState<string | null>(null);
+  const [googleName, setGoogleName] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const nameOk = nickname.trim().length > 0 || idToken !== null;
+
+  // 이미 로그인된 세션이 있으면(새로고침 등) 버튼을 다시 누르지 않아도 자동으로 이어간다.
+  useEffect(() => {
+    return onAuthStateChanged((user) => {
+      if (!user) return;
+      user.getIdToken().then((tok) => {
+        setIdToken(tok);
+        setGoogleName(user.displayName);
+        if (user.displayName && !localStorage.getItem("nickname")) setNickname(user.displayName.slice(0, 12));
+      });
+    });
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setAuthBusy(true);
+    try {
+      const { idToken: tok, displayName } = await signInWithGoogle();
+      setIdToken(tok);
+      setGoogleName(displayName);
+      if (displayName) setNickname(displayName.slice(0, 12));
+    } catch (e) {
+      console.error("[google-signin]", e);
+      alert("구글 로그인에 실패했습니다.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   const token = () => localStorage.getItem("token") ?? undefined;
   const saveNick = () => localStorage.setItem("nickname", nickname.trim());
@@ -20,12 +54,12 @@ export function LobbyScreen({ connection }: Props) {
   const create = () => {
     if (!nameOk) return;
     saveNick();
-    connection.createRoom(roomName.trim() || `${nickname.trim()}의 방`, nickname.trim(), token());
+    connection.createRoom(roomName.trim() || `${nickname.trim()}의 방`, nickname.trim(), token(), idToken ?? undefined);
   };
   const join = (roomId: string) => {
     if (!nameOk) return;
     saveNick();
-    connection.joinRoom(roomId, nickname.trim(), token());
+    connection.joinRoom(roomId, nickname.trim(), token(), idToken ?? undefined);
   };
 
   return (
@@ -88,6 +122,26 @@ export function LobbyScreen({ connection }: Props) {
           </p>
 
           <div className="lobby-form">
+            {isFirebaseConfigured && (
+              <>
+                {idToken ? (
+                  <p className="join-hint" style={{ marginBottom: 8 }}>
+                    ✓ {googleName ?? "구글 계정"}으로 로그인됨
+                  </p>
+                ) : (
+                  <button
+                    className="io-btn io-btn-block"
+                    type="button"
+                    disabled={authBusy}
+                    onClick={handleGoogleSignIn}
+                    style={{ marginBottom: 12 }}
+                  >
+                    {authBusy ? "로그인 중…" : "구글로 계속하기"}
+                  </button>
+                )}
+              </>
+            )}
+
             <label className="lobby-label">닉네임</label>
             <input
               className="join-input"

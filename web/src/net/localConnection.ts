@@ -195,7 +195,7 @@ export class LocalConnection implements Connection {
     return dx * dx + dy * dy;
   }
 
-  join(nickname: string, token?: string): void {
+  join(nickname: string, token?: string, _idToken?: string): void {
     this.token = token && token.length > 0 ? token : crypto.randomUUID();
     const holder = this.gs.holders.get(this.holderId);
     if (holder && nickname.trim()) holder.name = nickname.trim().slice(0, 12);
@@ -461,8 +461,8 @@ export class LocalConnection implements Connection {
   // ── 로비/방(다중 세션) ── 목업은 로비 없이 join()으로 솔로 진행한다. App이 목업이면 join()을
   // 직접 부르고 로비 화면을 건너뛰므로(Phase 7), 아래 메서드는 계약을 만족시키는 no-op이다.
   listRooms(): void {}
-  createRoom(_name: string, _nickname: string, _token?: string): void {}
-  joinRoom(_roomId: string, _nickname: string, _token?: string): void {}
+  createRoom(_name: string, _nickname: string, _token?: string, _idToken?: string): void {}
+  joinRoom(_roomId: string, _nickname: string, _token?: string, _idToken?: string): void {}
   startRound(): void {}
   setReady(_ready: boolean): void {}
   leaveRoom(): void {}

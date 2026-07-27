@@ -9,7 +9,10 @@
 
 - 전송: **WebSocket + STOMP**, 단일 엔드포인트 `/ws` (SockJS 폴백 열어둘지는 Day 1 결정 사항)
 - 월드: 단일 월드 1개 (방 개념 없음) — 모든 클라이언트가 같은 `/topic/*` 을 구독
-- 인증: 게스트 세션. 로그인 없음 — `token`(UUID, localStorage 보관)으로 재접속 시 기존 holder 복구
+- 인증: 게스트 세션 기본 — `token`(UUID, localStorage 보관)으로 재접속 시 기존 holder 복구.
+  구글 로그인(feat/google-login)은 선택 사항 — `idToken`(Firebase ID 토큰)을 함께 보내면 서버가
+  검증 후 그 계정의 닉네임을 우선한다. 계정 자체는 별도 H2 DB(AppUser)에 저장되며, 게임 월드
+  상태와는 무관하다(라운드마다 holderId는 새로 배정됨 — 계정에 영속되는 건 닉네임뿐)
 - 진실의 원천은 서버뿐이다. 클라이언트는 예측하지 않고 입력만 보낸 뒤 서버 브로드캐스트를 반영한다(README §9~§10)
 - 인덱스 체계: 모든 메시지의 동 참조는 **`admIndex`**(0..N-1 조밀 정수 인덱스, README §2.1) 사용. `adm_cd` 원본 코드는 WELCOME의 정적 메타에만 실린다
 - holderId: `0` = 중립, `1..254` = 플레이어, `255` = 환경 세력(`ENV_HOLDER_ID`, README §3.2/§4.6)
@@ -40,12 +43,15 @@
 interface JoinMessage {
   nickname: string;      // 신규 참가자만. 1~12자, 서버가 trim/길이 검증
   token?: string;        // 재접속 시 localStorage에 저장된 UUID. 없으면 신규 참가자로 처리
+  idToken?: string;      // 구글 로그인(feat/google-login). 있으면 서버가 검증 후 그 계정 닉네임을 우선(nickname보다 낮은 우선순위 — 이번 요청에 nickname을 명시했으면 그게 이김)
 }
 ```
 
 - 신규 참가자: 서버가 `token`(UUID) 발급 + 시작 동 배정(기존 영토와 안 겹치는 중립 동, 전국에 분산 — plan.md Day 3)
 - 재접속(`token` 유효): 기존 holderId·영토·병력 그대로 복구. `nickname`은 무시
 - `token`이 유효하지 않으면(만료/오탈자) 신규 참가자로 폴백
+- `idToken`이 있는데 검증에 실패하면(서버에 구글 로그인 미설정 포함) `ERROR`(`GOOGLE_LOGIN_FAILED`)를 보내고 JOIN 자체를 거부한다 — 게스트로 조용히 폴백하지 않는다(로그인 시도가 실패했는데 성공한 것처럼 보이면 혼란스러우므로)
+- `/app/lobby/create`·`/app/lobby/join`(로비/방, §2.6 이하)도 같은 `idToken` 필드를 지원한다
 
 ### 2.2 WELCOME (S→C, `/user/queue/welcome`)
 

@@ -40,6 +40,8 @@ export class StompConnection implements Connection {
   private client: Client;
   private nickname = "";
   private token: string | undefined;
+  // 구글 로그인(feat/google-login) ID 토큰 — 재연결 시 reestablish()가 다시 실어 보낸다.
+  private idToken: string | undefined;
 
   // 접속 의도(재접속 시 복구용): 레거시 브리지(join)인지, 특정 방(joinRoom)인지.
   private bridgeMode = false;
@@ -153,21 +155,27 @@ export class StompConnection implements Connection {
       if (this.currentRoomId) this.subscribeRoom(this.currentRoomId);
       this.client.publish({
         destination: "/app/join",
-        body: JSON.stringify({ nickname: this.nickname, token: this.token }),
+        body: JSON.stringify({ nickname: this.nickname, token: this.token, idToken: this.idToken }),
       });
     } else if (this.currentRoomId) {
       this.subscribeRoom(this.currentRoomId);
       this.client.publish({
         destination: "/app/lobby/join",
-        body: JSON.stringify({ roomId: this.currentRoomId, nickname: this.nickname, token: this.token }),
+        body: JSON.stringify({
+          roomId: this.currentRoomId,
+          nickname: this.nickname,
+          token: this.token,
+          idToken: this.idToken,
+        }),
       });
     }
   }
 
   // ── Connection: 접속/로비 ──
-  join(nickname: string, token?: string): void {
+  join(nickname: string, token?: string, idToken?: string): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = true;
     this.currentRoomId = null;
     this.ensureActive();
@@ -178,16 +186,18 @@ export class StompConnection implements Connection {
     this.send("/app/lobby/list", "{}");
   }
 
-  createRoom(name: string, nickname: string, token?: string): void {
+  createRoom(name: string, nickname: string, token?: string, idToken?: string): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = false;
-    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token }));
+    this.send("/app/lobby/create", JSON.stringify({ name, nickname, token, idToken }));
   }
 
-  joinRoom(roomId: string, nickname: string, token?: string): void {
+  joinRoom(roomId: string, nickname: string, token?: string, idToken?: string): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = false;
     this.currentRoomId = roomId;
     this.ensureActive();

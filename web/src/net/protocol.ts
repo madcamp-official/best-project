@@ -16,6 +16,7 @@ import type { DongStaticMeta, Holder, LogEntry, Order, ShieldInfo } from "../gam
 export interface JoinMessage {
   nickname: string; // 신규만. 1~12자 (서버가 trim/검증)
   token?: string; // 재접속 시 localStorage의 UUID. 없으면 신규
+  idToken?: string; // 구글 로그인(feat/google-login) — Firebase ID 토큰. 있으면 서버가 검증 후 계정 닉네임을 우선한다.
 }
 
 // api-spec §2.3 — amount = floor(troops*ratio)를 서버가 계산. ratio는 플레이어가
@@ -189,16 +190,18 @@ export interface RoundEndMessage {
   leaderboard: { holderId: number; name: string; count: number }[];
 }
 
-// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. idToken은 JoinMessage 참고.
 export interface CreateRoomCommand {
   name: string;
   nickname: string;
   token?: string;
+  idToken?: string;
 }
 
-// 방 입장(C→S, /app/lobby/join).
+// 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고.
 export interface JoinRoomCommand {
   roomId: string;
   nickname: string;
   token?: string;
+  idToken?: string;
 }

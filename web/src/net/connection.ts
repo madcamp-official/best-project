@@ -15,15 +15,16 @@ import type {
 
 export interface Connection {
   // 접속(또는 재접속). token이 있으면 기존 holder 복구 시도. (레거시 브리지/목업 솔로 진입점)
-  join(nickname: string, token?: string): void;
+  // idToken(구글 로그인, feat/google-login) — 있으면 서버가 검증 후 그 계정의 닉네임을 우선한다.
+  join(nickname: string, token?: string, idToken?: string): void;
 
   // ── 로비/방(다중 세션) ──
   // 공개 방 목록 요청 → onRoomList로 응답(/topic/rooms).
   listRooms(): void;
   // 방 생성(생성 즉시 입장). onRoomJoined로 응답.
-  createRoom(name: string, nickname: string, token?: string): void;
+  createRoom(name: string, nickname: string, token?: string, idToken?: string): void;
   // 방 입장. onRoomJoined로 응답(진행 중 방이면 onWelcome도).
-  joinRoom(roomId: string, nickname: string, token?: string): void;
+  joinRoom(roomId: string, nickname: string, token?: string, idToken?: string): void;
   // 방 안에서 라운드 시작(방장 전용 — 방장 제외 전원 준비 시). 성공 시 onWelcome(전원) + onRoomState(PLAYING).
   startRound(): void;
   // 대기실 준비 토글(방장 아닌 멤버). 결과는 onRoomState의 멤버 ready로 전원에 퍼진다.
