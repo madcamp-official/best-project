@@ -2,6 +2,7 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
@@ -550,6 +551,15 @@ object GameCore {
             .filter { it.id != HolderIds.NEUTRAL && it.id != HolderIds.ENV }
             .map { LeaderboardRow(it.id, it.name, ownedCount(world, it.id)) }
             .sortedByDescending { it.count }
+
+    // 라운드 지배 판정 — web/src/game/core.ts dominationHolder 대응. 1위가 전국의 roundWinRatio
+    // 이상 점유 시 그 holderId, 아니면 -1. 시간 종료는 GameLoop에서 시각 비교로 따로 처리.
+    fun dominationHolder(world: World, config: GameConfig): Int {
+        if (world.n == 0) return -1
+        val leader = getLeaderboard(world).firstOrNull() ?: return -1
+        val threshold = ceil(world.n * config.roundWinRatio).toInt()
+        return if (leader.count >= threshold) leader.holderId else -1
+    }
 
     // README §6 — 계급은 저장하지 않고 소유권에서 매번 파생.
     fun computeRank(world: World, holderId: Int): Rank? {
