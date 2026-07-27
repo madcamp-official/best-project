@@ -92,6 +92,8 @@ class GameLoop(
     fun submitRoomTask(block: () -> Unit) = executor.execute(block)
     fun <T> runRoomTask(block: () -> T): T = executor.submit(Callable(block)).get()
 
+    private var globalTickCount = 0L
+
     private fun safeTick() {
         try {
             val config = configService.current
@@ -103,9 +105,26 @@ class GameLoop(
                     log.error("room {} tick failed", room.id, e)
                 }
             }
+            globalTickCount++
+            if (globalTickCount % EMPTY_ROOM_SWEEP_EVERY_N_TICKS == 0L) sweepEmptyRooms()
         } catch (e: Exception) {
             log.error("game loop tick failed", e)
         }
+    }
+
+    // 안전망: 멤버 0인 방을 주기적으로 청소한다. RoomController.leave/SessionEventListener.onDisconnect가
+    // 이탈 시점에 이미 정리를 시도하지만, 어떤 경로로든(연결이 끊긴 걸 서버가 못 알아챈 경우 등) 놓치면
+    // 그 방이 로비에 "빈 방"으로 영영 남는다 — 이 스윕이 몇 초 안에 무조건 걷어간다.
+    private fun sweepEmptyRooms() {
+        var removedAny = false
+        for (room in roomManager.list()) {
+            if (room.id == RoomManager.DEFAULT_ROOM_ID) continue // 브리지 방은 대상 아님(멤버 개념 없음)
+            if (room.members.isEmpty()) {
+                roomManager.remove(room.id)
+                removedAny = true
+            }
+        }
+        if (removedAny) roomBroadcaster.broadcastRoomList()
     }
 
     private fun tickRoom(room: Room, config: GameConfig) {
@@ -242,6 +261,7 @@ class GameLoop(
     companion object {
         private const val TICK_MS = 200L // 5Hz
         private const val LEADERBOARD_EVERY_N_TICKS = 5L // 1Hz
+        private const val EMPTY_ROOM_SWEEP_EVERY_N_TICKS = 25L // 5초마다 — 빈 방 청소 안전망
         private const val LEGACY_WORLD_TOPIC = "/topic/world"
         private const val LEGACY_LEADERBOARD_TOPIC = "/topic/leaderboard"
 
