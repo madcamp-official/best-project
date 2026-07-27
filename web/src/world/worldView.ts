@@ -8,6 +8,7 @@
 import * as core from "../game/core";
 import type { GameState } from "../game/core";
 import type { DeltaMessage, WelcomeMessage } from "../net/protocol";
+import { CONFIG } from "../config";
 
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
@@ -62,6 +63,9 @@ export const missileImpacts: number[] = [];
 // 내 영토가 이번 delta에 전부 사라진 순간(패배) 신호 — App이 소진해 GAME OVER 오버레이를 띄운다.
 // 재시작은 더 이상 자동이 아니라 유저가 오버레이에서 직접 선택해야 한다(connection.sendRestart).
 let defeatFlag = false;
+// 이번 delta에 내 점유율이 PRESIDENT_WIN_RATIO(40%)를 처음 넘어선 순간(우승) 신호 — App이 소진해
+// 우승 오버레이를 띄운다. defeatFlag와 동일한 전이(transition) 패턴.
+let victoryFlag = false;
 // 재시작으로 새로 배정받은 시작 동의 admIndex 큐 — MapView가 꺼내 그 동으로 카메라를 옮긴다.
 // (죽어있던 상태(소유 동 0개)에서만 채워지므로, 적 동을 뺏어 얻은 경우와 헷갈리지 않는다.)
 export const respawnCellQueue: number[] = [];
@@ -74,6 +78,8 @@ let enclosedTouched = false;
 export function applyDelta(msg: DeltaMessage) {
   const me = world.myHolderId;
   const wasAlive = me !== 0 && core.ownedCount(world, me) > 0; // 이번 delta 적용 전 생존 여부
+  const presidentThreshold = Math.ceil(world.n * CONFIG.PRESIDENT_WIN_RATIO);
+  const wasPresident = me !== 0 && core.ownedCount(world, me) >= presidentThreshold; // 적용 전 우승 여부
 
   // 신규 참가자 holder(색상 포함) 반영 — 이 DELTA의 cells에 그 holder의 첫 동이 같이
   // 실려 오므로, 아래 cells 루프가 색을 찾기 전에 먼저 world.holders에 채워둔다.
@@ -119,6 +125,11 @@ export function applyDelta(msg: DeltaMessage) {
   if (wasAlive && core.ownedCount(world, me) === 0) {
     defeatFlag = true;
   }
+
+  // 우승 판정: 적용 전엔 40% 미만이었는데 적용 후 넘어섰으면 지금이 그 순간이다.
+  if (!wasPresident && me !== 0 && core.ownedCount(world, me) >= presidentThreshold) {
+    victoryFlag = true;
+  }
 }
 
 export function drainCaptureFlashes(): number[] {
@@ -145,6 +156,13 @@ export function drainDefeat(): boolean {
   return true;
 }
 
+// 이번 delta에 내 점유율이 처음 40%를 넘었으면 true를 한 번 반환한다(App이 우승 오버레이를 띄운다).
+export function drainVictory(): boolean {
+  if (!victoryFlag) return false;
+  victoryFlag = false;
+  return true;
+}
+
 // 재시작으로 새로 배정받은 시작 동의 admIndex를 반환한다(없으면 null). MapView가 카메라를 옮긴다.
 export function drainRespawnCell(): number | null {
   if (respawnCellQueue.length === 0) return null;
@@ -163,6 +181,7 @@ export function pruneArrivedOrders(nowMs: number) {
 export const drainDirty = () => core.drainDirty(world);
 export const getLeaderboard = () => core.getLeaderboard(world);
 export const computeRank = (holderId: number) => core.computeRank(world, holderId);
+export const computeDojisaProgress = (holderId: number) => core.computeDojisaProgress(world, holderId);
 export const envCellCount = () => core.envCellCount(world);
 
 // 미사일 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).

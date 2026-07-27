@@ -116,7 +116,7 @@ export async function loadDong(): Promise<PreparedMap> {
   ) as unknown as FeatureCollection<Polygon | MultiPolygon>;
 
   const n = meta.length;
-  const { arcGeojson, arcSides, dongArcs } = extractArcs(topo, geomCollection, n);
+  const { arcGeojson, arcSides, dongArcs } = extractArcs(topo, geomCollection, n, meta);
 
   // 경계 동 마스크: arcSides[i].b === -1 이면 그 아크는 동 하나(a)만 쓰는 외곽선 →
   // a는 지도 바깥(바다·국경)에 닿는 경계 동. 포위 귀속에서 '탈출구'로 쓰인다.
@@ -141,7 +141,12 @@ export async function loadDong(): Promise<PreparedMap> {
 
 // TopoJSON 아크는 인접한 두 폴리곤이 하나로 공유한다. 각 아크가 어떤 동들에
 // 쓰이는지 집계하면 "공유 경계선" 단위의 인접 정보를 얻는다.
-function extractArcs(topo: Topology, geomCollection: GeometryCollection, n: number) {
+function extractArcs(
+  topo: Topology,
+  geomCollection: GeometryCollection,
+  n: number,
+  meta: DongStaticMeta[]
+) {
   const arcCount = topo.arcs.length;
   const arcUsers: number[][] = Array.from({ length: arcCount }, () => []);
 
@@ -175,12 +180,22 @@ function extractArcs(topo: Topology, geomCollection: GeometryCollection, n: numb
     for (const d of users) dongArcs[d].push(arcIdx);
   });
 
+  // 행정구역 경계 하이라이트(소유권과 무관한 정적 속성): 아크 양쪽 동의 시군구/시도 코드가
+  // 다르면 그 경계선을 표시 대상으로 표시한다. 지도 바깥과 맞닿은 외곽선(b=-1)은 대상 아님
+  // — 이미 국토 윤곽이라 행정구역 강조가 필요 없다.
   const features: Feature<LineString>[] = [];
   for (let i = 0; i < arcCount; i++) {
+    const { a, b } = arcSides[i];
+    let sggBoundary = false;
+    let sidoBoundary = false;
+    if (a >= 0 && b >= 0) {
+      sggBoundary = meta[a].sggcd !== meta[b].sggcd;
+      sidoBoundary = meta[a].sidocd !== meta[b].sidocd;
+    }
     features.push({
       type: "Feature",
       id: i,
-      properties: {},
+      properties: { sggBoundary, sidoBoundary },
       geometry: { type: "LineString", coordinates: decodeArc(topo, i) },
     });
   }

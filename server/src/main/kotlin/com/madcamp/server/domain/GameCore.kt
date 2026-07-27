@@ -2,6 +2,7 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
@@ -552,7 +553,7 @@ object GameCore {
             .sortedByDescending { it.count }
 
     // README §6 — 계급은 저장하지 않고 소유권에서 매번 파생.
-    fun computeRank(world: World, holderId: Int): Rank? {
+    fun computeRank(world: World, config: GameConfig, holderId: Int): Rank? {
         if (holderId == HolderIds.NEUTRAL || world.n == 0) return null
 
         val sggTotal = HashMap<String, Int>()
@@ -576,7 +577,10 @@ object GameCore {
         }
         if (!anyOwned) return null
 
-        if (ownedCells == world.n) return Rank.PRESIDENT // 전국(모든 동) 완전 장악
+        // 전국 완전 장악(100%)은 사실상 불가능에 가까우므로, 전체 동의 PRESIDENT_WIN_RATIO(40%)
+        // 이상을 점유하면 대통령으로 인정한다(web/src/game/core.ts computeRank 1:1).
+        val presidentThreshold = ceil(world.n * config.presidentWinRatio).toInt()
+        if (ownedCells >= presidentThreshold) return Rank.PRESIDENT
 
         val fullSido = sidoTotal.count { (sido, total) -> (sidoOwned[sido] ?: 0) == total }
         if (fullSido > 0) return Rank.DOJISA // 시도(예: 강원도) 하나를 통째로 장악

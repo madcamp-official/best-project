@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { world, computeRank, myMissileCount } from "../world/worldView";
-import type { LogEntry, Rank } from "../game/types";
+import { world, computeRank, computeDojisaProgress, myMissileCount } from "../world/worldView";
+import type { DojisaProgress, LogEntry, Rank } from "../game/types";
 
 export interface SelectedInfo {
   index: number;
@@ -31,6 +31,7 @@ interface UIState {
   totalCells: number;
   myHolderId: number;
   myRank: Rank;
+  nextTarget: DojisaProgress | null; // 시장일 때 도지사까지 마저 먹어야 할 시군구 안내
   logEntries: LogEntry[];
   toast: string | null;
   // 우클릭 1회당 이동할 병력 비율(0~1). 오른쪽 아래 슬라이더로 조절. (기본 100%)
@@ -42,6 +43,7 @@ interface UIState {
   airdropReadyAt: number; // B3 — 공수 재사용 가능 시각(Date.now ms). 0=준비됨
   airdropCooldownLeft: number; // B3 — 남은 쿨타임(ms). refreshSummary가 갱신(버튼 표시용)
   defeated: boolean; // 내 영토를 전부 잃어 패배 오버레이를 표시 중
+  victorious: boolean; // 점유율 40%를 넘어 대통령 당선(우승) 오버레이를 표시 중
   connectionLost: boolean; // 실서버 연결이 끊겨 재연결 중(끊김 배너 표시)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
@@ -50,6 +52,7 @@ interface UIState {
   setTransporting: (v: boolean) => void;
   startAirdropCooldown: (ms: number) => void;
   setDefeated: (v: boolean) => void;
+  setVictorious: (v: boolean) => void;
   setConnectionLost: (v: boolean) => void;
   select: (index: number | null) => void;
   refreshSummary: () => void;
@@ -78,6 +81,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   totalCells: 0,
   myHolderId: 0,
   myRank: null,
+  nextTarget: null,
   logEntries: [],
   toast: null,
   sortieRatio: 1, // 출정 병력 기본값 100% (슬라이더 초기값)
@@ -88,6 +92,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   airdropReadyAt: 0,
   airdropCooldownLeft: 0,
   defeated: false,
+  victorious: false,
   connectionLost: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
@@ -99,6 +104,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(v ? { isTransporting: true, isAiming: false } : { isTransporting: false }),
   startAirdropCooldown: (ms) => set({ airdropReadyAt: Date.now() + ms }),
   setDefeated: (v) => set({ defeated: v }),
+  setVictorious: (v) => set({ victorious: v }),
   setConnectionLost: (v) => set({ connectionLost: v }),
 
   select: (index) => {
@@ -122,19 +128,22 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     // 순위표는 서버 LEADERBOARD로 갱신되므로 여기서 건드리지 않는다.
     const myRank = computeRank(world.myHolderId);
+    // 시장이면(완전 장악 시군구 보유) 도지사까지 마저 먹어야 할 시군구를 안내한다.
+    const nextTarget = myRank === "시장" ? computeDojisaProgress(world.myHolderId) : null;
     set({
       selectedInfo,
       myHolderId: world.myHolderId,
       myRank,
+      nextTarget,
       missileCount: myMissileCount(),
       rallyIndex: world.myRally,
       airdropCooldownLeft: Math.max(0, get().airdropReadyAt - Date.now()),
       logEntries: world.logEntries,
     });
 
-    // 계급 승급 토스트 (첫 계산과 강등은 제외).
+    // 계급 승급 토스트 (첫 계산과 강등은 제외). 대통령 승급은 별도의 우승 오버레이가 담당하므로 중복 표시하지 않는다.
     const lvl = myRank ? RANK_LEVEL[myRank] : 0;
-    if (prevRankLevel >= 0 && lvl > prevRankLevel && myRank) {
+    if (prevRankLevel >= 0 && lvl > prevRankLevel && myRank && myRank !== "대통령") {
       get().showToast(`${myRank} 승급! 🎉`);
     }
     prevRankLevel = lvl;

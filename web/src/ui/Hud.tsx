@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
-import { ENV_PALETTE_IDX, PALETTE } from "../config";
+import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import type { Connection } from "../net/connection";
 
 interface Props {
@@ -16,6 +16,7 @@ export function Hud({ connection }: Props) {
   const myHolderId = useUIStore((s) => s.myHolderId);
   const envCells = useUIStore((s) => s.envCells);
   const myRank = useUIStore((s) => s.myRank);
+  const nextTarget = useUIStore((s) => s.nextTarget);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
   const sortieRatio = useUIStore((s) => s.sortieRatio);
@@ -30,6 +31,8 @@ export function Hud({ connection }: Props) {
   const airdropCoolSec = Math.ceil(airdropCooldownLeft / 1000);
   const defeated = useUIStore((s) => s.defeated);
   const setDefeated = useUIStore((s) => s.setDefeated);
+  const victorious = useUIStore((s) => s.victorious);
+  const setVictorious = useUIStore((s) => s.setVictorious);
   const connectionLost = useUIStore((s) => s.connectionLost);
   const setPhase = useUIStore((s) => s.setPhase);
   const sortiePct = Math.round(sortieRatio * 100);
@@ -75,6 +78,24 @@ export function Hud({ connection }: Props) {
         <div className="hud-rank">
           내 계급: <strong>{myRank ?? "무소속"}</strong>
         </div>
+        {nextTarget && (
+          <div
+            style={{
+              margin: "4px 0",
+              padding: "4px 8px",
+              borderRadius: 6,
+              background: "rgba(255,204,51,0.12)",
+              border: "1px solid rgba(255,224,130,0.4)",
+              color: "#ffe082",
+              fontSize: 12,
+              lineHeight: 1.4,
+            }}
+          >
+            🎯 도지사까지 — {nextTarget.sidoName} ({nextTarget.ownedSgg}/{nextTarget.totalSgg})
+            <br />
+            마저 먹어야 할 시·군·구: {nextTarget.remainingSggNames.join(", ")}
+          </div>
+        )}
         {shieldSecLeft > 0 && (
           <div
             style={{
@@ -317,6 +338,56 @@ export function Hud({ connection }: Props) {
                 재시작
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {victorious && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(6,10,20,0.72)",
+            zIndex: 100,
+            pointerEvents: "auto",
+          }}
+        >
+          <div
+            style={{
+              background: "#141b28",
+              border: "1px solid #ffcc3355",
+              borderRadius: 14,
+              padding: "28px 34px",
+              textAlign: "center",
+              boxShadow: "0 12px 44px rgba(0,0,0,0.55)",
+              minWidth: 280,
+            }}
+          >
+            <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: 2, color: "#ffcc33" }}>
+              🎉 대통령 당선 — 우승!
+            </div>
+            <p style={{ margin: "12px 0 22px", color: "#cdd6e4", fontSize: 14 }}>
+              전체 동의 {Math.round(CONFIG.PRESIDENT_WIN_RATIO * 100)}% 이상을 점유했습니다.
+            </p>
+            <button
+              type="button"
+              onClick={() => setVictorious(false)}
+              style={{
+                padding: "9px 22px",
+                borderRadius: 8,
+                border: "1px solid #ffffff33",
+                background: "#3a4a5e",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              계속 플레이
+            </button>
           </div>
         </div>
       )}

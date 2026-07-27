@@ -20,6 +20,7 @@ data class GameConfig(
     @JsonProperty("NEUTRAL_TROOPS") var neutralTroops: Int = 10,
     @JsonProperty("SORTIE_RATIO") var sortieRatio: Double = 0.5,
     @JsonProperty("RESET_OWN_RATIO") var resetOwnRatio: Double = 0.5,
+    @JsonProperty("PRESIDENT_WIN_RATIO") var presidentWinRatio: Double = 0.4, // 전체 동의 이 비율 이상 점유 시 대통령(우승). web/src/config.ts와 동기.
     @JsonProperty("ANNEX_HOLD_SEC") var annexHoldSec: Double = 10.0, // 포위 귀속: 완전 포위 유지 시간(초)
 
     // 유닛 이동(README §4.4, 거리 기반 arriveTick)

@@ -36,6 +36,12 @@ const FLASH_LAYER = "dong-flash";
 const FLASH_MS = 600; // 함락 플래시 지속 시간
 const ENCLOSED_LAYER = "dong-enclosed-blink"; // 포위(귀속 대기)된 동의 반짝임 채움
 const ARC_SOURCE = "arcs";
+const ADMIN_SGG_LAYER = "admin-sgg-boundary"; // 시군구 경계 — 소유권과 무관한 정적 강조선
+const ADMIN_SIDO_LAYER = "admin-sido-boundary"; // 시도 경계 — 시군구보다 더 굵고 진하게
+const OWNED_DOT_SOURCE = "owned-dots"; // 저줌 최소 시인성 — 동 폴리곤이 화면상 안 보일 만큼 작아도
+const OWNED_DOT_LAYER = "owned-dots-layer"; // 점으로는 항상 보이게(막 시작한 상대도 눈에 띄도록)
+const PLAYER_LABEL_SOURCE = "player-labels"; // 플레이어별 영토 중심에 닉네임 — 도 단위가 보일 정도로
+const PLAYER_LABEL_LAYER = "player-labels-layer"; // 축소했을 때만(maxzoom) 표시, 동 단위 확대 시엔 숨김
 const FRONTIER_GLOW = "frontier-glow";
 const FRONTIER_LAYER = "frontier";
 const BADGE_SOURCE = "troop-badges";
@@ -465,6 +471,26 @@ export function MapView({ prepared, connection }: Props) {
         type: "geojson",
         data: prepared.arcGeojson,
       });
+      // 행정구역 경계 강조선 — 소유권(frontier)과 무관한 정적 속성(sggBoundary/sidoBoundary)이라
+      // feature-state가 아니라 GeoJSON properties를 바로 읽는다. frontier 레이어보다 먼저 그려서
+      // 국경선(소유주 다름)이 겹치는 자리에선 frontier 색이 위에 덮이게 한다.
+      // 배경(어두운 베이스맵·옅은 동 채움)이 전반적으로 어두워서, 선은 밝은 톤이어야 "진하게" 보인다.
+      map.addLayer({
+        id: ADMIN_SGG_LAYER,
+        type: "line",
+        source: ARC_SOURCE,
+        filter: ["all", ["==", ["get", "sggBoundary"], true], ["!=", ["get", "sidoBoundary"], true]],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#c7d2e0", "line-width": 1.1, "line-opacity": 0.4 },
+      });
+      map.addLayer({
+        id: ADMIN_SIDO_LAYER,
+        type: "line",
+        source: ARC_SOURCE,
+        filter: ["==", ["get", "sidoBoundary"], true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 2.4, "line-opacity": 0.75 },
+      });
       map.addLayer({
         id: FRONTIER_GLOW,
         type: "line",
@@ -574,6 +600,50 @@ export function MapView({ prepared, connection }: Props) {
           "text-halo-color": "#000000",
           "text-halo-width": 2.8,
           "text-halo-blur": 0.3,
+        },
+      });
+
+      // 저줌 최소 시인성 점 — 동 폴리곤 하나는 전국 축소 시 화면상 안 보일 만큼 작아질 수 있다
+      // (막 시작한 상대가 동 1개만 가진 경우 특히). 소유 동마다 고정 크기 점을 찍어, 폴리곤
+      // 크기와 무관하게 항상 눈에 띄게 한다. 확대해서 실제 폴리곤·병력 배지가 보이는 시점
+      // (zoom 10, NAME/BADGE_LAYER의 minzoom과 맞춤)에는 점을 끄고 넘겨준다.
+      map.addSource(OWNED_DOT_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: OWNED_DOT_LAYER,
+        type: "circle",
+        source: OWNED_DOT_SOURCE,
+        maxzoom: 10,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2, 8, 3.5],
+          "circle-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
+          "circle-stroke-color": "#0b1220",
+          "circle-stroke-width": 0.6,
+        },
+      });
+
+      // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 도 하나가 화면에
+      // 들어올 정도로 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 동 단위로
+      // 들어가면 동 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
+      map.addSource(PLAYER_LABEL_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: PLAYER_LABEL_LAYER,
+        type: "symbol",
+        source: PLAYER_LABEL_SOURCE,
+        maxzoom: 8.5,
+        layout: {
+          "text-field": ["get", "name"],
+          "text-size": 15,
+        },
+        paint: {
+          "text-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
+          "text-halo-color": "#0b1220",
+          "text-halo-width": 1.8,
         },
       });
 
@@ -887,6 +957,8 @@ export function MapView({ prepared, connection }: Props) {
         setArcState(map, prepared, i);
       }
       updateBadges(map, prepared);
+      updateOwnedDots(map);
+      updatePlayerLabels(map);
       updateMissileMarkers(map);
       drainMissilesTouched();
       updateRallyMarker(map);
@@ -1164,6 +1236,8 @@ export function MapView({ prepared, connection }: Props) {
         }
         for (const ai of arcsToUpdate) setArcState(map, prepared, ai);
         updateBadges(map, prepared);
+        updateOwnedDots(map);
+        updatePlayerLabels(map);
       }
 
       // 함락 플래시 — 새 함락은 시작 시각 기록, 매 프레임 흰색을 페이드아웃.
@@ -1578,6 +1652,51 @@ function updateBadges(map: MaplibreMap, prepared: PreparedMap) {
       geometry: { type: "Point", coordinates: m.centroid },
     })),
   });
+}
+
+// 저줌 최소 시인성 점 — 소유(중립·야만인 제외) 동 하나마다 점 1개. 폴리곤이 화면상 안 보일
+// 만큼 작아져도(막 시작한 상대 등) 이 점으로는 항상 위치가 드러난다.
+function updateOwnedDots(map: MaplibreMap) {
+  const src = map.getSource(OWNED_DOT_SOURCE) as GeoJSONSource | undefined;
+  if (!src) return;
+  const features: { type: "Feature"; properties: { paletteIdx: number }; geometry: { type: "Point"; coordinates: [number, number] } }[] = [];
+  for (let i = 0; i < world.n; i++) {
+    const owner = world.ownerId[i];
+    if (owner === 0 || owner === CONFIG.ENV_HOLDER_ID) continue;
+    features.push({
+      type: "Feature",
+      properties: { paletteIdx: paletteIdxOf(owner) },
+      geometry: { type: "Point", coordinates: world.meta[i].centroid as [number, number] },
+    });
+  }
+  src.setData({ type: "FeatureCollection", features });
+}
+
+// 플레이어별 닉네임 라벨 — 그 플레이어의 현재 소유 영토 무게중심 1곳에 이름을 띄운다(동마다
+// 반복 표시하면 도배되므로 플레이어당 1개). 영토가 늘수록 중심도 같이 이동한다.
+function updatePlayerLabels(map: MaplibreMap) {
+  const src = map.getSource(PLAYER_LABEL_SOURCE) as GeoJSONSource | undefined;
+  if (!src) return;
+  const sums = new Map<number, { sx: number; sy: number; cnt: number }>();
+  for (let i = 0; i < world.n; i++) {
+    const owner = world.ownerId[i];
+    if (owner === 0 || owner === CONFIG.ENV_HOLDER_ID) continue;
+    const c = world.meta[i].centroid;
+    const acc = sums.get(owner);
+    if (acc) {
+      acc.sx += c[0];
+      acc.sy += c[1];
+      acc.cnt++;
+    } else {
+      sums.set(owner, { sx: c[0], sy: c[1], cnt: 1 });
+    }
+  }
+  const features = Array.from(sums.entries()).map(([holderId, { sx, sy, cnt }]) => ({
+    type: "Feature" as const,
+    properties: { name: world.holders.get(holderId)?.name ?? "?", paletteIdx: paletteIdxOf(holderId) },
+    geometry: { type: "Point" as const, coordinates: [sx / cnt, sy / cnt] as [number, number] },
+  }));
+  src.setData({ type: "FeatureCollection", features });
 }
 
 // 이동 중인 유닛을 출발지→목적지 사이 보간 위치에 그린다. 일반 출정/보급은 원(UNIT_SOURCE),

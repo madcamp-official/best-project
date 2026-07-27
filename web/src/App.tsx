@@ -14,6 +14,7 @@ import {
   getLeaderboard,
   envCellCount,
   drainDefeat,
+  drainVictory,
   world,
 } from "./world/worldView";
 import { useUIStore } from "./store/uiStore";
@@ -55,6 +56,8 @@ function App() {
           // 내 영토가 이번 delta에 전부 사라지면(미사일·점령) GAME OVER 오버레이를 띄운다.
           // 재시작은 유저가 오버레이 버튼으로 직접 선택한다(더 이상 자동 재배정 없음).
           if (drainDefeat()) useUIStore.getState().setDefeated(true);
+          // 점유율이 40%(대통령 기준)를 처음 넘으면 우승 오버레이를 띄운다.
+          if (drainVictory()) useUIStore.getState().setVictorious(true);
         });
         connection.onError((msg) => useUIStore.getState().showToast(msg.message));
         connection.onLeaderboard((msg) =>
