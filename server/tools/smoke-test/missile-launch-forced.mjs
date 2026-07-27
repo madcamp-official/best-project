@@ -15,11 +15,13 @@ function fail(msg) {
 }
 
 async function main() {
-  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=0.3, MISSILE_MAX_TOTAL=200)...");
+  console.log("설정 임시 상향(FILL_TO_CAP_SEC=1, MISSILE_SPAWN_SEC=0.3, MISSILE_MAX_TOTAL=200, ENV 확장 정지)...");
+  // ENV_ACT_INTERVAL_SEC를 잠깐 멈춰(사실상 무한대) 야만인 세력이 이 봇의 BFS 확장을 방해하지
+  // 않게 한다 — 이 테스트는 미사일 발사 왕복 확인이 목적이라 E와는 무관하다.
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 200 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.1, MISSILE_MAX_TOTAL: 300, ENV_ACT_INTERVAL_SEC: 999 }),
   });
 
   const state = { ownerId: null, myHolderId: -1, meta: null, neighborIndex: null, n: 0, missiles: new Set() };
@@ -50,11 +52,13 @@ async function main() {
   });
 
   client.subscribe("/user/queue/error", () => {}); // 실패한 개별 sortie는 무시(확장 와중 자연스러움)
+  let impactDelta = null; // 착탄 이벤트가 실린 delta 자체(그 순간의 cells)를 붙잡아둔다
   client.subscribe("/topic/world", (msg) => {
     const d = JSON.parse(msg.body);
     for (const i of d.missileAdd) state.missiles.add(i);
     for (const i of d.missileRemove) state.missiles.delete(i);
     for (const [idx, owner] of d.cells) state.ownerId[idx] = owner;
+    if (!impactDelta && d.events.some((e) => e.message.includes("착탄"))) impactDelta = d;
   });
 
   console.log("BFS 확장 시작 (최대 25초)...");
@@ -96,19 +100,26 @@ async function main() {
       destination: "/app/missile",
       body: JSON.stringify({ center: state.meta[myMissileCell].centroid, radius: 0.02, hits: [myMissileCell] }),
     });
-    await new Promise((r) => setTimeout(r, 1000));
+    // 착탄이 실린 그 delta 자체를 기다린다(고정 대기 후 스냅샷을 보면, BFS 확장 중 이미 대량으로
+    // 쌓여있던 이 봇 자신의 in-flight 출정 유닛들이 조금 뒤 그 동에 도착해 재점령해버려서
+    // "착탄 순간엔 중립화됐다가 곧바로 내 걸로 되돌아오는" 정상 동작을 오검출로 착각하게 된다).
+    const waitDeadline = Date.now() + 3000;
+    while (!impactDelta && Date.now() < waitDeadline) await new Promise((r) => setTimeout(r, 100));
     sub.unsubscribe();
     if (launchError) fail(`발사 거부됨: ${JSON.stringify(launchError)}`);
+    if (!impactDelta) fail("착탄 이벤트(DELTA.events)가 안 옴");
+    const hitCell = impactDelta.cells.find(([idx]) => idx === myMissileCell);
+    if (!hitCell) fail("착탄 delta의 cells에 목표 동이 없음");
+    if (hitCell[1] !== 0) fail(`중립화 실패(착탄 순간 owner=${hitCell[1]})`);
     if (state.missiles.has(myMissileCell)) fail("발사 후 미사일 안 사라짐");
-    if (state.ownerId[myMissileCell] !== 0) fail(`중립화 실패(owner=${state.ownerId[myMissileCell]})`);
-    console.log("OK: 발사 성공 → 미사일 소모 + 대상 동 중립화 확인");
+    console.log("OK: 발사 성공 → 미사일 소모 + 대상 동 중립화 확인(착탄 순간 스냅샷 기준)");
   }
 
   console.log("설정 원복...");
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3 }),
   });
 
   client.deactivate();

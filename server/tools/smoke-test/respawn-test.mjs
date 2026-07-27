@@ -53,10 +53,12 @@ async function main() {
   b.client.subscribe("/user/queue/error", () => {});
 
   console.log("[2] A(공격자) 접속 + 설정 임시 상향(FILL_TO_CAP_SEC=1)로 미사일 확보...");
+  // ENV_ACT_INTERVAL_SEC를 잠깐 멈춰(사실상 무한대) 야만인 세력 확장/반격이 공격 봇의
+  // BFS 확장을 방해하지 않게 한다 — 이 테스트는 E와 무관하고, 오직 A가 빨리 커지는 게 목적.
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.3, MISSILE_MAX_TOTAL: 200 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 1, MISSILE_SPAWN_SEC: 0.1, MISSILE_MAX_TOTAL: 300, ENV_ACT_INTERVAL_SEC: 999 }),
   });
   const a = await connectAndJoin("공격자A");
   const aState = { ownerId: a.welcome.ownerId.slice(), neighborIndex: a.welcome.neighborIndex, n: a.welcome.ownerId.length, missiles: new Set() };
@@ -69,7 +71,7 @@ async function main() {
   });
 
   let myMissileCell = -1;
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     for (const i of aState.missiles) {
       if (aState.ownerId[i] === a.welcome.holderId) {
@@ -120,7 +122,7 @@ async function main() {
   await fetch(ADMIN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60 }),
+    body: JSON.stringify({ FILL_TO_CAP_SEC: 180, MISSILE_SPAWN_SEC: 5, MISSILE_MAX_TOTAL: 60, ENV_ACT_INTERVAL_SEC: 3 }),
   });
 
   const bOwnsAny = bState.ownerId.some((o) => o === b.welcome.holderId);
