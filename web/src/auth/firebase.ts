@@ -41,6 +41,7 @@ const provider = new GoogleAuthProvider();
 export interface GoogleSignInResult {
   idToken: string;
   displayName: string | null;
+  photoURL: string | null;
 }
 
 /** 구글 로그인 팝업 → ID 토큰 획득. Firebase 미설정이면 던진다(호출부가 토스트로 안내). */
@@ -48,7 +49,7 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   if (!auth) throw new Error("구글 로그인이 설정되지 않았습니다.");
   const result = await signInWithPopup(auth, provider);
   const idToken = await result.user.getIdToken();
-  return { idToken, displayName: result.user.displayName };
+  return { idToken, displayName: result.user.displayName, photoURL: result.user.photoURL };
 }
 
 /** 이미 로그인된 세션이 있으면(새로고침 등) 알려준다 — 자동 재로그인 UX용. 구독 해제 함수를 반환. */

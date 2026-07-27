@@ -7,6 +7,8 @@ import { AuthChoiceScreen } from "./ui/AuthChoiceScreen";
 import { LobbyScreen } from "./ui/LobbyScreen";
 import { RoomWaitScreen } from "./ui/RoomWaitScreen";
 import { ResultsOverlay } from "./ui/ResultsOverlay";
+import { ProfileBadge } from "./ui/ProfileBadge";
+import { MyPage } from "./ui/MyPage";
 import { loadDong } from "./data/loadDong";
 import type { PreparedMap } from "./data/loadDong";
 import { LocalConnection } from "./net/localConnection";
@@ -43,6 +45,8 @@ function App() {
   // 구글 로그인(feat/google-login) — AuthChoiceScreen에서 확정되면 채워지고, 로비/방 입장에 실어 보낸다.
   const [idToken, setIdToken] = useState<string | null>(null);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
+  const [showMyPage, setShowMyPage] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,8 +154,9 @@ function App() {
     connectionRef.current?.listRooms();
   };
   const handleGuest = () => enterLobby();
-  const handleLoggedIn = async (tok: string, displayName: string | null) => {
+  const handleLoggedIn = async (tok: string, displayName: string | null, photo: string | null) => {
     setIdToken(tok);
+    setPhotoURL(photo);
     if (displayName && !localStorage.getItem("nickname")) {
       localStorage.setItem("nickname", displayName.slice(0, 12));
     }
@@ -167,6 +172,8 @@ function App() {
     await signOutGoogle();
     setIdToken(null);
     setProfile(null);
+    setPhotoURL(null);
+    setShowMyPage(false);
     setPhase("authChoice");
   };
 
@@ -195,15 +202,18 @@ function App() {
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
       {phase === "authChoice" && <AuthChoiceScreen onGuest={handleGuest} onLoggedIn={handleLoggedIn} />}
       {phase === "lobby" && connectionRef.current && (
-        <LobbyScreen
-          connection={connectionRef.current}
-          idToken={idToken}
-          profile={profile}
-          onLogout={handleLogout}
-        />
+        <LobbyScreen connection={connectionRef.current} idToken={idToken} profile={profile} />
       )}
       {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
       {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
+
+      {/* 로그인 상태 표시 — 게임 화면(ready) 중엔 HUD 우상단 순위표와 겹치므로 숨긴다. */}
+      {profile && phase !== "ready" && (
+        <ProfileBadge nickname={profile.nickname} photoURL={photoURL} onClick={() => setShowMyPage(true)} />
+      )}
+      {showMyPage && profile && (
+        <MyPage profile={profile} onClose={() => setShowMyPage(false)} onLogout={handleLogout} />
+      )}
     </div>
   );
 }

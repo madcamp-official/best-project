@@ -4,7 +4,7 @@ import { isFirebaseConfigured, onAuthStateChanged, signInWithGoogle } from "../a
 
 interface Props {
   onGuest: () => void;
-  onLoggedIn: (idToken: string, displayName: string | null) => void;
+  onLoggedIn: (idToken: string, displayName: string | null, photoURL: string | null) => void;
 }
 
 // 진입 관문 — 로비(닉네임/방 목록)로 가기 전에 로그인할지 게스트로 갈지부터 고른다.
@@ -20,11 +20,11 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
     setBusy(true);
     try {
       if (existingUser) {
-        onLoggedIn(await existingUser.getIdToken(), existingUser.displayName);
+        onLoggedIn(await existingUser.getIdToken(), existingUser.displayName, existingUser.photoURL);
         return;
       }
-      const { idToken, displayName } = await signInWithGoogle();
-      onLoggedIn(idToken, displayName);
+      const { idToken, displayName, photoURL } = await signInWithGoogle();
+      onLoggedIn(idToken, displayName, photoURL);
     } catch (e) {
       console.error("[google-signin]", e);
       alert("구글 로그인에 실패했습니다.");

@@ -3,19 +3,18 @@ import { useUIStore } from "../store/uiStore";
 import type { Connection } from "../net/connection";
 import type { AccountProfile } from "../auth/api";
 import { FriendsPanel } from "./FriendsPanel";
-import { MyPage } from "./MyPage";
 
 interface Props {
   connection: Connection;
   idToken: string | null; // 구글 로그인(feat/google-login) — AuthChoiceScreen에서 이미 확정되어 내려온다.
-  profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null.
-  onLogout: () => void;
+  profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null. 마이페이지/로그아웃은
+  // 화면 우상단 ProfileBadge(App.tsx)가 전역으로 담당 — 여기선 친구 기능만 다룬다.
 }
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
 // 로그인/게스트 선택은 AuthChoiceScreen이 먼저 처리하므로, 여기선 idToken을 그대로 실어 보내기만 한다.
-export function LobbyScreen({ connection, idToken, profile, onLogout }: Props) {
+export function LobbyScreen({ connection, idToken, profile }: Props) {
   const rooms = useUIStore((s) => s.rooms);
   const [nickname, setNickname] = useState(
     () => profile?.nickname ?? localStorage.getItem("nickname") ?? ""
@@ -24,7 +23,6 @@ export function LobbyScreen({ connection, idToken, profile, onLogout }: Props) {
   const [isPrivate, setIsPrivate] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [showFriends, setShowFriends] = useState(false);
-  const [showMyPage, setShowMyPage] = useState(false);
   const nameOk = nickname.trim().length > 0;
 
   const token = () => localStorage.getItem("token") ?? undefined;
@@ -151,14 +149,9 @@ export function LobbyScreen({ connection, idToken, profile, onLogout }: Props) {
               <span style={{ fontSize: 13, color: "#cdd6e4" }}>
                 Lv.{profile.level} · {profile.wins}승 {profile.gamesPlayed}판
               </span>
-              <span style={{ display: "flex", gap: 4 }}>
-                <button className="io-btn io-btn-sm" type="button" onClick={() => setShowMyPage(true)}>
-                  마이페이지
-                </button>
-                <button className="io-btn io-btn-sm" type="button" onClick={() => setShowFriends(true)}>
-                  👥 친구
-                </button>
-              </span>
+              <button className="io-btn io-btn-sm" type="button" onClick={() => setShowFriends(true)}>
+                👥 친구
+              </button>
             </div>
           )}
 
@@ -208,9 +201,6 @@ export function LobbyScreen({ connection, idToken, profile, onLogout }: Props) {
       </div>
 
       {showFriends && idToken && <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} />}
-      {showMyPage && profile && (
-        <MyPage profile={profile} onClose={() => setShowMyPage(false)} onLogout={onLogout} />
-      )}
     </div>
   );
 }
