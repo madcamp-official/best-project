@@ -601,6 +601,13 @@ export function airdropInRange(s: GameState, sources: number[], dest: number, ho
   return centroidDistance(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
 }
 
+// 공수 삼각형 출발 동(사거리 원의 중심) — airdropInRange/tryAirdrop과 같은 origin. 유효 소스 없으면 -1.
+export function airdropOrigin(s: GameState, sources: number[], holderId: number): number {
+  const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
+  if (valid.length === 0) return -1;
+  return nearestSourceToCentroid(s, valid, holderId);
+}
+
 // 공수 착륙: dest에 투하하고 상한 초과분을 목적지→인접 BFS로 순차 flood한다. 단일 스트림(remaining)이
 // BFS 순서로 각 동을 처리 — 내 동이면 상한까지 증원, 적/중립이면 전투(투하량>방어면 점령 후 상한까지
 // 주둔). 남은 병력 ≤ 방어면 그 동 방어를 깎고 소진·종료. 병력 소진 또는 더 퍼질 동이 없으면 끝.

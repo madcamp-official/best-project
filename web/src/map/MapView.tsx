@@ -5,6 +5,7 @@ import type { PreparedMap } from "../data/loadDong";
 import {
   world,
   airdropInRange,
+  airdropOrigin,
   drainDirty,
   pruneArrivedOrders,
   drainCaptureFlashes,
@@ -50,6 +51,9 @@ const RALLY_EMOJI = "🚩";
 const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
+const AIRDROP_RANGE_SOURCE = "airdrop-range"; // 공수 사거리 원(목적지 선택 단계)
+const AIRDROP_RANGE_FILL = "airdrop-range-fill";
+const AIRDROP_RANGE_LINE = "airdrop-range-line";
 const AIM_BLINK_LAYER = "dong-aim-blink"; // 조준에 걸린 동의 하얀 반짝 테두리
 const EXPLOSION_SOURCE = "explosions";
 const EXPLOSION_FILL = "explosions-fill";
@@ -260,7 +264,28 @@ export function MapView({ prepared, connection }: Props) {
       useUIStore.getState().setAiming(false);
     };
 
-    // 공수 조준 종료 — 소스/목적지 하이라이트·원을 비우고 단계를 리셋한다.
+    // 공수 사거리 원(반경 = AIRDROP_MAX_RANGE_DEG)을 origin 중심으로 그린다. 거리 판정이 raw 도 단위
+    // (centroidDistance, cosLat 보정 없음)라 원도 raw 도로 그려 판정 경계와 정확히 일치시킨다.
+    const drawAirdropRange = (center: [number, number]) => {
+      const r = CONFIG.AIRDROP_MAX_RANGE_DEG;
+      const ring: [number, number][] = [];
+      for (let i = 0; i <= 64; i++) {
+        const a = (i / 64) * 2 * Math.PI;
+        ring.push([center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r]);
+      }
+      (map.getSource(AIRDROP_RANGE_SOURCE) as GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } }],
+      });
+    };
+    const clearAirdropRange = () => {
+      (map.getSource(AIRDROP_RANGE_SOURCE) as GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [],
+      });
+    };
+
+    // 공수 조준 종료 — 소스/목적지 하이라이트·원(선택 원·사거리 원)을 비우고 단계를 리셋한다.
     const clearAirdrop = () => {
       for (const idx of airdropSet) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
       airdropSet.clear();
@@ -272,6 +297,7 @@ export function MapView({ prepared, connection }: Props) {
       airdropPhase = "source";
       const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
       circleSrc?.setData({ type: "FeatureCollection", features: [] });
+      clearAirdropRange();
     };
 
     // 공수 클릭: source 단계면 원 안 내 동을 출발지로 확정(→dest 단계), dest 단계면 목적지로 발송.
@@ -288,7 +314,9 @@ export function MapView({ prepared, connection }: Props) {
           type: "FeatureCollection",
           features: [],
         });
-        st.showToast(`출발 ${airdropSources.length}개 동 — 목적지를 클릭하세요`);
+        const origin = airdropOrigin(airdropSources); // 사거리 원 중심 = 삼각형 출발 동
+        if (origin >= 0) drawAirdropRange(world.meta[origin].centroid);
+        st.showToast(`출발 ${airdropSources.length}개 동 — 사거리 원 안 목적지를 클릭하세요`);
       } else {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const dest = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
@@ -632,6 +660,30 @@ export function MapView({ prepared, connection }: Props) {
           "line-color": "#ffffff",
           "line-width": 1.5,
           "line-dasharray": [2, 2],
+          "line-opacity": 0.9,
+        },
+      });
+
+      // 공수 사거리 원(목적지 선택 단계) — 출발점 중심, 반경 AIRDROP_MAX_RANGE_DEG. 앰버 옅은 채움 +
+      // 점선 테두리. 이 원 밖의 동은 투하 불가(하이라이트도 안 되고 클릭 시 사거리 밖 안내).
+      map.addSource(AIRDROP_RANGE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: AIRDROP_RANGE_FILL,
+        type: "fill",
+        source: AIRDROP_RANGE_SOURCE,
+        paint: { "fill-color": "#ffd24a", "fill-opacity": 0.06 },
+      });
+      map.addLayer({
+        id: AIRDROP_RANGE_LINE,
+        type: "line",
+        source: AIRDROP_RANGE_SOURCE,
+        paint: {
+          "line-color": "#ffd24a",
+          "line-width": 2,
+          "line-dasharray": [3, 2],
           "line-opacity": 0.9,
         },
       });

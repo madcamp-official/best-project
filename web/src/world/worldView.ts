@@ -155,6 +155,9 @@ export const myMissileCount = () => core.missileCount(world, world.myHolderId);
 export const airdropInRange = (sources: number[], dest: number) =>
   core.airdropInRange(world, sources, dest, world.myHolderId);
 
+// 공수 사거리 원의 중심이 되는 출발 동 admIndex (없으면 -1).
+export const airdropOrigin = (sources: number[]) => core.airdropOrigin(world, sources, world.myHolderId);
+
 // 집결지 깃발 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
 export function drainRallyTouched(): boolean {
   if (!rallyTouched) return false;
