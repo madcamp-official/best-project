@@ -475,13 +475,19 @@ export function MapView({ prepared, connection }: Props) {
       // feature-state가 아니라 GeoJSON properties를 바로 읽는다. frontier 레이어보다 먼저 그려서
       // 국경선(소유주 다름)이 겹치는 자리에선 frontier 색이 위에 덮이게 한다.
       // 배경(어두운 베이스맵·옅은 동 채움)이 전반적으로 어두워서, 선은 밝은 톤이어야 "진하게" 보인다.
+      // 경계선 굵기는 전부 줌에 비례시킨다 — 고정 픽셀 굵기는 전국 줌(6~7)에서 시도 경계가
+      // 흰 덩어리로 뭉개지고 해안선이 두꺼운 이중 윤곽으로 보이는 "경계선 이상"의 원인이었다.
       map.addLayer({
         id: ADMIN_SGG_LAYER,
         type: "line",
         source: ARC_SOURCE,
         filter: ["all", ["==", ["get", "sggBoundary"], true], ["!=", ["get", "sidoBoundary"], true]],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#c7d2e0", "line-width": 1.1, "line-opacity": 0.4 },
+        paint: {
+          "line-color": "#c7d2e0",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.4, 10, 1.1],
+          "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.15, 8, 0.4],
+        },
       });
       map.addLayer({
         id: ADMIN_SIDO_LAYER,
@@ -489,16 +495,23 @@ export function MapView({ prepared, connection }: Props) {
         source: ARC_SOURCE,
         filter: ["==", ["get", "sidoBoundary"], true],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#ffffff", "line-width": 2.4, "line-opacity": 0.75 },
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.9, 10, 2.4],
+          "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.45, 9, 0.75],
+        },
       });
+      // 국경선 글로우 — 해안선(outer 아크)에는 그리지 않는다. 나라 전체·수천 개 섬 둘레에
+      // 상시 글로우가 깔리면 저줌에서 두껍고 지저분한 후광이 된다(경계선 이상의 주범).
       map.addLayer({
         id: FRONTIER_GLOW,
         type: "line",
         source: ARC_SOURCE,
+        filter: ["!=", ["get", "outer"], true],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": ["coalesce", ["feature-state", "color"], PALETTE[0].stroke],
-          "line-width": 6,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 2.5, 11, 6],
           "line-blur": 4,
           "line-opacity": ["case", ["==", ["feature-state", "frontier"], true], 0.45, 0],
         },
@@ -510,8 +523,14 @@ export function MapView({ prepared, connection }: Props) {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": ["coalesce", ["feature-state", "color"], PALETTE[0].stroke],
-          "line-width": 1.8,
-          "line-opacity": ["case", ["==", ["feature-state", "frontier"], true], 1, 0],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.7, 9, 1.2, 11, 1.8],
+          "line-opacity": [
+            "case",
+            ["!=", ["feature-state", "frontier"], true],
+            0,
+            // 해안선(중립 실루엣 포함)은 살짝 옅게 — 베이스맵 해안선과 겹쳐도 덜 두드러지게.
+            ["case", ["==", ["get", "outer"], true], 0.75, 1],
+          ],
         },
       });
 
