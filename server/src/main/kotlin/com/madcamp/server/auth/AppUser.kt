@@ -31,6 +31,14 @@ data class AppUser(
     @Column(nullable = false)
     var nickname: String = "",
 
+    // 레벨(계정 전적) — GameLoop.endRound가 라운드 우승자의 계정에 +1 한다. 레벨 자체는 저장하지
+    // 않고 승수에서 매번 파생한다(AccountService.levelOf) — README §6 계급 파생 방식과 같은 철학.
+    @Column(nullable = false)
+    var wins: Int = 0,
+
+    @Column(nullable = false)
+    var gamesPlayed: Int = 0,
+
     @Column(nullable = false)
     val createdAt: Instant = Instant.now(),
 
@@ -40,4 +48,7 @@ data class AppUser(
 
 interface AppUserRepository : JpaRepository<AppUser, Long> {
     fun findByGoogleUid(googleUid: String): AppUser?
+
+    // 친구 검색(닉네임 부분 일치, 대소문자 무시). 상한은 호출부(FriendController)가 자른다.
+    fun findByNicknameContainingIgnoreCase(nickname: String): List<AppUser>
 }

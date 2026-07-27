@@ -33,7 +33,7 @@ class JoinController(
     fun join(@Payload msg: JoinMessage, principal: Principal) {
         // 구글 로그인(idToken) 검증은 네트워크 I/O가 있을 수 있어 GameLoop 스레드 밖에서 먼저 끝낸다 —
         // GameLoop(runOnRoom)는 항상 로컬 연산만 도는 게 전제라, 여기서 블로킹하면 전체 방 tick이 밀린다.
-        val nickname = try {
+        val resolved = try {
             accountService.resolveNickname(msg.nickname, msg.idToken)
         } catch (e: GoogleAuthException) {
             messagingTemplate.convertAndSendToUser(
@@ -45,7 +45,8 @@ class JoinController(
         }
         val welcome = gameLoop.runOnRoom(RoomManager.DEFAULT_ROOM_ID) { world ->
             val config = configService.current
-            val (token, session) = sessionService.joinOrRestore(RoomManager.DEFAULT_ROOM_ID, world, config, nickname, msg.token)
+            val (token, session) =
+                sessionService.joinOrRestore(RoomManager.DEFAULT_ROOM_ID, world, config, resolved.nickname, msg.token)
             connectionRegistry.bind(principal.name, RoomManager.DEFAULT_ROOM_ID, session.holderId)
             welcomeAssembler.build(RoomManager.DEFAULT_ROOM_ID, world, session.holderId, token, roundEndsAtMs = 0L)
         } ?: return

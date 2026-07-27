@@ -30,8 +30,9 @@ export interface LeaderboardRowUI {
 // README.md §1 기술 스택 — "UI 상태(선택 동, HUD)"만 Zustand에 둔다.
 // 3,500개 동 배열 자체는 world/worldView.ts(React 밖, 서버 상태 사본)에 두고 요약만 끌어온다.
 interface UIState {
-  // loading→(mock)join / (real)lobby→room→ready→results. error는 로드 실패.
-  phase: "loading" | "join" | "lobby" | "room" | "ready" | "results" | "error";
+  // loading→(mock)join / (real)authChoice→lobby→room→ready→results. error는 로드 실패.
+  // authChoice = 로그인/게스트 선택 관문(AuthChoiceScreen) — 실서버 흐름에서 로비보다 먼저 온다.
+  phase: "loading" | "join" | "authChoice" | "lobby" | "room" | "ready" | "results" | "error";
   errorMessage: string | null;
   // 로비/방(다중 세션)
   rooms: RoomInfo[]; // 공개 방 목록(/topic/rooms)

@@ -49,4 +49,7 @@ data class Member(
     var clientId: String = "",
     var holderId: Int = -1,
     var ready: Boolean = false, // 대기실 준비 상태(방장 제외 전원 준비 시 시작 가능). 라운드 종료 시 리셋.
+    // 구글 로그인(feat/google-login) 계정 id — 게스트면 null. GameLoop.endRound가 라운드 우승/참여
+    // 전적을 이 계정에 쌓는다(AppUser.wins/gamesPlayed).
+    var appUserId: Long? = null,
 )

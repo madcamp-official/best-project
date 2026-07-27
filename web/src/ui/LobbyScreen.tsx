@@ -1,52 +1,26 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useUIStore } from "../store/uiStore";
 import type { Connection } from "../net/connection";
-import { isFirebaseConfigured, onAuthStateChanged, signInWithGoogle } from "../auth/firebase";
+import type { AccountProfile } from "../auth/api";
+import { FriendsPanel } from "./FriendsPanel";
 
 interface Props {
   connection: Connection;
+  idToken: string | null; // 구글 로그인(feat/google-login) — AuthChoiceScreen에서 이미 확정되어 내려온다.
+  profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null.
 }
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
-export function LobbyScreen({ connection }: Props) {
+// 로그인/게스트 선택은 AuthChoiceScreen이 먼저 처리하므로, 여기선 idToken을 그대로 실어 보내기만 한다.
+export function LobbyScreen({ connection, idToken, profile }: Props) {
   const rooms = useUIStore((s) => s.rooms);
-  const [nickname, setNickname] = useState(() => localStorage.getItem("nickname") ?? "");
+  const [nickname, setNickname] = useState(
+    () => profile?.nickname ?? localStorage.getItem("nickname") ?? ""
+  );
   const [roomName, setRoomName] = useState("");
-  // 구글 로그인(feat/google-login) — 로그인하면 이 ID 토큰을 create/join에 실어 보낸다.
-  // 서버가 검증해 그 계정의 닉네임을 우선하므로, 명목상 nickname state는 그대로 두되 화면엔
-  // "OO님으로 로그인됨"을 보여준다.
-  const [idToken, setIdToken] = useState<string | null>(null);
-  const [googleName, setGoogleName] = useState<string | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
-  const nameOk = nickname.trim().length > 0 || idToken !== null;
-
-  // 이미 로그인된 세션이 있으면(새로고침 등) 버튼을 다시 누르지 않아도 자동으로 이어간다.
-  useEffect(() => {
-    return onAuthStateChanged((user) => {
-      if (!user) return;
-      user.getIdToken().then((tok) => {
-        setIdToken(tok);
-        setGoogleName(user.displayName);
-        if (user.displayName && !localStorage.getItem("nickname")) setNickname(user.displayName.slice(0, 12));
-      });
-    });
-  }, []);
-
-  const handleGoogleSignIn = async () => {
-    setAuthBusy(true);
-    try {
-      const { idToken: tok, displayName } = await signInWithGoogle();
-      setIdToken(tok);
-      setGoogleName(displayName);
-      if (displayName) setNickname(displayName.slice(0, 12));
-    } catch (e) {
-      console.error("[google-signin]", e);
-      alert("구글 로그인에 실패했습니다.");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
+  const [showFriends, setShowFriends] = useState(false);
+  const nameOk = nickname.trim().length > 0;
 
   const token = () => localStorage.getItem("token") ?? undefined;
   const saveNick = () => localStorage.setItem("nickname", nickname.trim());
@@ -121,27 +95,29 @@ export function LobbyScreen({ connection }: Props) {
             벌이는 실시간 영토 전쟁
           </p>
 
-          <div className="lobby-form">
-            {isFirebaseConfigured && (
-              <>
-                {idToken ? (
-                  <p className="join-hint" style={{ marginBottom: 8 }}>
-                    ✓ {googleName ?? "구글 Google 계정"}으로 로그인됨
-                  </p>
-                ) : (
-                  <button
-                    className="io-btn io-btn-block"
-                    type="button"
-                    disabled={authBusy}
-                    onClick={handleGoogleSignIn}
-                    style={{ marginBottom: 12 }}
-                  >
-                    {authBusy ? "로그인 중…" : "구글 Google로 계속하기"}
-                  </button>
-                )}
-              </>
-            )}
+          {profile && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                margin: "10px 0",
+                padding: "6px 10px",
+                borderRadius: 8,
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid #ffffff22",
+              }}
+            >
+              <span style={{ fontSize: 13, color: "#cdd6e4" }}>
+                Lv.{profile.level} · {profile.wins}승 {profile.gamesPlayed}판
+              </span>
+              <button className="io-btn io-btn-sm" type="button" onClick={() => setShowFriends(true)}>
+                👥 친구
+              </button>
+            </div>
+          )}
 
+          <div className="lobby-form">
             <label className="lobby-label">닉네임</label>
             <input
               className="join-input"
@@ -181,6 +157,8 @@ export function LobbyScreen({ connection }: Props) {
           </div>
         </div>
       </div>
+
+      {showFriends && idToken && <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} />}
     </div>
   );
 }
