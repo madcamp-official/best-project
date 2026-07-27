@@ -639,7 +639,7 @@ function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs:
   };
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] !== holderId) continue;
-    if (s.troops[i] < CONFIG.OFFENSIVE_MIN_TROOPS) continue;
+    if (s.troops[i] <= CONFIG.OFFENSIVE_MIN_TROOPS) continue; // 병력이 MIN_TROOPS 초과인 동만 공세 참여
     const myDist = distToTarget(i);
     // 이 동에서 목표로 향하는 방향 벡터(cosLat 보정). 이웃 이동 방향이 이것과 얼마나 정렬됐는지로 고른다.
     const ci = s.meta[i].centroid;
@@ -668,18 +668,16 @@ function offensiveAdvance(s: GameState, holderId: number, target: number, nowMs:
         atk = nb;
       }
     }
-    // 최전선: 이길 만하면 전방 적·중립을 출정. (성공하면 이 동은 이번 주기 소임을 다한 것.)
+    // 최전선: OFFENSIVE_RATIO를 무시하고 남은 병력 전부로 공격한다. 이길 수 없어도 진격해 방어
+    // 병력을 깎고, 다음 주기에 다시 쳐서 결국 함락시킨다(체력 높은 상대도 소모전으로 점령 가능).
     if (atk >= 0) {
-      const amount = Math.floor(s.troops[i] * CONFIG.OFFENSIVE_RATIO);
-      if (amount > s.troops[atk]) {
-        s.troops[i] -= amount;
-        s.dirty.add(i);
-        const order = makeOrder(s, i, atk, amount, holderId, nowMs);
-        s.orders.push(order);
-        out.push(order);
-        continue;
-      }
-      // 못 이기면(병력 부족) 아래 보급으로 떨어져, 전방 내 동이 있으면 그쪽으로 병력을 넘긴다.
+      const amount = s.troops[i];
+      s.troops[i] -= amount;
+      s.dirty.add(i);
+      const order = makeOrder(s, i, atk, amount, holderId, nowMs);
+      s.orders.push(order);
+      out.push(order);
+      continue;
     }
     // 후방 보급: 목표에 더 가까운 내 동으로 병력을 흘려보낸다(전투 없음, 상한 여유만큼).
     if (sup >= 0) {
