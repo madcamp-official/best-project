@@ -29,7 +29,19 @@ data class GameConfig(
     @JsonProperty("UNIT_TRAVEL_MIN_SEC") var unitTravelMinSec: Double = 0.7,
     @JsonProperty("UNIT_TRAVEL_MAX_SEC") var unitTravelMaxSec: Double = 2.2,
 
+    // AI 플레이어 — 사람이 부족하면 세션을 AI_FILL_TARGET명까지 AI로 채운다(야만인 E 대체).
+    // AI는 미사일/전술핵/공수를 쓰지 않고(연결이 없어 발사 불가), 인접 지역 출정 확장·전선 증원만 한다.
+    // web/src/config.ts AI_*와 동기.
+    @JsonProperty("AI_FILL_TARGET") var aiFillTarget: Int = 8, // 세션 목표 플레이어 수(사람+AI)
+    @JsonProperty("AI_PROD_MULT") var aiProdMult: Double = 0.8, // AI 생산 배율(사람의 80%)
+    @JsonProperty("AI_ACT_INTERVAL_SEC") var aiActIntervalSec: Double = 1.0, // AI 행동 주기(초)
+    @JsonProperty("AI_ATTACK_MARGIN") var aiAttackMargin: Double = 1.1, // 자살 방지 계수
+    @JsonProperty("AI_MAX_SORTIES_PER_TICK") var aiMaxSortiesPerTick: Int = 4, // 주기당 최대 확장 출정
+    @JsonProperty("AI_REINFORCE_FILL_RATIO") var aiReinforceFillRatio: Double = 0.85, // 이 이상 찼을 때만 증원
+    @JsonProperty("AI_MAX_REINFORCE_PER_TICK") var aiMaxReinforcePerTick: Int = 6, // 주기당 최대 증원 출정
+
     // 환경 세력(E, README §4.6) — 초반 긴장용 조연(문명 야만인 모델).
+    // (현재 미사용: E는 AI 플레이어로 대체되어 스폰되지 않는다. 상수는 하위 호환 위해 유지.)
     // ENV_HOLDER_ID는 클라 CONFIG 안에도 들어있는 값이라(web/src/config.ts) 여기 포함한다 —
     // HolderIds.ENV(구조 상수)와 항상 같은 값을 유지해야 한다.
     @JsonProperty("ENV_HOLDER_ID") var envHolderId: Int = HolderIds.ENV,
@@ -100,6 +112,7 @@ object HolderIds {
  * 받는지"는 서버가 결정해서 내려줘야 하므로 인덱스 배정 규칙만 여기 둔다.
  */
 object Palette {
-    const val ENV_IDX: Int = 6
-    val PLAYER_IDXS: IntArray = intArrayOf(1, 2, 3, 4, 5)
+    const val ENV_IDX: Int = 6 // (구)E 슬롯 — 현재 미사용
+    // 플레이어(사람+AI)에게 순환 배정하는 색 슬롯 — 8명 세션용 8개(중립 0·구 E 6 제외).
+    val PLAYER_IDXS: IntArray = intArrayOf(1, 2, 3, 4, 5, 7, 8, 9)
 }

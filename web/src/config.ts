@@ -1,6 +1,6 @@
 // docs/plan.md, README.md §5 튜닝 상수 — 모든 밸런스 값은 이 객체 한 곳에.
 export const CONFIG = {
-  FILL_TO_CAP_SEC: 180, // 빈 동 → 상한 충전 시간(초)
+  FILL_TO_CAP_SEC: 200, // 빈 동 → 상한 충전 시간(초)
   BASE_CAP: 50, // 병력 상한 base (튜닝)
   CAP_K: 0.4, // 인구 정규화 압축 강도 (튜닝, 목업에서는 미사용)
   CAP_MIN_MULT: 0.7,
@@ -17,7 +17,19 @@ export const CONFIG = {
   UNIT_TRAVEL_MIN_SEC: 0.7,
   UNIT_TRAVEL_MAX_SEC: 2.2,
 
+  // AI 플레이어 — 한 세션은 AI_FILL_TARGET명을 목표로, 사람이 부족하면 AI로 채운다(야만인 E 대체).
+  // AI는 미사일/전술핵/공수를 쓰지 않고(연결이 없어 발사 자체가 불가), 인접 지역 출정 확장과
+  // 전선 증원만 한다. 실력을 일부러 낮추진 않되 생산량만 사람의 AI_PROD_MULT배로 약간 불리하게.
+  AI_FILL_TARGET: 8, // 세션 목표 플레이어 수(사람+AI). 사람이 이보다 적으면 AI로 채운다.
+  AI_PROD_MULT: 0.8, // AI 병력 생산 배율(사람의 80%)
+  AI_ACT_INTERVAL_SEC: 1.0, // AI 행동 주기(초)
+  AI_ATTACK_MARGIN: 1.1, // 이길 만할 때만 공격(자살 방지) — 출정 병력 > 대상 병력 × 이 값일 때만.
+  AI_MAX_SORTIES_PER_TICK: 4, // AI 1명이 한 주기에 벌이는 최대 확장 출정 수(전면 소진 방지)
+  AI_REINFORCE_FILL_RATIO: 0.85, // 내부(비국경) 동이 상한의 이 비율 이상일 때만 전선으로 증원
+  AI_MAX_REINFORCE_PER_TICK: 6, // AI 1명이 한 주기에 보내는 최대 증원 출정 수(주문 폭주 방지)
+
   // 환경 세력 (E, README §4.6) — 초반 긴장용 조연(문명 야만인). 전부 튜닝값.
+  // (현재 미사용: 야만인 E는 AI 플레이어로 대체되어 더는 스폰되지 않는다. 상수는 하위 호환 위해 유지.)
   ENV_HOLDER_ID: 255, // E 전용 holderId (예약)
   ENV_CLUSTER_COUNT: 100, // 야만인 무리 수 — 전국에 흩뿌리는 캠프 개수 (1이면 기존처럼 플레이어 근처 한 무리)
   ENV_START_CELLS: 50, // 무리 1개당 시작 E 보유 동 수
@@ -33,7 +45,7 @@ export const CONFIG = {
 
   // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
   MISSILE_SPAWN_SEC: 5, // 전국에서 무작위 동 1곳에 미사일이 스폰되는 주기(초) — 체감상 적어서 2배로 상향
-  MISSILE_MAX_TOTAL: 60, // 맵 전체 동시 존재 미사일 총 상한(소유·중립 무관). 도달 시 스폰 중단. (2배 상향, 개인 한도 없음)
+  MISSILE_MAX_TOTAL: 20, // 맵 전체 동시 존재 미사일 총 상한(소유·중립 무관). 도달 시 스폰 중단. (2배 상향, 개인 한도 없음)
   MISSILE_RADIUS_DEG: 0.06, // 발사 적용 원 반경(경위도 도 단위, ~2km). 클라·서버 공유.
 
   // 경로 자동 출정(B1) — 멀리 있는 내 동을 우클릭하면 내 영토를 따라 최단 경로로 연쇄 출정.
@@ -94,12 +106,15 @@ export const PALETTE: { fill: string; stroke: string }[] = [
   { fill: "#a7ecc0", stroke: "#0f7a3d" }, // 3: 그린
   { fill: "#fbdf9c", stroke: "#a3540a" }, // 4: 앰버
   { fill: "#dcbafc", stroke: "#6b1fac" }, // 5: 퍼플
-  { fill: "#c3d152", stroke: "#5a6b0d" }, // 6: 환경 세력(E) — 독성 올리브그린 (플레이어와 혼동 없게)
+  { fill: "#c3d152", stroke: "#5a6b0d" }, // 6: (구)환경 세력(E) — 독성 올리브그린. E 미스폰이라 미사용 슬롯.
+  { fill: "#7fd8cf", stroke: "#0e6f66" }, // 7: 틸
+  { fill: "#f5a9d0", stroke: "#9c1466" }, // 8: 핑크
+  { fill: "#e0b98a", stroke: "#7a4a12" }, // 9: 브라운
 ];
 
-// 환경 세력(E) 전용 팔레트 슬롯. README §7.1 — 팔레트 밖 색을 E에 고정 배정.
+// 환경 세력(E) 전용 팔레트 슬롯(현재 미사용 — E 미스폰). README §7.1 참고.
 export const ENV_PALETTE_IDX = 6;
-// 플레이어에게 순환 배정할 색 슬롯(중립 0·E 6 제외). 6명 초과 시 색이 겹칠 수 있으나 데모 규모에선 충분.
-export const PLAYER_PALETTE_IDXS = [1, 2, 3, 4, 5];
+// 플레이어(사람+AI)에게 순환 배정할 색 슬롯 — 8명 세션을 위해 8개(중립 0·구 E 6 제외).
+export const PLAYER_PALETTE_IDXS = [1, 2, 3, 4, 5, 7, 8, 9];
 
 export const SELECTED_OUTLINE_COLOR = "#ffffff";
