@@ -11,10 +11,11 @@ data class Holder(
 
 /** README §4.4 — 유닛 이동 이음매. departTick/arriveTick은 서버 벽시계(epoch ms) 기준. */
 data class Order(
-    val id: Int, // 이동 유닛 고유 id(미사일 타격 등으로 제거 시 클라에서 지목용). web/src/game/types.ts Order.id 대응.
+    val id: Int, // 이동 유닛 고유 id(미사일 타격·정면충돌 등으로 제거/변경 시 클라에서 지목용). types.ts Order.id 대응.
     val from: Int,
     val to: Int,
-    val amount: Int,
+    // var — 정면충돌(tickOrderClashes) 승자가 차액만큼 병력이 줄어 계속 진행하므로 제자리 갱신한다.
+    var amount: Int,
     val holderId: Int,
     val departTick: Long,
     val arriveTick: Long,
@@ -22,6 +23,13 @@ data class Order(
     val path: List<Int> = emptyList(),
     // 공수부대(B3): true면 도착 시 목적지에 투하 후 상한 초과분을 인접 flood로 점령/증원한다.
     val airdrop: Boolean = false,
+)
+
+/** 이동 중 병력이 바뀐 유닛(정면충돌 승자의 차액). DELTA updatedOrders로 실려 클라가 amount를 갱신한다.
+ *  web/src/net/protocol.ts DeltaMessage.updatedOrders 원소 { id, amount } 대응. */
+data class OrderAmount(
+    val id: Int,
+    val amount: Int,
 )
 
 data class LogEvent(

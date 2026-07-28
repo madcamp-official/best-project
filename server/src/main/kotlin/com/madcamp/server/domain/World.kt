@@ -64,7 +64,8 @@ class World(
     val pendingMissileImpacts: MutableList<Int> = mutableListOf() // 이번 구간 미사일 착탄 동(폭발 연출용)
     val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
     val pendingShields: MutableList<ShieldInfo> = mutableListOf() // 새로 생기거나 갱신된 방어막
-    val pendingRemovedOrders: MutableList<Int> = mutableListOf() // 이번 tick에 제거된 유닛 id(미사일 타격)
+    val pendingRemovedOrders: MutableList<Int> = mutableListOf() // 이번 tick에 제거된 유닛 id(미사일·정면충돌)
+    val pendingUpdatedOrders: MutableList<OrderAmount> = mutableListOf() // 이번 tick에 병력이 바뀐 유닛(충돌 승자)
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
     var nextLogId: Int = 1

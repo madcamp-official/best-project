@@ -152,6 +152,7 @@ class GameLoop(
 
         GameCore.tickProduction(world, config, dtSec)
         GameCore.tickOrders(world, config, wallNow)
+        GameCore.tickOrderClashes(world, wallNow) // 같은 통로 정면충돌 — 마주 오는 유닛이 중간에서 상쇄
         GameCore.tickAnnex(world, config, wallNow, wallNow)
 
         // AI 플레이어 행동 (AI_ACT_INTERVAL_SEC 주기) — 부족한 인원을 채운 봇들이 확장·증원한다.
@@ -269,6 +270,8 @@ class GameLoop(
         world.pendingShields.clear()
         val removedOrders = world.pendingRemovedOrders.toList()
         world.pendingRemovedOrders.clear()
+        val updatedOrders = world.pendingUpdatedOrders.toList()
+        world.pendingUpdatedOrders.clear()
 
         val enclosedList = (0 until world.n).filter { world.enclosedBy[it] >= 0 }
         val enclosedKey = enclosedList.joinToString(",")
@@ -280,7 +283,7 @@ class GameLoop(
         if (dirty.isEmpty() && newOrders.isEmpty() && events.isEmpty() &&
             missileAdd.isEmpty() && missileRemove.isEmpty() && missileImpacts.isEmpty() &&
             newHolders.isEmpty() && shieldUpdates.isEmpty() && removedOrders.isEmpty() &&
-            !enclosedChanged && !nukeChanged
+            updatedOrders.isEmpty() && !enclosedChanged && !nukeChanged
         ) {
             return
         }
@@ -293,6 +296,7 @@ class GameLoop(
             enclosed = if (enclosedChanged) enclosedList else null,
             nukeReadyAtMs = if (nukeChanged) world.nukeReadyAt.toList() else null,
             removedOrders = removedOrders.ifEmpty { null },
+            updatedOrders = updatedOrders.ifEmpty { null },
         )
         messagingTemplate.convertAndSend(worldTopic(room.id), msg)
         if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_WORLD_TOPIC, msg)
