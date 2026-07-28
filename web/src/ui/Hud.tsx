@@ -132,9 +132,7 @@ export function Hud({ connection, isMock }: Props) {
             </div>
             {selectedInfo.isMine && (
               <div className="hud-sortie">
-                이동/출정: {selectedInfo.troops}명 (전 병력)
-                <br />
-                인접 동 우클릭 = 출정 · 먼 내 동 우클릭 = 자동 행군
+                내 동 · <strong>더블클릭</strong>으로 집결지 지정
               </div>
             )}
           </div>
@@ -190,77 +188,60 @@ export function Hud({ connection, isMock }: Props) {
       </div>
 
       <div className="hud-panel hud-bottom-right">
-        {/* 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨 */}
-        <div className="hud-ratio-hint">
-          우클릭 = 선택한 동 병력 <strong>전부(100%)</strong> 출정
-          <br />
-          내 동에서 우클릭 드래그로 여러 인접 지역을 <strong>쓸면</strong> 병력을 나눠 한 번에 출정합니다
-        </div>
-
-        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
-          <div className="hud-ratio-head">
-            <span className="hud-title">미사일</span>
-            <strong className="hud-ratio-value">{missileCount}발</strong>
-          </div>
-          <button
-            type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-amber" : "io-btn-primary"}`}
-            style={{ marginTop: 6 }}
-            disabled={missileCount === 0 && !isAiming}
-            onClick={() => setAiming(!isAiming)}
-          >
-            {isAiming ? "조준 중… (Esc 취소)" : "미사일 발사 (Space)"}
-          </button>
-          <div className="hud-ratio-hint">
-            {isAiming
-              ? "지도에서 범위를 클릭해 발사 — 걸친 동이 중립이 됩니다"
-              : "Space로 조준 · 범위에 걸친 동을 중립으로 만듭니다"}
-          </div>
-        </div>
-
-        {nukeOwned && (
-          <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+        {/* 액션 버튼 두 칸 — 미사일 · 공수 (즉시 쓰는 능동 기술) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
             <div className="hud-ratio-head">
-              <span className="hud-title">☢ 전술핵 사일로</span>
+              <span className="hud-title">미사일 🚀</span>
+              <strong className="hud-ratio-value">{missileCount}발</strong>
+            </div>
+            <button
+              type="button"
+              className={`io-btn io-btn-sm io-btn-block ${isAiming ? "io-btn-amber" : "io-btn-primary"}`}
+              style={{ marginTop: 6 }}
+              disabled={missileCount === 0 && !isAiming}
+              onClick={() => setAiming(!isAiming)}
+            >
+              {isAiming ? "조준 중 (Esc)" : "발사 (Space)"}
+            </button>
+          </div>
+          <div>
+            <div className="hud-ratio-head">
+              <span className="hud-title">공수 🪂</span>
               <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-                {nukeCooldownLeft > 0 ? `${nukeCoolSec}초` : "발사 가능"}
+                {airdropCooldownLeft > 0 ? `${airdropCoolSec}초` : "준비"}
               </strong>
             </div>
             <button
               type="button"
-              className={`io-btn io-btn-sm io-btn-block ${isNukeAiming ? "io-btn-amber" : "io-btn-primary"}`}
+              className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-primary"}`}
               style={{ marginTop: 6 }}
-              disabled={nukeCooldownLeft > 0 && !isNukeAiming}
-              onClick={() => setNukeAiming(!isNukeAiming)}
+              disabled={airdropCooldownLeft > 0 && !isTransporting}
+              onClick={() => setTransporting(!isTransporting)}
             >
-              {isNukeAiming
-                ? "핵 조준 중… (Esc 취소)"
-                : nukeCooldownLeft > 0
-                  ? `재장전 ${nukeCoolSec}초`
-                  : "전술핵 발사"}
+              {isTransporting ? "수송 중 (Esc)" : airdropCooldownLeft > 0 ? `대기 ${airdropCoolSec}초` : "수송 (Shift)"}
             </button>
-            <div className="hud-ratio-hint">
-              {isNukeAiming
-                ? "지도에서 범위를 클릭해 발사 — 일반 미사일의 3배 범위가 중립이 됩니다"
-                : "울릉도·제주 사일로 보유 보너스 · 3분마다 3배 범위 미사일"}
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
-          <div className="hud-ratio-head">
-            <span className="hud-title">집결지 (보급)</span>
-            <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-              {rallyName ?? "없음"}
-            </strong>
-          </div>
-          <div className="hud-ratio-hint">
-            내 동을 <strong>더블클릭</strong>해 집결지 지정 (같은 동 더블클릭 = 해제).
-            <br />
-            후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다.
           </div>
         </div>
 
+        {/* 전술핵 — 울릉도·제주 사일로 보유 시에만 별도 액션 */}
+        {nukeOwned && (
+          <button
+            type="button"
+            className={`io-btn io-btn-sm io-btn-block ${isNukeAiming ? "io-btn-amber" : "io-btn-primary"}`}
+            style={{ marginTop: 8 }}
+            disabled={nukeCooldownLeft > 0 && !isNukeAiming}
+            onClick={() => setNukeAiming(!isNukeAiming)}
+          >
+            {isNukeAiming
+              ? "☢ 핵 조준 중 (Esc)"
+              : nukeCooldownLeft > 0
+                ? `☢ 재장전 ${nukeCoolSec}초`
+                : "☢ 전술핵 발사"}
+          </button>
+        )}
+
+        {/* 조작 안내 — 지도 클릭으로 쓰는 것들(버튼 없음)과 기술 요약 */}
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
             <span className="hud-title">공격 큐 ⚔️</span>
@@ -269,37 +250,30 @@ export function Hud({ connection, isMock }: Props) {
             </strong>
           </div>
           <div className="hud-ratio-hint">
-            국경에 인접한 적·중립 지역을 <strong>우클릭</strong>해 공격 큐에 추가 (다시 우클릭 = 취소).
-            <br />
-            큐에 담긴 지역을 인접한 내 동들이 매 주기 자동으로 공격합니다.
+            적·중립 지역 <strong>우클릭</strong> = 큐 담기·빼기 · 인접한 내 동이 자동 공격
           </div>
-        </div>
 
-        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
-          <div className="hud-ratio-head">
-            <span className="hud-title">공수부대 (병력 수송)</span>
+          <div className="hud-ratio-head" style={{ marginTop: 8 }}>
+            <span className="hud-title">집결지 🚩</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-              {airdropCooldownLeft > 0 ? `${airdropCoolSec}초` : "준비"}
+              {rallyName ?? "없음"}
             </strong>
           </div>
-          <button
-            type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isTransporting ? "io-btn-amber" : "io-btn-primary"}`}
-            style={{ marginTop: 6 }}
-            disabled={airdropCooldownLeft > 0 && !isTransporting}
-            onClick={() => setTransporting(!isTransporting)}
-          >
-            {isTransporting
-              ? "수송 중… (Esc 취소)"
-              : airdropCooldownLeft > 0
-                ? `재사용 대기 ${airdropCoolSec}초`
-                : "병력 수송 (Shift)"}
-          </button>
           <div className="hud-ratio-hint">
-            {isTransporting
-              ? "① 원으로 내 동 선택(클릭) → ② 목적지 클릭 (섬도 가능)"
-              : "Shift로 조준 · 원으로 고른 내 동 병력을 목적지에 투하 — 넘치면 주변으로 점령"}
+            내 동 <strong>더블클릭</strong> = 지정·해제 · 후방 병력이 매 초 한 칸씩 집결
           </div>
+
+          <div className="hud-ratio-hint" style={{ marginTop: 8 }}>
+            🚀 <strong>미사일</strong>: Space로 조준 → 클릭한 지역 중립화
+          </div>
+          <div className="hud-ratio-hint">
+            🪂 <strong>공수</strong>: Shift로 조준 → 원으로 내 동 선택 → 목적지 투하(섬 가능)
+          </div>
+          {nukeOwned && (
+            <div className="hud-ratio-hint">
+              ☢ <strong>전술핵</strong>: 사일로 보유 시 3분마다 3배 광역 미사일
+            </div>
+          )}
         </div>
       </div>
 
