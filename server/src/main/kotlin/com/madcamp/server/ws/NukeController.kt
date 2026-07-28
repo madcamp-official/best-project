@@ -54,12 +54,15 @@ class NukeController(
         }
     }
 
+    // lim은 지도 전역 여유(radius+margin), 여기에 그 셀 자체의 크기(radiusDeg)를 더해 큰 셀
+    // 가장자리를 클릭해도 centroid가 멀다는 이유로 거부되지 않게 한다(MissileController와 동일).
     private fun withinRadius(world: World, i: Int, center: List<Double>, lim: Double): Boolean {
         if (i < 0 || i >= world.n) return false
         val c = world.meta[i].centroid
         val cosLat = cos(center[1] * Math.PI / 180.0)
         val dx = (c[0] - center[0]) * cosLat
         val dy = c[1] - center[1]
-        return dx * dx + dy * dy <= lim * lim
+        val effLim = lim + world.radiusDeg[i]
+        return dx * dx + dy * dy <= effLim * effLim
     }
 }
