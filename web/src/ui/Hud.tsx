@@ -1,9 +1,25 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
 import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import { SGG_SPECIALTY } from "../data/sggSpecialty";
 import type { Connection } from "../net/connection";
+
+// 조작 안내 범례 — 입력(키/클릭)을 왼쪽에 고정폭 배지로 두어 여러 줄이 세로로 나란히 읽히게 한다.
+const KEY_BADGE: CSSProperties = {
+  display: "inline-block",
+  minWidth: 60,
+  textAlign: "center",
+  padding: "1px 6px",
+  borderRadius: 4,
+  background: "#ffffff1a",
+  border: "1px solid #ffffff26",
+  fontSize: 11,
+  fontWeight: 700,
+  flexShrink: 0,
+};
+const LEGEND_ROW: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 };
 
 interface Props {
   connection: Connection | null; // GAME OVER 오버레이의 재시작/나가기 버튼이 명령을 보내는 데 씀
@@ -189,11 +205,11 @@ export function Hud({ connection, isMock }: Props) {
 
       <div className="hud-panel hud-bottom-right">
         {/* 액션 버튼 두 칸 — 미사일 · 공수 (즉시 쓰는 능동 기술) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end" }}>
           <div>
             <div className="hud-ratio-head">
               <span className="hud-title">미사일 🚀</span>
-              <strong className="hud-ratio-value">{missileCount}발</strong>
+              <strong className="hud-ratio-value" style={{ fontSize: 12 }}>{missileCount}발</strong>
             </div>
             <button
               type="button"
@@ -241,26 +257,34 @@ export function Hud({ connection, isMock }: Props) {
           </button>
         )}
 
-        {/* 조작 안내 — 지도 클릭으로 쓰는 것들(버튼 없음)과 기술 요약 */}
-        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
-          <div className="hud-ratio-head">
-            <span className="hud-title">공격 큐 ⚔️</span>
+        {/* 조작 안내 — 입력 → 동작 (버튼 없이 지도 클릭으로 쓰는 것들). 오른쪽에 현재 상태. */}
+        <div
+          style={{
+            marginTop: 10,
+            borderTop: "1px solid #ffffff22",
+            paddingTop: 8,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <div style={LEGEND_ROW}>
+            <span style={KEY_BADGE}>우클릭</span>
+            <span style={{ flex: 1 }}>공격 큐 ⚔️ 담기 / 빼기</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {attackQueueCount > 0 ? `${attackQueueCount}곳` : "없음"}
             </strong>
           </div>
-          <div className="hud-ratio-hint">
-            적·중립 지역 <strong>우클릭</strong> = 큐 담기·빼기 · 인접한 내 동이 자동 공격
-          </div>
-
-          <div className="hud-ratio-head" style={{ marginTop: 8 }}>
-            <span className="hud-title">집결지 🚩</span>
+          <div style={LEGEND_ROW}>
+            <span style={KEY_BADGE}>더블클릭</span>
+            <span style={{ flex: 1 }}>집결지 🚩 지정 / 해제</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {rallyName ?? "없음"}
             </strong>
           </div>
-          <div className="hud-ratio-hint">
-            내 동 <strong>더블클릭</strong> = 지정·해제 · 후방 병력이 매 초 한 칸씩 집결
+          <div style={LEGEND_ROW}>
+            <span style={KEY_BADGE}>좌클릭</span>
+            <span style={{ flex: 1 }}>지역 선택 · 정보</span>
           </div>
         </div>
       </div>
