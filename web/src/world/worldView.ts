@@ -112,6 +112,19 @@ export function applyDelta(msg: DeltaMessage) {
     world.dirty.add(admIndex);
   }
   if (msg.newOrders.length > 0) world.orders.push(...msg.newOrders);
+  // 이동 중 병력이 바뀐 유닛(② 정면충돌 승자) — amount 갱신(렌더 라벨·후속 판정에 반영).
+  if (msg.updatedOrders && msg.updatedOrders.length > 0) {
+    const amt = new Map(msg.updatedOrders.map((u) => [u.id, u.amount]));
+    for (const o of world.orders) {
+      const a = amt.get(o.id);
+      if (a !== undefined) o.amount = a;
+    }
+  }
+  // 이동 중 제거된 유닛(① 미사일 타격, ② 정면충돌 패배) — world.orders에서 뺀다(렌더에서 사라짐).
+  if (msg.removedOrders && msg.removedOrders.length > 0) {
+    const rm = new Set(msg.removedOrders);
+    world.orders = world.orders.filter((o) => !rm.has(o.id));
+  }
   if (msg.events.length > 0) {
     // 서버가 최신순으로 보낸다고 가정하고 앞에 붙인다(README §8 append-only 로그).
     world.logEntries = [...msg.events, ...world.logEntries].slice(0, 30);
