@@ -1,0 +1,11 @@
+# 도커 빌드 컨텍스트 제외 — 빌드 산출물·로컬 상태·비밀값은 이미지 빌드에 들어가면 안 된다.
+**/node_modules
+web/dist
+server/build
+server/.gradle
+server/.kotlin
+server/data
+server/secrets
+.git
+.claude
+docs
