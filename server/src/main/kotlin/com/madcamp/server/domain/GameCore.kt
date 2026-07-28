@@ -171,6 +171,55 @@ object GameCore {
         return removed
     }
 
+    // 같은 통로 정면충돌 — A→B와 B→A(같은 변, 반대 방향, 다른 소유주)가 서로를 지나친 순간 중간에서
+    // 클래시한다: 작은 쪽 소멸, 큰 쪽은 차액으로 계속(같으면 둘 다 소멸). GameLoop이 매 tick 호출한다.
+    // 제거·병력변경 유닛은 world.pendingRemovedOrders/pendingUpdatedOrders로 실려 DELTA로 전파된다.
+    // web/src/game/core.ts tickOrderClashes 1:1 대응.
+    fun tickOrderClashes(world: World, nowMs: Long) {
+        if (world.orders.size < 2) return
+        // 방향별 변 인덱스: from→to 방향으로 이동 중인 order들. 키 = from*n+to(고유).
+        val byEdge = HashMap<Long, ArrayList<Order>>()
+        for (o in world.orders) {
+            if (nowMs >= o.arriveTick) continue // 곧 도착(tickOrders가 처리) — 충돌 대상 아님
+            byEdge.getOrPut(edgeKey(world, o.from, o.to)) { ArrayList() }.add(o)
+        }
+        val consumed = HashSet<Int>()
+        for (o1 in world.orders) {
+            if (o1.id in consumed || nowMs >= o1.arriveTick) continue
+            val opp = byEdge[edgeKey(world, o1.to, o1.from)] ?: continue // 반대 방향(같은 변)
+            for (o2 in opp) {
+                if (o1.id in consumed) break
+                if (o2.id in consumed || o2.holderId == o1.holderId) continue // 아군끼리는 통과
+                if (clashProgress(o1, nowMs) + clashProgress(o2, nowMs) < 1.0) continue // 아직 서로를 안 지나침
+                if (o1.amount > o2.amount) {
+                    o1.amount -= o2.amount
+                    world.pendingUpdatedOrders.add(OrderAmount(o1.id, o1.amount))
+                    consumed.add(o2.id)
+                    world.pendingRemovedOrders.add(o2.id)
+                } else if (o2.amount > o1.amount) {
+                    o2.amount -= o1.amount
+                    world.pendingUpdatedOrders.add(OrderAmount(o2.id, o2.amount))
+                    consumed.add(o1.id)
+                    world.pendingRemovedOrders.add(o1.id)
+                } else {
+                    consumed.add(o1.id)
+                    consumed.add(o2.id)
+                    world.pendingRemovedOrders.add(o1.id)
+                    world.pendingRemovedOrders.add(o2.id)
+                }
+            }
+        }
+        if (consumed.isNotEmpty()) world.orders.removeAll { it.id in consumed }
+    }
+
+    private fun edgeKey(world: World, from: Int, to: Int): Long = from.toLong() * world.n + to
+
+    // 유닛의 현재 진행도(0~1) — departTick→arriveTick 선형(web/src/game/core.ts tickOrderClashes progress 대응).
+    private fun clashProgress(o: Order, nowMs: Long): Double {
+        val span = o.arriveTick - o.departTick
+        return if (span > 0) ((nowMs - o.departTick).toDouble() / span).coerceIn(0.0, 1.0) else 1.0
+    }
+
     // B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를 찾아,
     // 출발지 병력을 빼고 그 경로를 통째로 지고 가는 릴레이 컬럼 1개를 띄운다. web/src/game/core.ts tryMarch 대응.
     fun tryMarch(
