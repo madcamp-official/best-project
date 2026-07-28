@@ -46,7 +46,7 @@ export const CONFIG = {
 
   // AI 국가 — 시작 시 맵 곳곳에 단일 동으로 흩뿌리는 서로 다른 AI 세력들. 각자 인접 중립을
   // 이길 만할 때만 자동 점령하며 확장하다가, 블롭이 맞닿으면 서로 못 이겨 전선이 형성된다.
-  AI_NATION_COUNT: 39, // 시작 AI 국가 수(각각 단일 동에서 시작)
+  AI_NATION_COUNT: 30, // 시작 AI 국가 수(각각 단일 동에서 시작)
   AI_HOLDER_BASE: 200, // AI 국가 holderId 시작값(플레이어 1~199, E 255와 겹치지 않게). +COUNT < 255
   AI_ACT_INTERVAL_SEC: 1.0, // AI 확장 판정 주기(초)
   AI_MIN_TROOPS: 6, // 이 수 미만이면 확장 안 함(수비 병력 확보)
