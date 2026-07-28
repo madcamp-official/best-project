@@ -16,6 +16,7 @@ import type { DongStaticMeta, Holder, LogEntry, Order, ShieldInfo } from "../gam
 export interface JoinMessage {
   nickname: string; // 신규만. 1~12자 (서버가 trim/검증)
   token?: string; // 재접속 시 localStorage의 UUID. 없으면 신규
+  idToken?: string; // 구글 로그인(feat/google-login) — Firebase ID 토큰. 있으면 서버가 검증 후 계정 닉네임을 우선한다.
 }
 
 // api-spec §2.3 — amount = floor(troops*ratio)를 서버가 계산. ratio는 플레이어가
@@ -159,6 +160,10 @@ export interface DeltaMessage {
   // 땅 색을 잘못(fallback 회색) 칠하는 순간이 아예 생기지 않는다.
   newHolders: Holder[];
   shieldUpdates: ShieldInfo[]; // 이번 구간에 새로 생기거나 갱신된 방어막(신규 참가·재시작)
+  // 이동 중 제거된 유닛 id(① 미사일 타격, ② 정면충돌 패배). 클라가 world.orders에서 뺀다.
+  removedOrders?: number[];
+  // 이동 중 병력이 바뀐 유닛(② 정면충돌 승자의 차액). 클라가 해당 order의 amount를 갱신한다.
+  updatedOrders?: { id: number; amount: number }[];
 }
 
 // api-spec §2.6 — 순위표 (1Hz). E는 rows에서 제외, envCells는 잔존 표시용
@@ -196,6 +201,7 @@ export interface RoomListMessage {
 }
 
 // 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
+// joinCode는 비공개 방일 때만 온다(방장이 친구에게 공유할 초대 코드).
 export interface RoomJoinedMessage {
   roomId: string;
   name: string;
@@ -203,6 +209,7 @@ export interface RoomJoinedMessage {
   state: RoomState;
   members: MemberInfo[];
   youAreHost: boolean;
+  joinCode?: string;
 }
 
 // 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state).
@@ -221,19 +228,32 @@ export interface RoundEndMessage {
   leaderboard: { holderId: number; name: string; count: number }[];
 }
 
-// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+// 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. idToken은 JoinMessage 참고.
+// private=true면 로비 목록에 안 뜨는 친구 초대 전용 방 — 서버가 초대 코드를 발급해 roomJoined로 돌려준다.
 export interface CreateRoomCommand {
   name: string;
   mapId: string; // data/loadMapData.ts MAP_ASSETS 키. 서버가 모르는 값이면 기본 지도로 대체.
   nickname: string;
   token?: string;
+  idToken?: string;
   clientId?: string; // 영속 클라 신원(방장 판정용)
+  private?: boolean;
 }
 
-// 방 입장(C→S, /app/lobby/join).
+// 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고.
 export interface JoinRoomCommand {
   roomId: string;
   nickname: string;
   token?: string;
+  idToken?: string;
   clientId?: string; // 영속 클라 신원(재접속 시 방장·멤버 동일성 유지용)
+}
+
+// 초대 코드로 비공개 방 입장(C→S, /app/lobby/joinByCode).
+export interface JoinByCodeCommand {
+  code: string;
+  nickname: string;
+  token?: string;
+  idToken?: string;
+  clientId?: string;
 }

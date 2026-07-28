@@ -52,6 +52,8 @@ export class StompConnection implements Connection {
   private client: Client;
   private nickname = "";
   private token: string | undefined;
+  // 구글 로그인(feat/google-login) ID 토큰 — 재연결 시 reestablish()가 다시 실어 보낸다.
+  private idToken: string | undefined;
   private readonly clientId = getClientId(); // 영속 클라 신원(방장·재접속 동일성 판정용)
 
   // 접속 의도(재접속 시 복구용): 레거시 브리지(join)인지, 특정 방(joinRoom)인지.
@@ -166,7 +168,7 @@ export class StompConnection implements Connection {
       if (this.currentRoomId) this.subscribeRoom(this.currentRoomId);
       this.client.publish({
         destination: "/app/join",
-        body: JSON.stringify({ nickname: this.nickname, token: this.token }),
+        body: JSON.stringify({ nickname: this.nickname, token: this.token, idToken: this.idToken }),
       });
     } else if (this.currentRoomId) {
       this.subscribeRoom(this.currentRoomId);
@@ -176,6 +178,7 @@ export class StompConnection implements Connection {
           roomId: this.currentRoomId,
           nickname: this.nickname,
           token: this.token,
+          idToken: this.idToken,
           clientId: this.clientId,
         }),
       });
@@ -183,9 +186,10 @@ export class StompConnection implements Connection {
   }
 
   // ── Connection: 접속/로비 ──
-  join(nickname: string, token?: string): void {
+  join(nickname: string, token?: string, idToken?: string): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = true;
     this.currentRoomId = null;
     this.ensureActive();
@@ -196,20 +200,36 @@ export class StompConnection implements Connection {
     this.send("/app/lobby/list", "{}");
   }
 
-  createRoom(name: string, mapId: string, nickname: string, token?: string): void {
+  createRoom(name: string, mapId: string, nickname: string, token?: string, idToken?: string, isPrivate?: boolean): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = false;
-    this.send("/app/lobby/create", JSON.stringify({ name, mapId, nickname, token, clientId: this.clientId }));
+    this.send(
+      "/app/lobby/create",
+      JSON.stringify({ name, mapId, nickname, token, idToken, clientId: this.clientId, private: isPrivate ?? false }),
+    );
   }
 
-  joinRoom(roomId: string, nickname: string, token?: string): void {
+  joinRoom(roomId: string, nickname: string, token?: string, idToken?: string): void {
     this.nickname = nickname;
     this.token = token;
+    this.idToken = idToken;
     this.bridgeMode = false;
     this.currentRoomId = roomId;
     this.ensureActive();
     if (this.client.connected) this.reestablish();
+  }
+
+  joinByCode(code: string, nickname: string, token?: string, idToken?: string): void {
+    this.nickname = nickname;
+    this.token = token;
+    this.idToken = idToken;
+    this.bridgeMode = false;
+    this.send(
+      "/app/lobby/joinByCode",
+      JSON.stringify({ code, nickname, token, idToken, clientId: this.clientId }),
+    );
   }
 
   startRound(): void {

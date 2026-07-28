@@ -8,6 +8,7 @@ export interface Holder {
 // README.md §4.4 — 유닛 이동 이음매. 출발 시 병력을 출발지에서 빼고, arriveTick에
 // 도달하면 목적지에서 전투/증원을 적용한다. 그 사이엔 원(circle) 유닛이 이동한다.
 export interface Order {
+  id: number; // 유닛 고유 id — 이동 중 제거(미사일 타격)/변경(정면충돌)을 DELTA로 지목할 때 쓴다.
   from: number;
   to: number;
   amount: number;

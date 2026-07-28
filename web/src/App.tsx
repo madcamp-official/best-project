@@ -3,14 +3,19 @@ import "./App.css";
 import { MapView } from "./map/MapView";
 import { Hud } from "./ui/Hud";
 import { JoinScreen } from "./ui/JoinScreen";
+import { AuthChoiceScreen } from "./ui/AuthChoiceScreen";
 import { LobbyScreen } from "./ui/LobbyScreen";
 import { RoomWaitScreen } from "./ui/RoomWaitScreen";
 import { ResultsOverlay } from "./ui/ResultsOverlay";
+import { ProfileBadge } from "./ui/ProfileBadge";
+import { MyPage } from "./ui/MyPage";
 import { loadMapData, DEFAULT_MAP_ID } from "./data/loadMapData";
 import type { PreparedMap } from "./data/loadMapData";
 import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
+import { fetchMyProfile, type AccountProfile } from "./auth/api";
+import { signOutGoogle } from "./auth/firebase";
 import {
   applyWelcome,
   applyDelta,
@@ -40,6 +45,11 @@ function App() {
   const setPhase = useUIStore((s) => s.setPhase);
   // 목업(브라우저 내 목 서버)은 로비가 없어 join()으로 솔로 진행, 실서버는 로비 흐름.
   const isMock = import.meta.env.VITE_USE_LOCAL_MOCK === "1";
+  // 구글 로그인(feat/google-login) — AuthChoiceScreen에서 확정되면 채워지고, 로비/방 입장에 실어 보낸다.
+  const [idToken, setIdToken] = useState<string | null>(null);
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [photoURL, setPhotoURL] = useState<string | null>(null);
+  const [showMyPage, setShowMyPage] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,7 +117,7 @@ function App() {
         connection.onRoomList((msg) => useUIStore.getState().setRooms(msg.rooms));
         connection.onRoomJoined((msg) => {
           const st = useUIStore.getState();
-          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state });
+          st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state, joinCode: msg.joinCode });
           st.setMembers(msg.members);
           st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
           if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
@@ -137,12 +147,11 @@ function App() {
         });
         connectionRef.current = connection;
 
-        // 데이터 준비 완료 → 목업이면 닉네임 접속 화면, 실서버면 로비로.
+        // 데이터 준비 완료 → 목업이면 닉네임 접속 화면, 실서버면 로그인/게스트 선택 관문부터.
         if (isMock) {
           setPhase("join");
         } else {
-          setPhase("lobby");
-          connection.listRooms();
+          setPhase("authChoice");
         }
       } catch (err) {
         if (cancelled) return;
@@ -155,6 +164,35 @@ function App() {
       connectionRef.current = null;
     };
   }, [setPhase, isMock]);
+
+  // 로그인/게스트 선택 관문(AuthChoiceScreen) → 로비로. 게스트는 idToken 없이, 로그인은 프로필까지 받아온다.
+  const enterLobby = () => {
+    setPhase("lobby");
+    connectionRef.current?.listRooms();
+  };
+  const handleGuest = () => enterLobby();
+  const handleLoggedIn = async (tok: string, displayName: string | null, photo: string | null) => {
+    setIdToken(tok);
+    setPhotoURL(photo);
+    if (displayName && !localStorage.getItem("nickname")) {
+      localStorage.setItem("nickname", displayName.slice(0, 12));
+    }
+    try {
+      setProfile(await fetchMyProfile(tok));
+    } catch (e) {
+      console.error("[profile]", e); // 프로필 조회 실패해도 로그인 자체(idToken)는 유효하니 로비는 그대로 진행
+    }
+    enterLobby();
+  };
+  // 로그아웃 — 구글 세션 종료 + 로그인 상태 초기화 후 선택 관문으로 되돌린다(게스트로 이어할지 다시 고름).
+  const handleLogout = async () => {
+    await signOutGoogle();
+    setIdToken(null);
+    setProfile(null);
+    setPhotoURL(null);
+    setShowMyPage(false);
+    setPhase("authChoice");
+  };
 
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
@@ -179,9 +217,20 @@ function App() {
       )}
       <Hud connection={connectionRef.current} isMock={isMock} />
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
-      {phase === "lobby" && connectionRef.current && <LobbyScreen connection={connectionRef.current} />}
+      {phase === "authChoice" && <AuthChoiceScreen onGuest={handleGuest} onLoggedIn={handleLoggedIn} />}
+      {phase === "lobby" && connectionRef.current && (
+        <LobbyScreen connection={connectionRef.current} idToken={idToken} profile={profile} />
+      )}
       {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
       {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
+
+      {/* 로그인 상태 표시 — 게임 화면(ready) 중엔 HUD 우상단 순위표와 겹치므로 숨긴다. */}
+      {profile && phase !== "ready" && (
+        <ProfileBadge nickname={profile.nickname} photoURL={photoURL} onClick={() => setShowMyPage(true)} />
+      )}
+      {showMyPage && profile && (
+        <MyPage profile={profile} onClose={() => setShowMyPage(false)} onLogout={handleLogout} />
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 package com.madcamp.server.loop
 
+import com.madcamp.server.auth.AppUserRepository
 import com.madcamp.server.config.ConfigService
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
@@ -42,6 +43,7 @@ class GameLoop(
     private val roomManager: RoomManager,
     private val roomBroadcaster: RoomBroadcaster,
     private val messagingTemplate: SimpMessagingTemplate,
+    private val appUserRepository: AppUserRepository,
 ) {
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "game-loop") }
@@ -211,6 +213,12 @@ class GameLoop(
         log.info("Room {} round ended ({}), winner={}", room.id, reason, winnerName)
 
         room.state = RoomState.ENDED
+        // 구글 로그인(feat/google-login) 계정에 전적을 쌓는다 — holderId 리셋 전에, 승자와 같은
+        // holderId를 가졌던 멤버를 승리로 집계한다. 게스트(appUserId=null)는 대상 아님.
+        for (member in room.members.values) {
+            val appUserId = member.appUserId ?: continue
+            recordRoundResult(appUserId, won = member.holderId == winnerHolderId)
+        }
         // 다음 라운드를 위해 프레시 빈 월드로 교체하고 LOBBY로 되돌린다. 멤버는 유지(대기 후 재시작).
         room.world = createFreshWorld(room.mapId)
         for (member in room.members.values) {
@@ -228,6 +236,16 @@ class GameLoop(
             roomBroadcaster.broadcastRoomState(room)
         }
         roomBroadcaster.broadcastRoomList()
+    }
+
+    // 라운드 1회 참여를 계정 전적에 반영(gamesPlayed 항상 +1, 승자면 wins도 +1). H2 로컬 파일
+    // DB라 지연이 미미하고, 라운드 종료는 어차피 무거운 이벤트(월드 재생성·브로드캐스트)라
+    // 여기서 동기 호출해도 tick 주기에 영향 없다.
+    private fun recordRoundResult(appUserId: Long, won: Boolean) {
+        val user = appUserRepository.findById(appUserId).orElse(null) ?: return
+        user.gamesPlayed++
+        if (won) user.wins++
+        appUserRepository.save(user)
     }
 
     private fun broadcastDelta(room: Room, nowMs: Long) {

@@ -27,6 +27,11 @@ class Room(
     // clientId로 두어야 재접속(새 principal)해도 방장 자리가 유지된다.
     var hostClientId: String = ""
 
+    // 비공개 방(친구 초대) — true면 로비 공개 목록(/topic/rooms)에서 빠지고, joinCode를 아는 사람만
+    // /lobby/joinByCode로 입장할 수 있다. RoomManager.create가 생성 시점에 정한다(이후 안 바뀜).
+    var private: Boolean = false
+    var joinCode: String = "" // private=false면 빈 문자열
+
     // 방 멤버(principal.name → Member). 라운드 사이에도 유지 — "방에서 대기 후 재시작".
     val members: LinkedHashMap<String, Member> = LinkedHashMap()
 
@@ -52,4 +57,7 @@ data class Member(
     var clientId: String = "",
     var holderId: Int = -1,
     var ready: Boolean = false, // 대기실 준비 상태(방장 제외 전원 준비 시 시작 가능). 라운드 종료 시 리셋.
+    // 구글 로그인(feat/google-login) 계정 id — 게스트면 null. GameLoop.endRound가 라운드 우승/참여
+    // 전적을 이 계정에 쌓는다(AppUser.wins/gamesPlayed).
+    var appUserId: Long? = null,
 )

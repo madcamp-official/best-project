@@ -12,7 +12,9 @@ import com.madcamp.server.domain.ShieldInfo
 
 // docs/api-spec.md §2 그대로 대응하는 STOMP 페이로드. 필드 하나하나가 문서의 표와 1:1.
 
-data class JoinMessage(val nickname: String? = null, val token: String? = null)
+// idToken: 구글 로그인(feat/google-login) — Firebase가 발급한 ID 토큰. 있으면 서버가 검증 후
+// 그 계정의 닉네임을 우선한다(AccountService.resolveNickname). 없으면 기존 게스트 흐름 그대로.
+data class JoinMessage(val nickname: String? = null, val token: String? = null, val idToken: String? = null)
 
 data class WelcomeMessage(
     val roomId: String, // 이 스냅샷이 속한 방(다중 세션). 클라가 룸 스코프 토픽 구독에 쓴다.
@@ -129,7 +131,10 @@ data class RoomListMessage(val rooms: List<RoomInfo>)
 /** 방 멤버 요약. holderId는 라운드 중에만 유효(-1=로비/미배정). host=방장, ready=대기실 준비 상태. */
 data class MemberInfo(val nickname: String, val holderId: Int, val ready: Boolean, val host: Boolean)
 
-/** 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용). */
+/**
+ * 방 입장 응답(S→C, /user/queue/roomJoined). youAreHost로 수신자가 방장인지 알려준다(승계 통지 겸용).
+ * joinCode는 비공개 방일 때만 값이 있다(방장이 친구에게 공유할 초대 코드).
+ */
 data class RoomJoinedMessage(
     val roomId: String,
     val name: String,
@@ -137,6 +142,8 @@ data class RoomJoinedMessage(
     val state: RoomState,
     val members: List<MemberInfo>,
     val youAreHost: Boolean,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val joinCode: String? = null,
 )
 
 /** 방 상태/멤버 변경 브로드캐스트(S→C, /topic/room/{id}/state). */
@@ -155,21 +162,40 @@ data class RoundEndMessage(
     val leaderboard: List<LeaderboardRow>,
 )
 
-/** 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다. clientId=영속 클라 신원(방장용).
- * mapId는 MapCatalog에 없는 값이거나 생략되면 서버가 기본 지도로 대체한다(RoomManager.create). */
+/**
+ * 방 생성(C→S, /app/lobby/create). 생성 즉시 생성자가 그 방에 입장한다.
+ * idToken은 JoinMessage 참고. clientId=영속 클라 신원(방장용).
+ * mapId는 MapCatalog에 없는 값이거나 생략되면 서버가 기본 지도로 대체한다(RoomManager.create).
+ * private=true면 로비 목록에 안 뜨는 친구 초대 전용 방 — 서버가 초대 코드를 발급해 roomJoined로 돌려준다.
+ */
 data class CreateRoomCommand(
     val name: String? = null,
     val mapId: String? = null,
     val nickname: String? = null,
     val token: String? = null,
+    val idToken: String? = null,
     val clientId: String? = null,
+    val private: Boolean = false,
 )
 
-/** 방 입장(C→S, /app/lobby/join). clientId=영속 클라 신원(재접속 시 방장·멤버 동일성 유지용). */
+/**
+ * 방 입장(C→S, /app/lobby/join). idToken은 JoinMessage 참고.
+ * clientId=영속 클라 신원(재접속 시 방장·멤버 동일성 유지용).
+ */
 data class JoinRoomCommand(
     val roomId: String = "",
     val nickname: String? = null,
     val token: String? = null,
+    val idToken: String? = null,
+    val clientId: String? = null,
+)
+
+/** 초대 코드로 비공개 방 입장(C→S, /app/lobby/joinByCode). 나머지 필드는 JoinRoomCommand와 동일 의미. */
+data class JoinByCodeCommand(
+    val code: String = "",
+    val nickname: String? = null,
+    val token: String? = null,
+    val idToken: String? = null,
     val clientId: String? = null,
 )
 

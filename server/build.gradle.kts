@@ -1,6 +1,9 @@
 plugins {
 	kotlin("jvm") version "2.3.21"
 	kotlin("plugin.spring") version "2.3.21"
+	// JPA 엔티티(AppUser)를 Kotlin final 클래스 그대로 써도 Hibernate가 프록시할 수 있게
+	// open 처리 + no-arg 생성자를 자동 생성해준다(구글 로그인, feat/google-login).
+	kotlin("plugin.jpa") version "2.3.21"
 	id("org.springframework.boot") version "4.1.0"
 	id("io.spring.dependency-management") version "1.1.7"
 }
@@ -21,6 +24,10 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
+	// 구글 로그인(feat/google-login) — 유저 계정 영속화(H2 파일 DB) + 구글 ID 토큰 검증(Firebase Admin SDK).
+	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+	runtimeOnly("com.h2database:h2")
+	implementation("com.google.firebase:firebase-admin:9.4.1")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-websocket-test")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
