@@ -47,6 +47,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
+            # GHCR가 private여도 pull되도록 워크플로의 임시 토큰으로 로그인(패키지 공개 설정 불필요).
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd ~/deploy
             docker compose pull
             docker compose up -d
