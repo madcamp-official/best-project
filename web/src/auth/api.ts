@@ -9,13 +9,28 @@ function defaultApiUrl(): string {
 
 const API_BASE: string = (import.meta.env.VITE_API_URL as string | undefined) ?? defaultApiUrl();
 
+/** 서버가 상태 코드로만 실패를 알려주므로, 호출부가 원인별로 안내할 수 있도록 status를 실어 던진다. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${path} 요청 실패 (${res.status})`);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    // fetch 자체가 던지는 건 네트워크/CORS 실패 — 서버 응답 코드와 구분해야 원인 안내가 가능하다.
+    throw new ApiError(0, `서버에 연결할 수 없습니다 (${(e as Error).message})`);
+  }
+  if (!res.ok) throw new ApiError(res.status, `${path} 요청 실패 (${res.status})`);
   return res.json() as Promise<T>;
 }
 

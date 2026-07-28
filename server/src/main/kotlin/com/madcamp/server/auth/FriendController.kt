@@ -1,5 +1,6 @@
 package com.madcamp.server.auth
 
+import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -99,9 +100,16 @@ class FriendController(
         return ResponseEntity.ok(FriendsListResponse(friends, incoming, outgoing))
     }
 
+    // 401을 조용히 돌려주면 "친구 검색이 안 된다"의 원인(토큰 만료·서버 미설정·인증서 수신 실패 등)을
+    // 서버에서 알 수 없다. 토큰 값 자체는 자격 증명이므로 절대 남기지 않고 실패 사유만 남긴다.
     private fun auth(idToken: String): AppUser? = try {
         accountService.findOrCreateAppUser(idToken)
     } catch (e: GoogleAuthException) {
+        log.warn("친구 API 인증 거부: {}", e.message)
         null
+    }
+
+    private companion object {
+        private val log = LoggerFactory.getLogger(FriendController::class.java)
     }
 }

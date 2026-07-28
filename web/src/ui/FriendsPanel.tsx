@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ApiError,
   fetchFriendsList,
   respondFriendRequest,
   searchFriendCandidates,
@@ -7,6 +8,18 @@ import {
   type FriendCandidate,
   type FriendsList,
 } from "../auth/api";
+
+// 실패를 "실패했습니다" 한 줄로 뭉개면 원인(로그인 만료·서버 미설정·네트워크)을 알 수 없어
+// 디버깅이 막힌다 — 상태 코드별로 다음에 뭘 해야 하는지가 드러나는 문구로 바꾼다.
+function reasonOf(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    if (e.status === 0) return "서버에 연결할 수 없습니다 — 네트워크를 확인해주세요.";
+    if (e.status === 401) return "로그인이 만료되었거나 서버가 로그인을 확인하지 못했습니다 — 다시 로그인해주세요.";
+    if (e.status === 403) return "권한이 없는 요청입니다.";
+    if (e.status >= 500) return "서버 오류가 발생했습니다 — 잠시 후 다시 시도해주세요.";
+  }
+  return fallback;
+}
 
 interface Props {
   idToken: string;
@@ -25,7 +38,7 @@ export function FriendsPanel({ idToken, onClose }: Props) {
   const refresh = () => {
     fetchFriendsList(idToken)
       .then(setList)
-      .catch(() => setNotice("친구 목록을 불러오지 못했습니다."));
+      .catch((e) => setNotice(reasonOf(e, "친구 목록을 불러오지 못했습니다.")));
   };
 
   useEffect(refresh, [idToken]);
@@ -34,10 +47,15 @@ export function FriendsPanel({ idToken, onClose }: Props) {
     const q = query.trim();
     if (!q) return setResults([]);
     setBusy(true);
+    setNotice(null);
     try {
-      setResults(await searchFriendCandidates(idToken, q));
-    } catch {
-      setNotice("검색에 실패했습니다.");
+      const found = await searchFriendCandidates(idToken, q);
+      setResults(found);
+      // 0건과 실패를 구분해준다 — 검색 대상은 "구글 로그인을 한 번이라도 한 계정"뿐이라,
+      // 게스트로만 플레이한 사람은 아무리 검색해도 안 나오는 게 정상이다.
+      if (found.length === 0) setNotice("검색 결과가 없습니다 — 상대도 구글 로그인을 한 번 해야 찾을 수 있어요.");
+    } catch (e) {
+      setNotice(reasonOf(e, "검색에 실패했습니다."));
     } finally {
       setBusy(false);
     }
@@ -49,8 +67,8 @@ export function FriendsPanel({ idToken, onClose }: Props) {
       const res = await sendFriendRequest(idToken, targetAppUserId);
       setNotice(res.message);
       refresh();
-    } catch {
-      setNotice("요청 전송에 실패했습니다.");
+    } catch (e) {
+      setNotice(reasonOf(e, "요청 전송에 실패했습니다."));
     } finally {
       setBusy(false);
     }
@@ -62,8 +80,8 @@ export function FriendsPanel({ idToken, onClose }: Props) {
       const res = await respondFriendRequest(idToken, requestId, accept);
       setNotice(res.message);
       refresh();
-    } catch {
-      setNotice("처리에 실패했습니다.");
+    } catch (e) {
+      setNotice(reasonOf(e, "처리에 실패했습니다."));
     } finally {
       setBusy(false);
     }
