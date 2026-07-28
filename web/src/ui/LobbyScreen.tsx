@@ -106,10 +106,11 @@ export function LobbyScreen({ connection, idToken, profile }: Props) {
             <input
               className="join-input"
               type="text"
-              placeholder="초대 코드로 참가"
+              inputMode="numeric"
+              placeholder="초대 코드(숫자 4자리)"
               value={joinCode}
-              maxLength={6}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              maxLength={4}
+              onChange={(e) => setJoinCode(e.target.value.replace(/\D/g, ""))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") joinWithCode();
               }}

@@ -44,11 +44,13 @@ class RoomManager {
         return rooms.values.find { it.joinCode == normalized }
     }
 
-    // 헷갈리는 문자(0/O, 1/I) 뺀 6자리 코드. 충돌은 사실상 무시할 만큼 희박(32^6 조합) — 겹치면
-    // 그냥 재추첨 없이 둔다(같은 코드가 동시에 두 방에 발급될 확률은 이 규모에서 무의미).
+    // 4자리 숫자 PIN(0000~9999) — 친구에게 말로 불러주기 쉽게. 조합이 1만 개뿐이라
+    // 활성 방과 겹치지 않게 재추첨한다(MAX_ROOMS 32 규모라 몇 번 안에 반드시 빠져나온다).
     private fun generateJoinCode(): String {
-        val alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-        return (1..6).map { alphabet.random() }.joinToString("")
+        while (true) {
+            val code = "%04d".format((0..9999).random())
+            if (rooms.values.none { it.joinCode == code }) return code
+        }
     }
 
     companion object {
