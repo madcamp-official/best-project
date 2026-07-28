@@ -22,5 +22,8 @@ services:
     image: containrrr/watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # GHCR가 private라서 VM의 docker login(read:packages PAT) 인증을 watchtower의
+      # 자동 pull에도 물려준다 — 이 마운트가 없으면 자동 업데이트만 unauthorized로 실패한다.
+      - /root/.docker/config.json:/config.json:ro
     command: --interval 30 --cleanup game # game 컨테이너만 감시, 옛 이미지는 자동 정리
     restart: unless-stopped
