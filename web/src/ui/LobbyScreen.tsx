@@ -3,28 +3,27 @@ import { useUIStore } from "../store/uiStore";
 import type { Connection } from "../net/connection";
 import { DEFAULT_MAP_ID } from "../data/loadMapData";
 import type { AccountProfile } from "../auth/api";
-import { FriendsPanel } from "./FriendsPanel";
 
 interface Props {
   connection: Connection;
   idToken: string | null; // 구글 로그인(feat/google-login) — AuthChoiceScreen에서 이미 확정되어 내려온다.
-  profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null. 마이페이지/로그아웃은
-  // 화면 우상단 ProfileBadge(App.tsx)가 전역으로 담당 — 여기선 친구 기능만 다룬다.
+  profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null. 마이페이지/로그아웃/친구는
+  // 화면 우상단 ProfileBadge(App.tsx)가 전역으로 담당한다.
+  onOpenFriends: () => void; // 친구 패널 열기 — App.tsx가 상태를 들고 있어 여기서는 트리거만.
 }
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
 // 지도는 시/군/구 단일이라 선택 UI가 없다 — 방 생성 시 항상 DEFAULT_MAP_ID(kr-sgg)를 보낸다.
 // 로그인/게스트 선택은 AuthChoiceScreen이 먼저 처리하므로, 여기선 idToken을 그대로 실어 보내기만 한다.
-export function LobbyScreen({ connection, idToken, profile }: Props) {
+export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Props) {
   const rooms = useUIStore((s) => s.rooms);
-  const [nickname, setNickname] = useState(
-    () => profile?.nickname ?? localStorage.getItem("nickname") ?? ""
-  );
+  // 닉네임은 전역 store에 둔다 — 우상단 ProfileBadge(App.tsx)가 게스트일 때 같은 값을 실시간으로 보여줘야 하므로.
+  const nickname = useUIStore((s) => s.nickname);
+  const setNickname = useUIStore((s) => s.setNickname);
   const [roomName, setRoomName] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [showFriends, setShowFriends] = useState(false);
   const nameOk = nickname.trim().length > 0;
 
   const token = () => localStorage.getItem("token") ?? undefined;
@@ -153,7 +152,7 @@ export function LobbyScreen({ connection, idToken, profile }: Props) {
               <span style={{ fontSize: 13, color: "#cdd6e4" }}>
                 Lv.{profile.level} · {profile.wins}승 {profile.gamesPlayed}판
               </span>
-              <button className="io-btn io-btn-sm" type="button" onClick={() => setShowFriends(true)}>
+              <button className="io-btn io-btn-sm" type="button" onClick={onOpenFriends}>
                 👥 친구
               </button>
             </div>
@@ -203,8 +202,6 @@ export function LobbyScreen({ connection, idToken, profile }: Props) {
           </div>
         </div>
       </div>
-
-      {showFriends && idToken && <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUIStore } from "../store/uiStore";
 
 interface Props {
   onJoin: (nickname: string) => void;
@@ -14,6 +15,7 @@ export function JoinScreen({ onJoin }: Props) {
     const name = nickname.trim();
     if (name.length === 0) return;
     localStorage.setItem("nickname", name);
+    useUIStore.getState().setNickname(name);
     onJoin(name);
   };
 

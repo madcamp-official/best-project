@@ -35,6 +35,9 @@ interface UIState {
   // authChoice = 로그인/게스트 선택 관문(AuthChoiceScreen) — 실서버 흐름에서 로비보다 먼저 온다.
   phase: "loading" | "join" | "authChoice" | "lobby" | "room" | "ready" | "results" | "error";
   errorMessage: string | null;
+  // 닉네임 — 게스트 표시용(우상단 ProfileBadge). 로그인 유저는 profile.nickname이 우선한다.
+  // JoinScreen/LobbyScreen 입력을 실시간 반영해 배지가 타이핑 중에도 최신 값을 보여준다.
+  nickname: string;
   // 로비/방(다중 세션)
   rooms: RoomInfo[]; // 공개 방 목록(/topic/rooms)
   currentRoom: CurrentRoom | null; // 지금 참가 중인 방
@@ -67,6 +70,7 @@ interface UIState {
   connectionLost: boolean; // 실서버 연결이 끊겨 재연결 중(끊김 배너 표시)
 
   setPhase: (phase: UIState["phase"], errorMessage?: string) => void;
+  setNickname: (nickname: string) => void;
   setRooms: (rooms: RoomInfo[]) => void;
   setCurrentRoom: (room: CurrentRoom | null) => void;
   setMembers: (members: MemberInfo[]) => void;
@@ -101,6 +105,7 @@ let prevRankLevel = -1;
 export const useUIStore = create<UIState>((set, get) => ({
   phase: "loading",
   errorMessage: null,
+  nickname: localStorage.getItem("nickname") ?? "",
   rooms: [],
   currentRoom: null,
   members: [],
@@ -132,6 +137,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   connectionLost: false,
 
   setPhase: (phase, errorMessage) => set({ phase, errorMessage: errorMessage ?? null }),
+  setNickname: (nickname) => set({ nickname }),
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoom: (currentRoom) => set({ currentRoom }),
   setMembers: (members) => set({ members }),
