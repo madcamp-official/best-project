@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
-import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
+import { CONFIG, PALETTE } from "../config";
 import { SGG_SPECIALTY } from "../data/sggSpecialty";
 import type { Connection } from "../net/connection";
 
@@ -32,7 +32,6 @@ export function Hud({ connection, isMock }: Props) {
   const selectedInfo = useUIStore((s) => s.selectedInfo);
   const leaderboard = useUIStore((s) => s.leaderboard);
   const myHolderId = useUIStore((s) => s.myHolderId);
-  const envCells = useUIStore((s) => s.envCells);
   const myRank = useUIStore((s) => s.myRank);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
@@ -81,7 +80,7 @@ export function Hud({ connection, isMock }: Props) {
         <div className="loading-box">
           <div className="loading-spinner" />
           <p className="loading-title">전국 지도를 준비하는 중…</p>
-          <p className="loading-sub">5,000여 개 법정동의 경계·인접 그래프를 계산하고 있어요</p>
+          <p className="loading-sub">전국 250여 개 시/군/구의 경계·인접 그래프를 계산하고 있어요</p>
         </div>
       </div>
     );
@@ -111,7 +110,7 @@ export function Hud({ connection, isMock }: Props) {
       {/* 좌상단: 내 정보 + 선택한 동 정보(세로 스택) */}
       <div className="hud-col hud-col-left">
         <div className="hud-panel">
-          <div className="hud-title">{currentRoom?.name ?? "동대장 시뮬레이터"}</div>
+          <div className="hud-title">{currentRoom?.name ?? "시장 시뮬레이터"}</div>
           <div className="hud-rank">
             내 계급: <strong>{myRank ?? "무소속"}</strong>
           </div>
@@ -180,16 +179,6 @@ export function Hud({ connection, isMock }: Props) {
               </div>
             );
           })}
-          <div className="hud-env">
-            {envCells > 0 ? (
-              <>
-                <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
-                야만인 잔존: {envCells}개 동
-              </>
-            ) : (
-              <span className="hud-env-clear">야만인 정리됨 ✓</span>
-            )}
-          </div>
         </div>
       </div>
 
