@@ -52,6 +52,8 @@ export class LocalConnection implements Connection {
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
   private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
+  private pendingRemovedOrders: number[] = []; // 이번 DELTA 구간에 이동 중 제거된 유닛 id(미사일·충돌)
+  private pendingUpdatedOrders: { id: number; amount: number }[] = []; // 이동 중 병력 변경된 유닛(충돌 승자)
   private nukeDirty = false; // 이번 DELTA 구간에 전술핵 쿨다운이 바뀜(발사됨)
   private lastEnclosedKey = ""; // 직전에 보낸 포위 동 집합의 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
   private prepared: PreparedMap;
@@ -301,6 +303,8 @@ export class LocalConnection implements Connection {
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
     // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
     this.pendingMissileImpacts.push(...res.neutralized);
+    // ① 반경 안 이동 중 유닛도 파괴("뭉친 병력 끊기"). 위치 보간 시간축 = order와 같은 performance.now().
+    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, radius, performance.now()));
   }
 
   sendNuke(center: [number, number], _radius: number, hits: number[]): void {
@@ -314,6 +318,8 @@ export class LocalConnection implements Connection {
       return;
     }
     this.pendingMissileImpacts.push(...res.neutralized); // 미사일과 같은 폭발 연출 경로
+    // ① 전술핵도 반경 안 이동 중 유닛 파괴(반경만 클 뿐 동일 처리).
+    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, nukeRadius, performance.now()));
     this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
   }
 
@@ -370,6 +376,10 @@ export class LocalConnection implements Connection {
     // 도착 유닛 전투/증원 처리. 경로 자동 출정(B1) 릴레이의 다음-홉 order는 반환되므로 DELTA에 싣는다.
     const relayLegs = core.tickOrders(this.gs, now, wall);
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
+    // ② 같은 통로 정면충돌 — 마주 오는 유닛이 중간에서 부딪혀 작은 쪽 소멸/큰 쪽 차액으로 계속.
+    const clash = core.tickOrderClashes(this.gs, now);
+    if (clash.removed.length > 0) this.pendingRemovedOrders.push(...clash.removed);
+    if (clash.updated.length > 0) this.pendingUpdatedOrders.push(...clash.updated);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
     // AI 국가 확장 (AI_ACT_INTERVAL_SEC 주기) — 각 AI 최전선이 이길 만한 인접 동을 자동 점령
@@ -425,6 +435,11 @@ export class LocalConnection implements Connection {
     const shieldUpdates = this.pendingShields;
     this.pendingShields = [];
 
+    const removedOrders = this.pendingRemovedOrders;
+    const updatedOrders = this.pendingUpdatedOrders;
+    this.pendingRemovedOrders = [];
+    this.pendingUpdatedOrders = [];
+
     // 현재 포위(귀속 대기) 동 집합 — enclosedBy>=0인 동. 직전과 다를 때만 enclosed를 싣는다
     // (매 tick 전송 방지). 집합이 바뀌면 다른 변경이 없어도 DELTA를 강제해 반짝임이 즉시 갱신되게.
     const enclosedList: number[] = [];
@@ -443,6 +458,8 @@ export class LocalConnection implements Connection {
       missileRemove.length === 0 &&
       missileImpacts.length === 0 &&
       shieldUpdates.length === 0 &&
+      removedOrders.length === 0 &&
+      updatedOrders.length === 0 &&
       !enclosedChanged &&
       !nukeChanged
     ) {
@@ -460,6 +477,8 @@ export class LocalConnection implements Connection {
       missileImpacts,
       newHolders: [],
       shieldUpdates,
+      ...(removedOrders.length > 0 ? { removedOrders } : {}),
+      ...(updatedOrders.length > 0 ? { updatedOrders } : {}),
       ...(enclosedChanged ? { enclosed: enclosedList } : {}),
       ...(nukeChanged ? { nukeReadyAtMs: Array.from(this.gs.nukeReadyAt) } : {}),
     });
