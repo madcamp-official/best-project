@@ -28,7 +28,7 @@ export function Hud({ connection, isMock }: Props) {
   const nukeOwned = useUIStore((s) => s.nukeOwned);
   const nukeCooldownLeft = useUIStore((s) => s.nukeCooldownLeft);
   const nukeCoolSec = Math.ceil(nukeCooldownLeft / 1000);
-  const offensiveIndex = useUIStore((s) => s.offensiveIndex);
+  const rallyIndex = useUIStore((s) => s.rallyIndex);
   const isTransporting = useUIStore((s) => s.isTransporting);
   const setTransporting = useUIStore((s) => s.setTransporting);
   const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
@@ -42,8 +42,7 @@ export function Hud({ connection, isMock }: Props) {
   const currentRoom = useUIStore((s) => s.currentRoom);
   const roundEndsAt = useUIStore((s) => s.roundEndsAt);
   const totalCells = useUIStore((s) => s.totalCells);
-  const offensiveName =
-    offensiveIndex >= 0 && offensiveIndex < world.n ? world.meta[offensiveIndex].name : null;
+  const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
   // 방어막 카운트다운 — world.shieldUntil은 rAF 루프가 아니라 여기서 직접 읽으므로,
   // 표시를 갱신하려면 0.5초마다 리렌더를 스스로 트리거해야 한다(전투 로직과는 무관, 표시 전용).
@@ -249,15 +248,15 @@ export function Hud({ connection, isMock }: Props) {
 
         <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
           <div className="hud-ratio-head">
-            <span className="hud-title">공세 목표 ⚔️</span>
+            <span className="hud-title">집결지 (보급)</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-              {offensiveName ?? "없음"}
+              {rallyName ?? "없음"}
             </strong>
           </div>
           <div className="hud-ratio-hint">
-            적·중립 동을 <strong>더블클릭</strong>해 공세 목표 지정 (같은 곳 더블클릭 = 해제).
+            내 동을 <strong>더블클릭</strong>해 집결지 지정 (같은 동 더블클릭 = 해제).
             <br />
-            그 목표를 향해 최전선 병력이 매 초 자동 전진합니다.
+            후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다.
           </div>
         </div>
 

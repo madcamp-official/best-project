@@ -26,9 +26,9 @@ class World(
     val dirty: MutableSet<Int> = HashSet()
     val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)
 
-    // 공세 목표: holderId → 지정한 적·중립 admIndex(-1=없음). 크기 256 = holderId 예약 범위(0 중립 … 255 E).
-    // web/src/game/core.ts GameState.offensive 대응.
-    val offensive: IntArray = IntArray(256) { -1 }
+    // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 크기 256 = holderId 예약 범위(0 중립 … 255 E).
+    // web/src/game/core.ts GameState.rally 대응.
+    val rally: IntArray = IntArray(256) { -1 }
 
     // 공수부대(B3): holderId → 재사용 가능해지는 벽시계 시각(ms). 0=쿨타임 없음. 크기 256.
     // web/src/game/core.ts GameState.airdropReadyAt 대응.

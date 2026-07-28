@@ -11,9 +11,9 @@ import {
   drainCaptureFlashes,
   drainMissilesTouched,
   drainMissileImpacts,
-  drainOffensiveTouched,
+  drainRallyTouched,
   drainRespawnCell,
-  setMyOffensive,
+  setMyRally,
   enclosedSet,
   drainEnclosedTouched,
 } from "../world/worldView";
@@ -60,10 +60,10 @@ const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 �
 const NUKE_SOURCE = "nuke-silos"; // 전술핵 사일로(울릉도·제주) 고정 마커
 const NUKE_LAYER = "nuke-silos-layer";
 const NUKE_IMAGE_ID = "nuke-silo-icon"; // 일반 미사일보다 훨씬 큰 로켓 = 사일로 표식
-const OFFENSIVE_SOURCE = "offensive"; // 공세 목표 마커
-const OFFENSIVE_LAYER = "offensive-layer";
-const OFFENSIVE_IMAGE_ID = "offensive-icon"; // addImage로 얹는 ⚔️ 아이콘 이름
-const OFFENSIVE_EMOJI = "⚔️";
+const RALLY_SOURCE = "rally"; // B2 집결지 깃발 마커
+const RALLY_LAYER = "rally-layer";
+const RALLY_IMAGE_ID = "rally-icon"; // addImage로 얹는 🚩 아이콘 이름
+const RALLY_EMOJI = "🚩";
 const AIM_CIRCLE_SOURCE = "aim-circle";
 const AIM_CIRCLE_FILL = "aim-circle-fill";
 const AIM_CIRCLE_LINE = "aim-circle-line";
@@ -171,11 +171,11 @@ export function MapView({ prepared, connection }: Props) {
       });
     };
 
-    // 내 공세 목표에 ⚔️ 마커를 그린다. 없으면(myOffensive<0) 비운다.
-    const updateOffensiveMarker = (m: MaplibreMap) => {
-      const src = m.getSource(OFFENSIVE_SOURCE) as GeoJSONSource | undefined;
+    // 내 집결지(B2)에 깃발 마커를 그린다. 없으면(myRally<0) 비운다.
+    const updateRallyMarker = (m: MaplibreMap) => {
+      const src = m.getSource(RALLY_SOURCE) as GeoJSONSource | undefined;
       if (!src) return;
-      const idx = world.myOffensive;
+      const idx = world.myRally;
       const features =
         idx >= 0 && idx < world.n
           ? [
@@ -870,36 +870,37 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
-      // 공세 목표 마커 — 내 공세 목표 centroid에 ⚔️. (미사일 마커와 같은 이모지-아이콘 방식.)
-      map.addSource(OFFENSIVE_SOURCE, {
+      // B2 집결지 깃발 마커 — 내 집결지 centroid에 🚩. (미사일 마커와 같은 이모지-아이콘 방식.)
+      map.addSource(RALLY_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      const offensiveIcon = makeEmojiIcon(OFFENSIVE_EMOJI, 30);
-      if (offensiveIcon) {
-        if (!map.hasImage(OFFENSIVE_IMAGE_ID)) {
-          map.addImage(OFFENSIVE_IMAGE_ID, offensiveIcon.data, { pixelRatio: offensiveIcon.pixelRatio });
+      const rallyIcon = makeEmojiIcon(RALLY_EMOJI, 30);
+      if (rallyIcon) {
+        if (!map.hasImage(RALLY_IMAGE_ID)) {
+          map.addImage(RALLY_IMAGE_ID, rallyIcon.data, { pixelRatio: rallyIcon.pixelRatio });
         }
         map.addLayer({
-          id: OFFENSIVE_LAYER,
+          id: RALLY_LAYER,
           type: "symbol",
-          source: OFFENSIVE_SOURCE,
+          source: RALLY_SOURCE,
           layout: {
-            "icon-image": OFFENSIVE_IMAGE_ID,
+            "icon-image": RALLY_IMAGE_ID,
             "icon-size": 1,
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
+            "icon-anchor": "bottom", // 깃발 밑동이 동을 가리키게
           },
         });
       } else {
         map.addLayer({
-          id: OFFENSIVE_LAYER,
+          id: RALLY_LAYER,
           type: "circle",
-          source: OFFENSIVE_SOURCE,
+          source: RALLY_SOURCE,
           paint: {
             "circle-radius": 6,
-            "circle-color": "#e74c3c",
-            "circle-stroke-color": "#3d0b0b",
+            "circle-color": "#2ecc71",
+            "circle-stroke-color": "#0b3d1f",
             "circle-stroke-width": 2,
           },
         });
@@ -908,7 +909,7 @@ export function MapView({ prepared, connection }: Props) {
       // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 도 하나가 화면에
       // 들어올 정도로 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 동 단위로
       // 들어가면 동 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
-      // 유닛 원(UNIT_CIRCLE_LAYER)·공세 목표 마커(OFFENSIVE_LAYER)보다 나중에(=위에) 그려야 그것들에
+      // 유닛 원(UNIT_CIRCLE_LAYER)·집결지 깃발(RALLY_LAYER)보다 나중에(=위에) 그려야 그것들에
       // 가려지지 않는다 — 이전엔 더 먼저 추가돼 있어서 마커 근처에서 라벨이 안 보이는 문제가 있었다.
       map.addSource(PLAYER_LABEL_SOURCE, {
         type: "geojson",
@@ -1074,8 +1075,8 @@ export function MapView({ prepared, connection }: Props) {
       updatePlayerLabels(map);
       updateMissileMarkers(map);
       drainMissilesTouched();
-      updateOffensiveMarker(map);
-      drainOffensiveTouched();
+      updateRallyMarker(map);
+      drainRallyTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
 
       // 전국 개관 → 내 시작 동으로 확대 이동(재시작 flyTo와 동일 연출) — 어디서 시작했는지
@@ -1221,13 +1222,13 @@ export function MapView({ prepared, connection }: Props) {
         }
       });
 
-      // 더블클릭 = 공세 목표 지정/해제. 적·중립 동을 더블클릭하면 그 지점을 향해 전선이 자동 전진.
+      // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
       map.on("dblclick", (e) => {
         const st = useUIStore.getState();
         if (st.isAiming || st.isNukeAiming || st.isTransporting) return;
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const hit = hits[0];
-        if (hit && hit.id !== undefined) handleSetOffensive(Number(hit.id), connection);
+        if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
       });
 
       useUIStore.getState().setPhase("ready");
@@ -1427,12 +1428,12 @@ export function MapView({ prepared, connection }: Props) {
         hadUnits = false;
       }
 
-      // 공세 목표를 점령하면(내 소유가 되면) 로컬 마커도 정리한다(서버도 tickOffensive에서 자동 해제).
-      if (world.myOffensive >= 0 && world.ownerId[world.myOffensive] === world.myHolderId) setMyOffensive(-1);
+      // 집결지를 잃으면(적에게 함락/미사일 등) 로컬 마커·상태도 정리한다(서버도 보급을 자동 해제).
+      if (world.myRally >= 0 && world.ownerId[world.myRally] !== world.myHolderId) setMyRally(-1);
       // 미사일 마커(스폰/소모 시 갱신)
       if (drainMissilesTouched()) updateMissileMarkers(map);
-      // 공세 목표 마커(지정/해제 시 갱신)
-      if (drainOffensiveTouched()) updateOffensiveMarker(map);
+      // 집결지 깃발(지정/해제 시 갱신)
+      if (drainRallyTouched()) updateRallyMarker(map);
 
       // 재시작으로 새 시작 동을 배정받으면 그 동으로 카메라를 옮긴다(어디서 시작했는지 안 보이던 문제).
       const respawnCell = drainRespawnCell();
@@ -1713,20 +1714,23 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   ];
 }
 
-// 더블클릭으로 호출: 적·중립 동을 공세 목표로 지정, 같은 목표(또는 내 동)를 더블클릭하면 해제한다.
-// 마커·요약은 낙관적으로 즉시 반영(setMyOffensive)하고, 서버는 sendOffensive로 검증·저장한다.
-function handleSetOffensive(idx: number, connection: Connection) {
-  const { showToast, offensiveIndex } = useUIStore.getState();
-  // 내 동이거나 이미 지정된 목표를 다시 누르면 해제(취소).
-  if (offensiveIndex === idx || world.ownerId[idx] === world.myHolderId) {
-    connection.sendOffensive(-1);
-    setMyOffensive(-1);
-    showToast("공세 목표를 해제했습니다.");
+// 더블클릭으로 호출: 내 동을 집결지로 설정, 현재 집결지를 다시 더블클릭하면 해제한다(B2).
+// 마커·요약은 낙관적으로 즉시 반영(setMyRally)하고, 서버는 sendRally로 검증·저장한다.
+function handleSetRally(idx: number, connection: Connection) {
+  const { showToast, rallyIndex } = useUIStore.getState();
+  if (world.ownerId[idx] !== world.myHolderId) {
+    showToast("내 동만 집결지로 지정할 수 있습니다.");
     return;
   }
-  connection.sendOffensive(idx);
-  setMyOffensive(idx);
-  showToast(`공세 목표: ${world.meta[idx].name} — 전선이 그쪽으로 전진합니다`);
+  if (rallyIndex === idx) {
+    connection.sendRally(-1);
+    setMyRally(-1);
+    showToast("집결지를 해제했습니다.");
+  } else {
+    connection.sendRally(idx);
+    setMyRally(idx);
+    showToast(`집결지: ${world.meta[idx].name}`);
+  }
 }
 
 // 이모지를 캔버스에 렌더해 지도 아이콘(addImage)용 픽셀 데이터로 만든다. glyphs 서버가 없어

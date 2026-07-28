@@ -55,7 +55,7 @@ interface UIState {
   isNukeAiming: boolean; // 전술핵 조준 모드(사일로 보유자 전용, 반경 3배)
   nukeOwned: boolean; // 전술핵 사일로(울릉도·제주) 보유 여부
   nukeCooldownLeft: number; // 전술핵 남은 재장전(ms). refreshSummary가 갱신
-  offensiveIndex: number; // 내 공세 목표 admIndex(-1=없음). 지정은 적·중립 더블클릭으로.
+  rallyIndex: number; // B2 — 내 집결지 admIndex(-1=없음). 지정은 지도 더블클릭으로.
   isTransporting: boolean; // B3 — 공수(병력 수송) 모드
   airdropReadyAt: number; // B3 — 공수 재사용 가능 시각(Date.now ms). 0=준비됨
   airdropCooldownLeft: number; // B3 — 남은 쿨타임(ms). refreshSummary가 갱신(버튼 표시용)
@@ -119,7 +119,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isNukeAiming: false,
   nukeOwned: false,
   nukeCooldownLeft: 0,
-  offensiveIndex: -1,
+  rallyIndex: -1,
   isTransporting: false,
   airdropReadyAt: 0,
   airdropCooldownLeft: 0,
@@ -176,7 +176,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       missileCount: myMissileCount(),
       nukeOwned: nuke.owned,
       nukeCooldownLeft: nuke.cooldownLeftMs,
-      offensiveIndex: world.myOffensive,
+      rallyIndex: world.myRally,
       airdropCooldownLeft: Math.max(0, get().airdropReadyAt - Date.now()),
       logEntries: world.logEntries,
     });

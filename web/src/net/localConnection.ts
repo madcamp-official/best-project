@@ -48,7 +48,7 @@ export class LocalConnection implements Connection {
   private startIndex: number;
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
-  private offensiveTimerMs = 0; // 공세 전진 판정 주기 누산기
+  private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
@@ -279,8 +279,8 @@ export class LocalConnection implements Connection {
     this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
   }
 
-  sendOffensive(index: number): void {
-    core.setOffensive(this.gs, this.holderId, index); // 다음 공세 tick부터 이 목표를 향해 전선 전진
+  sendRally(index: number): void {
+    core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
   }
 
   // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
@@ -350,12 +350,12 @@ export class LocalConnection implements Connection {
       if (spawned >= 0) this.pendingMissileAdd.push(spawned);
     }
 
-    // 공세 전진 (OFFENSIVE_INTERVAL_SEC 주기) — 공세 목표를 향해 최전선이 한 걸음 전진
-    this.offensiveTimerMs += TICK_MS;
-    if (this.offensiveTimerMs >= CONFIG.OFFENSIVE_INTERVAL_SEC * 1000) {
-      this.offensiveTimerMs = 0;
-      const offensiveOrders = core.tickOffensive(this.gs, now);
-      if (offensiveOrders.length > 0) this.pendingOrders.push(...offensiveOrders);
+    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 행군(B2)
+    this.supplyTimerMs += TICK_MS;
+    if (this.supplyTimerMs >= CONFIG.SUPPLY_INTERVAL_SEC * 1000) {
+      this.supplyTimerMs = 0;
+      const supplyOrders = core.tickSupply(this.gs, now);
+      if (supplyOrders.length > 0) this.pendingOrders.push(...supplyOrders);
     }
 
     this.flushDelta(now);
@@ -453,7 +453,7 @@ export class LocalConnection implements Connection {
       holders: Array.from(this.gs.holders.values()),
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
-      offensive: this.gs.offensive[this.holderId],
+      rally: this.gs.rally[this.holderId],
       shields: this.collectShields(),
       nukeReadyAtMs: Array.from(this.gs.nukeReadyAt), // serverTimeMs와 같은 performance.now() 시간축
     };

@@ -14,7 +14,7 @@ import { applyServerConfig } from "../game/runtimeConfig";
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
   mapId: string; // 이 방이 쓰는 지도(data/loadMapData.ts MAP_ASSETS 키). Hud.tsx가 지도별 표시 분기에 쓴다.
-  myOffensive: number; // 내 공세 목표 admIndex(-1=없음). 렌더러가 목표 마커를 그린다.
+  myRally: number; // B2 — 내 집결지 admIndex(-1=없음). 렌더러가 깃발 마커를 그린다.
   // 전술핵 사일로별 재발사 가능 시각을 로컬 시계(Date.now)로 환산한 값 — Hud 쿨다운 표시용.
   // (서버 nukeReadyAtMs는 serverTimeMs 시간축이라 받은 시점에 로컬로 번역해 둔다.)
   nukeReadyLocal: number[];
@@ -25,14 +25,14 @@ export interface WorldView extends GameState {
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
   mapId: "kr-dong",
-  myOffensive: -1,
+  myRally: -1,
   nukeReadyLocal: [] as number[],
 });
 
 // 미사일이 얹힌 동 집합이 바뀌면(WELCOME/DELTA) set — 렌더러가 마커를 다시 그린다.
 let missilesTouched = false;
-// 내 공세 목표가 바뀌면(WELCOME/낙관적 지정) set — 렌더러가 목표 마커를 다시 그린다.
-let offensiveTouched = false;
+// 내 집결지가 바뀌면(WELCOME/낙관적 지정) set — 렌더러가 깃발 마커를 다시 그린다.
+let rallyTouched = false;
 
 // WELCOME 적용 — 전체 스냅샷을 1회 반영. 이후 변경은 applyDelta로만.
 export function applyWelcome(msg: WelcomeMessage) {
@@ -56,8 +56,8 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.logEntries = [];
   world.nextLogId = 1;
   world.myHolderId = msg.holderId;
-  world.myOffensive = msg.offensive ?? -1;
-  offensiveTouched = true;
+  world.myRally = msg.rally ?? -1;
+  rallyTouched = true;
   world.shieldUntil = new Float64Array(256);
   for (const sh of msg.shields) world.shieldUntil[sh.holderId] = sh.until;
   // 전술핵 사일로 — 위치·섬 마스크는 정적 데이터에서 재계산, 쿨다운은 로컬 시계로 환산해 저장.
@@ -233,16 +233,16 @@ export const airdropInRange = (sources: number[], dest: number) =>
 // 공수 사거리 원의 중심이 되는 출발 동 admIndex (없으면 -1).
 export const airdropOrigin = (sources: number[]) => core.airdropOrigin(world, sources, world.myHolderId);
 
-// 공세 목표 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
-export function drainOffensiveTouched(): boolean {
-  if (!offensiveTouched) return false;
-  offensiveTouched = false;
+// 집결지 깃발 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
+export function drainRallyTouched(): boolean {
+  if (!rallyTouched) return false;
+  rallyTouched = false;
   return true;
 }
 
-// 공세 목표를 낙관적으로 갱신한다(명령 전송 시 즉시 반영 — 서버 WELCOME이 최종 진실). idx<0 이면 해제.
-export function setMyOffensive(idx: number) {
-  world.myOffensive = idx;
-  offensiveTouched = true;
+// 집결지를 낙관적으로 갱신한다(명령 전송 시 즉시 반영 — 서버 WELCOME이 최종 진실). idx<0 이면 해제.
+export function setMyRally(idx: number) {
+  world.myRally = idx;
+  rallyTouched = true;
 }
 
