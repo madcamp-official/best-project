@@ -4,6 +4,7 @@ import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
 import com.madcamp.server.config.Palette
 import kotlin.math.floor
+import kotlin.random.Random
 
 /**
  * AI 플레이어 — 한 세션의 참가 인원이 aiFillTarget(기본 8)명에 못 미치면 부족분을 채우는 봇.
@@ -62,7 +63,10 @@ object PlayerAi {
         // holders를 순회 중 removeWeakest 등으로 구조가 바뀌지 않으므로 값 복사 없이 순회해도 안전하나,
         // act 자체가 world.holders를 건드리지 않으니 그대로 순회한다.
         for (holder in world.holders.values) {
-            if (holder.isAi) act(world, config, holder.id, nowMs)
+            if (!holder.isAi) continue
+            // 매 주기 일정 확률로 이 AI는 통째로 쉰다 — 반응이 들쭉날쭉해져 기계적인 완벽한 타이밍이 사라진다.
+            if (Random.nextDouble() < config.aiHesitateChance) continue
+            act(world, config, holder.id, nowMs)
         }
     }
 
@@ -71,33 +75,36 @@ object PlayerAi {
         reinforce(world, config, holderId, nowMs)
     }
 
-    // 1) 확장 — 내 국경 동마다 "이길 만한" 가장 약한 인접 적/중립을 골라, 이득 큰 순으로 상위 K개만 출정.
+    // 1) 확장 — 내 국경 동마다 "이길 만한" 인접 적/중립을 골라 출정. 일부러 비최적으로(마진 지터·
+    //    무작위 대상·무작위 순서) 둬서 완벽한 타이밍에 최선 수만 두는 기계처럼 보이지 않게 한다.
     private fun expand(world: World, config: GameConfig, holderId: Int, nowMs: Long) {
-        // (from, to, score) — score = 도착 병력 − 대상 병력(클수록 확실한 이득).
-        data class Move(val from: Int, val to: Int, val score: Double)
+        data class Move(val from: Int, val to: Int)
         val moves = ArrayList<Move>()
         for (i in 0 until world.n) {
             if (world.ownerId[i] != holderId) continue
             val send = floor(world.troops[i] * config.sortieRatio).toInt()
             if (send <= 0) continue
-            // i의 인접 중 비소유·비방어막 동에서 병력 최소 대상.
-            var best = -1
-            var bestT = Int.MAX_VALUE
+            // 판단마다 마진을 흔든다 — 어떤 땐 지나치게 신중(좋은 기회를 흘림), 어떤 땐 무모(질 수도 있는데 강행).
+            val margin = config.aiAttackMargin * (1 + (Random.nextDouble() * 2 - 1) * config.aiAttackMarginJitter)
+            // i의 인접 중 이길 만한(마진 초과) 비소유·비방어막 대상 전부.
+            val beatable = ArrayList<Int>()
             for (nb in world.neighborIndex[i]) {
                 val o = world.ownerId[nb]
                 if (o == holderId) continue
                 if (GameCore.isShielded(world, o, nowMs)) continue // 방어막 = 공격해도 병력만 소멸(낭비)
-                if (world.troops[nb] < bestT) {
-                    bestT = world.troops[nb]
-                    best = nb
-                }
+                if (send > world.troops[nb] * margin) beatable.add(nb)
             }
-            if (best < 0) continue
-            if (send > world.troops[best] * config.aiAttackMargin) {
-                moves.add(Move(i, best, send - world.troops[best].toDouble()))
+            if (beatable.isEmpty()) continue
+            // 보통은 가장 약한 곳을 치지만, 확률적으로 아무 데나 골라 최적이 아닌 공격을 한다.
+            val target = if (Random.nextDouble() < config.aiRandomTargetChance) {
+                beatable.random()
+            } else {
+                beatable.minByOrNull { world.troops[it] }!!
             }
+            moves.add(Move(i, target))
         }
-        moves.sortByDescending { it.score }
+        // 이득 큰 순 정렬 대신 섞는다 — 한정된 출정 횟수를 늘 수학적 최선에만 쓰지 않게(비최적 자원 배분).
+        moves.shuffle()
         var done = 0
         val usedFrom = HashSet<Int>() // 한 동은 한 주기에 한 번만 출정(급격한 전면 소진 방지)
         for (m in moves) {

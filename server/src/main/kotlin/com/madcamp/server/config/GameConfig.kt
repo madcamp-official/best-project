@@ -39,6 +39,10 @@ data class GameConfig(
     @JsonProperty("AI_MAX_SORTIES_PER_TICK") var aiMaxSortiesPerTick: Int = 4, // 주기당 최대 확장 출정
     @JsonProperty("AI_REINFORCE_FILL_RATIO") var aiReinforceFillRatio: Double = 0.85, // 이 이상 찼을 때만 증원
     @JsonProperty("AI_MAX_REINFORCE_PER_TICK") var aiMaxReinforcePerTick: Int = 6, // 주기당 최대 증원 출정
+    // 실력 하향용 랜덤 계수(사람스러운 실수·머뭇거림). web/src/config.ts AI_* 랜덤 계수와 동기.
+    @JsonProperty("AI_HESITATE_CHANCE") var aiHesitateChance: Double = 0.3, // 매 주기 아무 행동도 안 할 확률(타이밍 흐리기)
+    @JsonProperty("AI_RANDOM_TARGET_CHANCE") var aiRandomTargetChance: Double = 0.45, // 최약체 대신 아무 대상이나 고를 확률(비최적 공격)
+    @JsonProperty("AI_ATTACK_MARGIN_JITTER") var aiAttackMarginJitter: Double = 0.3, // 판단마다 공격 마진을 ±이 비율로 흔든다
 
     // 환경 세력(E, README §4.6) — 초반 긴장용 조연(문명 야만인 모델).
     // (현재 미사용: E는 AI 플레이어로 대체되어 스폰되지 않는다. 상수는 하위 호환 위해 유지.)

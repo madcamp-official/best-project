@@ -128,7 +128,7 @@ export function Hud({ connection, isMock }: Props) {
                 display: "inline-block",
               }}
             >
-              🛡 방어막 {shieldSecLeft}초 — 이 시간 동안 공격받지 않습니다
+              🛡 방어막 {shieldSecLeft}초 — 미사일·전술핵·포위를 막아줍니다
             </div>
           )}
         </div>
