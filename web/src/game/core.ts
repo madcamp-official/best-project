@@ -295,33 +295,18 @@ function makeOrder(
   };
 }
 
-// 이동 유닛의 현재 보간 위치([lng,lat]) — 렌더러의 보간과 동일(departTick→arriveTick 선형).
-function orderPosition(s: GameState, o: Order, nowMs: number): [number, number] {
-  const span = o.arriveTick - o.departTick;
-  const t = span > 0 ? Math.min(1, Math.max(0, (nowMs - o.departTick) / span)) : 1;
-  const a = s.meta[o.from].centroid;
-  const b = s.meta[o.to].centroid;
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-}
-
-// ① 미사일이 이동 유닛도 타격 — center 반경 안에 있는 이동 중 유닛(order)을 전부 파괴한다.
+// ① 미사일이 이동 유닛도 타격 — 착탄 동(cells) 위를 지나던 이동 중 유닛(order)을 전부 파괴한다.
+// from 또는 to가 타격 동이면 그 유닛은 타격 영토를 밟고 있는 것으로 보고 소멸시킨다.
 // 반환 = 파괴된 order id 목록(호출자가 DELTA removedOrders로 실어 클라 렌더에서 제거).
 // launchMissile/launchNuke는 동(territory)만 중립화하므로, 유닛 타격은 이 헬퍼를 따로 호출한다.
-export function destroyOrdersInRadius(
-  s: GameState,
-  center: [number, number],
-  radiusDeg: number,
-  nowMs: number
-): number[] {
-  const cosLat = Math.cos((center[1] * Math.PI) / 180) || 1;
-  const r2 = radiusDeg * radiusDeg;
+// server .../domain/GameCore.kt destroyOrdersOnCells 1:1 대응.
+export function destroyOrdersOnCells(s: GameState, cells: number[]): number[] {
+  if (cells.length === 0 || s.orders.length === 0) return [];
+  const hit = new Set(cells);
   const removed: number[] = [];
   const survivors: Order[] = [];
   for (const o of s.orders) {
-    const p = orderPosition(s, o, nowMs);
-    const dx = (p[0] - center[0]) * cosLat;
-    const dy = p[1] - center[1];
-    if (dx * dx + dy * dy <= r2) removed.push(o.id);
+    if (hit.has(o.from) || hit.has(o.to)) removed.push(o.id);
     else survivors.push(o);
   }
   if (removed.length > 0) s.orders = survivors;
@@ -1376,29 +1361,42 @@ function aiSortieCapture(
   if (res.ok && s.orders.length > before) out.push(s.orders[s.orders.length - 1]);
 }
 
-// 확장 — server PlayerAi.expand 대응.
+// Fisher-Yates 셔플(제자리). server의 MutableList.shuffle()에 대응.
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// 확장 — server PlayerAi.expand 대응. 일부러 비최적으로(마진 지터·무작위 대상·무작위 순서) 둬서
+// 완벽한 타이밍에 최선 수만 두는 기계처럼 보이지 않게 한다.
 function aiExpand(s: GameState, holderId: number, nowMs: number, out: Order[]) {
-  const moves: { from: number; to: number; score: number }[] = [];
+  const moves: { from: number; to: number }[] = [];
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] !== holderId) continue;
     const send = Math.floor(s.troops[i] * CONFIG.SORTIE_RATIO);
     if (send <= 0) continue;
-    let best = -1;
-    let bestT = Infinity;
+    // 판단마다 마진을 흔든다 — 어떤 땐 지나치게 신중(좋은 기회를 흘림), 어떤 땐 무모(질 수도 있는데 강행).
+    const margin = CONFIG.AI_ATTACK_MARGIN * (1 + (Math.random() * 2 - 1) * CONFIG.AI_ATTACK_MARGIN_JITTER);
+    // i의 인접 중 이길 만한(마진 초과) 비소유 대상 전부.
+    const beatable: number[] = [];
     for (const nb of s.neighborIndex[i]) {
-      const o = s.ownerId[nb];
-      if (o === holderId) continue;
-      if (s.troops[nb] < bestT) {
-        bestT = s.troops[nb];
-        best = nb;
-      }
+      if (s.ownerId[nb] === holderId) continue;
+      if (send > s.troops[nb] * margin) beatable.push(nb);
     }
-    if (best < 0) continue;
-    if (send > s.troops[best] * CONFIG.AI_ATTACK_MARGIN) {
-      moves.push({ from: i, to: best, score: send - s.troops[best] });
+    if (beatable.length === 0) continue;
+    // 보통은 가장 약한 곳을 치지만, 확률적으로 아무 데나 골라 최적이 아닌 공격을 한다.
+    let target = beatable[0];
+    if (Math.random() < CONFIG.AI_RANDOM_TARGET_CHANCE) {
+      target = beatable[Math.floor(Math.random() * beatable.length)];
+    } else {
+      for (const nb of beatable) if (s.troops[nb] < s.troops[target]) target = nb;
     }
+    moves.push({ from: i, to: target });
   }
-  moves.sort((a, b) => b.score - a.score);
+  // 이득 큰 순 정렬 대신 섞는다 — 한정된 출정 횟수를 늘 수학적 최선에만 쓰지 않게(비최적 자원 배분).
+  shuffleInPlace(moves);
   let done = 0;
   const usedFrom = new Set<number>();
   for (const m of moves) {
@@ -1450,6 +1448,8 @@ export function tickPlayerAi(s: GameState, nowMs: number): Order[] {
   const out: Order[] = [];
   for (const h of s.holders.values()) {
     if (!h.isAi) continue;
+    // 매 주기 일정 확률로 이 AI는 통째로 쉰다 — 반응이 들쭉날쭉해져 기계적인 완벽한 타이밍이 사라진다.
+    if (Math.random() < CONFIG.AI_HESITATE_CHANCE) continue;
     aiExpand(s, h.id, nowMs, out);
     aiReinforce(s, h.id, nowMs, out);
   }
