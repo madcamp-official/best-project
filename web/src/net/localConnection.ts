@@ -5,7 +5,7 @@
 
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadDong";
-import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
 import { safeUuid } from "../util/uuid";
 import type { Order, ShieldInfo } from "../game/types";
 import type { Connection } from "./connection";
@@ -26,7 +26,7 @@ const SOLO_ROOM_ID = "solo";
 const TICK_MS = 200; // 서버 tick = DELTA 주기 (5Hz)
 const LEADERBOARD_EVERY = 5; // tick 5회마다 = 1Hz
 const SAVE_EVERY = 10; // tick 10회마다 = 2s 간격으로 월드 스냅샷 저장
-const WORLD_KEY = "world-snapshot-ai"; // 재접속 복구용. AI 국가 도입으로 키를 올려 옛 저장 무효화(새 게임 강제).
+const WORLD_KEY = "world-snapshot"; // 재접속 복구용 (실서버라면 서버 메모리/파일에 있음)
 
 export class LocalConnection implements Connection {
   private gs: core.GameState;
@@ -45,15 +45,13 @@ export class LocalConnection implements Connection {
   private pendingOrders: Order[] = []; // 이번 DELTA 구간에 새로 발주된 이동 유닛
   private lastSentLogId = 0;
   private startIndex: number;
-  private aiTimerMs = 0; // AI 국가 확장 주기 누산기
+  private envTimerMs = 0; // 환경 세력 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
   private offensiveTimerMs = 0; // 공세 전진 판정 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
   private pendingMissileImpacts: number[] = []; // 이번 DELTA 구간에 미사일이 착탄한 동(폭발 연출용)
-  private pendingRemovedOrders: number[] = []; // 이번 DELTA 구간에 이동 중 제거된 유닛 id(미사일·충돌)
-  private pendingUpdatedOrders: { id: number; amount: number }[] = []; // 이동 중 병력 변경된 유닛(충돌 승자)
   private nukeDirty = false; // 이번 DELTA 구간에 전술핵 쿨다운이 바뀜(발사됨)
   private lastEnclosedKey = ""; // 직전에 보낸 포위 동 집합의 키 — 바뀔 때만 DELTA에 enclosed를 싣는다
   private prepared: PreparedMap;
@@ -75,10 +73,10 @@ export class LocalConnection implements Connection {
       (globalThis as Record<string, unknown>).__mockGs = this.gs;
       (globalThis as Record<string, unknown>).__mockConn = this;
     }
-    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(AI 국가들을 맵 곳곳에 단일 동으로 스폰).
+    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
     if (!this.restoreWorld()) {
-      core.spawnAiNations(this.gs, this.pickAiSeeds(CONFIG.AI_NATION_COUNT), Date.now());
+      core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
     }
   }
 
@@ -119,45 +117,6 @@ export class LocalConnection implements Connection {
     } catch {
       // localStorage 용량 초과 등은 조용히 무시(다음 저장에서 재시도).
     }
-  }
-
-  // AI 국가 시작 동을 맵 전체에 고르게 분포시킨다(farthest-point 샘플링). 첫 씨앗만 랜덤으로 잡고
-  // (게임마다 배치가 조금씩 달라지게), 이후엔 이미 고른 씨앗들에서 '가장 먼' 중립 동을 반복 선택 →
-  // 시드들이 서로 최대한 멀어져 전국에 균등하게 퍼진다. count개(가능한 만큼).
-  private pickAiSeeds(count: number): number[] {
-    const { n, neighborIndex } = this.prepared;
-    const usable: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0) usable.push(i);
-    }
-    if (usable.length === 0) return [];
-
-    const first = usable[Math.floor(Math.random() * usable.length)];
-    const seeds: number[] = [first];
-    // minD2[i] = 이미 고른 씨앗들과의 최소 제곱거리. 씨앗을 추가할 때마다 증분 갱신(전체 O(count·n)).
-    const minD2 = new Float64Array(n).fill(Infinity);
-    for (const i of usable) minD2[i] = this.centroidDistSq(i, first);
-    minD2[first] = -1; // 다시 안 뽑히게
-
-    while (seeds.length < count && seeds.length < usable.length) {
-      let best = -1;
-      let bestD = -1;
-      for (const i of usable) {
-        if (minD2[i] > bestD) {
-          bestD = minD2[i];
-          best = i;
-        }
-      }
-      if (best < 0) break;
-      seeds.push(best);
-      minD2[best] = -1;
-      for (const i of usable) {
-        if (minD2[i] < 0) continue;
-        const d = this.centroidDistSq(i, best);
-        if (d < minD2[i]) minD2[i] = d;
-      }
-    }
-    return seeds;
   }
 
   // ENV_CLUSTER_COUNT개의 야만인 무리를 만든다. 각 무리 = 씨앗 1개 + 인접 중립 동
@@ -303,8 +262,6 @@ export class LocalConnection implements Connection {
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
     // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
     this.pendingMissileImpacts.push(...res.neutralized);
-    // ① 반경 안 이동 중 유닛도 파괴("뭉친 병력 끊기"). 위치 보간 시간축 = order와 같은 performance.now().
-    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, radius, performance.now()));
   }
 
   sendNuke(center: [number, number], _radius: number, hits: number[]): void {
@@ -318,8 +275,6 @@ export class LocalConnection implements Connection {
       return;
     }
     this.pendingMissileImpacts.push(...res.neutralized); // 미사일과 같은 폭발 연출 경로
-    // ① 전술핵도 반경 안 이동 중 유닛 파괴(반경만 클 뿐 동일 처리).
-    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, nukeRadius, performance.now()));
     this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
   }
 
@@ -376,18 +331,14 @@ export class LocalConnection implements Connection {
     // 도착 유닛 전투/증원 처리. 경로 자동 출정(B1) 릴레이의 다음-홉 order는 반환되므로 DELTA에 싣는다.
     const relayLegs = core.tickOrders(this.gs, now, wall);
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
-    // ② 같은 통로 정면충돌 — 마주 오는 유닛이 중간에서 부딪혀 작은 쪽 소멸/큰 쪽 차액으로 계속.
-    const clash = core.tickOrderClashes(this.gs, now);
-    if (clash.removed.length > 0) this.pendingRemovedOrders.push(...clash.removed);
-    if (clash.updated.length > 0) this.pendingUpdatedOrders.push(...clash.updated);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
-    // AI 국가 확장 (AI_ACT_INTERVAL_SEC 주기) — 각 AI 최전선이 이길 만한 인접 동을 자동 점령
-    this.aiTimerMs += TICK_MS;
-    if (this.aiTimerMs >= CONFIG.AI_ACT_INTERVAL_SEC * 1000) {
-      this.aiTimerMs = 0;
-      const aiOrders = core.tickAiNations(this.gs, now);
-      if (aiOrders.length > 0) this.pendingOrders.push(...aiOrders);
+    // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
+    this.envTimerMs += TICK_MS;
+    if (this.envTimerMs >= CONFIG.ENV_ACT_INTERVAL_SEC * 1000) {
+      this.envTimerMs = 0;
+      const envOrder = core.tickEnv(this.gs, now);
+      if (envOrder) this.pendingOrders.push(envOrder);
     }
 
     // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
@@ -435,11 +386,6 @@ export class LocalConnection implements Connection {
     const shieldUpdates = this.pendingShields;
     this.pendingShields = [];
 
-    const removedOrders = this.pendingRemovedOrders;
-    const updatedOrders = this.pendingUpdatedOrders;
-    this.pendingRemovedOrders = [];
-    this.pendingUpdatedOrders = [];
-
     // 현재 포위(귀속 대기) 동 집합 — enclosedBy>=0인 동. 직전과 다를 때만 enclosed를 싣는다
     // (매 tick 전송 방지). 집합이 바뀌면 다른 변경이 없어도 DELTA를 강제해 반짝임이 즉시 갱신되게.
     const enclosedList: number[] = [];
@@ -458,8 +404,6 @@ export class LocalConnection implements Connection {
       missileRemove.length === 0 &&
       missileImpacts.length === 0 &&
       shieldUpdates.length === 0 &&
-      removedOrders.length === 0 &&
-      updatedOrders.length === 0 &&
       !enclosedChanged &&
       !nukeChanged
     ) {
@@ -477,8 +421,6 @@ export class LocalConnection implements Connection {
       missileImpacts,
       newHolders: [],
       shieldUpdates,
-      ...(removedOrders.length > 0 ? { removedOrders } : {}),
-      ...(updatedOrders.length > 0 ? { updatedOrders } : {}),
       ...(enclosedChanged ? { enclosed: enclosedList } : {}),
       ...(nukeChanged ? { nukeReadyAtMs: Array.from(this.gs.nukeReadyAt) } : {}),
     });

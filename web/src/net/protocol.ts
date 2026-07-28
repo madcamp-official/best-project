@@ -151,10 +151,6 @@ export interface DeltaMessage {
   // 땅 색을 잘못(fallback 회색) 칠하는 순간이 아예 생기지 않는다.
   newHolders: Holder[];
   shieldUpdates: ShieldInfo[]; // 이번 구간에 새로 생기거나 갱신된 방어막(신규 참가·재시작)
-  // 이동 중 제거된 유닛 id(① 미사일 타격, ② 정면충돌 패배). 클라가 world.orders에서 뺀다.
-  removedOrders?: number[];
-  // 이동 중 병력이 바뀐 유닛(② 정면충돌 승자의 차액). 클라가 해당 order의 amount를 갱신한다.
-  updatedOrders?: { id: number; amount: number }[];
 }
 
 // api-spec §2.6 — 순위표 (1Hz). E는 rows에서 제외, envCells는 잔존 표시용

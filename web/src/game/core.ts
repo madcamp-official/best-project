@@ -1,4 +1,4 @@
-import { AI_PALETTE_IDXS, CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
 import type { DongStaticMeta, Holder, LogEntry, Order, Rank, ShieldInfo } from "./types";
 
 // ── 헥사고날 도메인 코어 ──────────────────────────────────────────────
@@ -46,7 +46,6 @@ export interface GameState {
   nukeIslandMask: Uint8Array;
   logEntries: LogEntry[];
   nextLogId: number;
-  nextOrderId: number; // 이동 유닛(order) 고유 id 발급 카운터.
 }
 
 export type SortieResult = { ok: true } | { ok: false; reason: string };
@@ -100,7 +99,6 @@ export function createGameState(
     nukeIslandMask: new Uint8Array(n),
     logEntries: [],
     nextLogId: 1,
-    nextOrderId: 1,
   };
   initNukeState(s);
 
@@ -166,9 +164,7 @@ export function tickProduction(s: GameState, dtSec: number) {
     if (s.ownerId[i] === NEUTRAL_HOLDER_ID) continue;
     if (s.troops[i] >= s.troopCap[i]) continue;
 
-    // AI 국가는 플레이어보다 생산이 느리다(AI_PROD_MULT=0.9 → 10% 약하게).
-    const mult = isAiNation(s.ownerId[i]) ? CONFIG.AI_PROD_MULT : 1;
-    s.troopAccum[i] += (dtSec * s.troopCap[i] * mult) / CONFIG.FILL_TO_CAP_SEC;
+    s.troopAccum[i] += (dtSec * s.troopCap[i]) / CONFIG.FILL_TO_CAP_SEC;
     const inc = Math.floor(s.troopAccum[i]);
     if (inc <= 0) continue;
 
@@ -279,7 +275,6 @@ function makeOrder(
     maxSec
   );
   return {
-    id: s.nextOrderId++,
     from,
     to,
     amount,
@@ -288,91 +283,6 @@ function makeOrder(
     arriveTick: nowMs + travelSec * 1000,
     ...(path && path.length > 0 ? { path } : {}),
   };
-}
-
-// 이동 유닛의 현재 보간 위치([lng,lat]) — 렌더러의 보간과 동일(departTick→arriveTick 선형).
-function orderPosition(s: GameState, o: Order, nowMs: number): [number, number] {
-  const span = o.arriveTick - o.departTick;
-  const t = span > 0 ? Math.min(1, Math.max(0, (nowMs - o.departTick) / span)) : 1;
-  const a = s.meta[o.from].centroid;
-  const b = s.meta[o.to].centroid;
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-}
-
-// ① 미사일이 이동 유닛도 타격 — center 반경 안에 있는 이동 중 유닛(order)을 전부 파괴한다.
-// 반환 = 파괴된 order id 목록(호출자가 DELTA removedOrders로 실어 클라 렌더에서 제거).
-// launchMissile/launchNuke는 동(territory)만 중립화하므로, 유닛 타격은 이 헬퍼를 따로 호출한다.
-export function destroyOrdersInRadius(
-  s: GameState,
-  center: [number, number],
-  radiusDeg: number,
-  nowMs: number
-): number[] {
-  const cosLat = Math.cos((center[1] * Math.PI) / 180) || 1;
-  const r2 = radiusDeg * radiusDeg;
-  const removed: number[] = [];
-  const survivors: Order[] = [];
-  for (const o of s.orders) {
-    const p = orderPosition(s, o, nowMs);
-    const dx = (p[0] - center[0]) * cosLat;
-    const dy = p[1] - center[1];
-    if (dx * dx + dy * dy <= r2) removed.push(o.id);
-    else survivors.push(o);
-  }
-  if (removed.length > 0) s.orders = survivors;
-  return removed;
-}
-
-// ② 같은 통로 정면충돌 — A→B와 B→A(같은 변, 반대 방향, 다른 소유주)가 서로를 지나친 순간
-// 중간에서 클래시한다: 작은 쪽 소멸, 큰 쪽은 차액으로 계속(같으면 둘 다 소멸). 호출자가 매 tick 호출.
-// 반환 = 제거된 id + 병력이 바뀐 유닛{ id, amount } (DELTA removedOrders/updatedOrders로 반영).
-export function tickOrderClashes(
-  s: GameState,
-  nowMs: number
-): { removed: number[]; updated: { id: number; amount: number }[] } {
-  const removed: number[] = [];
-  const updated: { id: number; amount: number }[] = [];
-  // 방향별 변 인덱스: `from_to` → 그 방향으로 이동 중인 order들.
-  const byEdge = new Map<string, Order[]>();
-  for (const o of s.orders) {
-    if (nowMs >= o.arriveTick) continue; // 곧 도착(tickOrders가 처리) — 충돌 대상 아님
-    const k = o.from + "_" + o.to;
-    const arr = byEdge.get(k);
-    if (arr) arr.push(o);
-    else byEdge.set(k, [o]);
-  }
-  const progress = (o: Order) => {
-    const span = o.arriveTick - o.departTick;
-    return span > 0 ? Math.min(1, Math.max(0, (nowMs - o.departTick) / span)) : 1;
-  };
-  const consumed = new Set<number>();
-  for (const o1 of s.orders) {
-    if (consumed.has(o1.id) || nowMs >= o1.arriveTick) continue;
-    const opp = byEdge.get(o1.to + "_" + o1.from); // 반대 방향(같은 변)
-    if (!opp) continue;
-    for (const o2 of opp) {
-      if (consumed.has(o1.id)) break;
-      if (consumed.has(o2.id) || o2.holderId === o1.holderId) continue; // 아군끼리는 통과
-      if (progress(o1) + progress(o2) < 1) continue; // 아직 서로를 안 지나침
-      if (o1.amount > o2.amount) {
-        o1.amount -= o2.amount;
-        updated.push({ id: o1.id, amount: o1.amount });
-        consumed.add(o2.id);
-        removed.push(o2.id);
-      } else if (o2.amount > o1.amount) {
-        o2.amount -= o1.amount;
-        updated.push({ id: o2.id, amount: o2.amount });
-        consumed.add(o1.id);
-        removed.push(o1.id);
-      } else {
-        consumed.add(o1.id);
-        consumed.add(o2.id);
-        removed.push(o1.id, o2.id);
-      }
-    }
-  }
-  if (consumed.size > 0) s.orders = s.orders.filter((o) => !consumed.has(o.id));
-  return { removed, updated };
 }
 
 // README §B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를
@@ -1239,63 +1149,4 @@ export function tickEnv(s: GameState, nowMs: number): Order | null {
   const res = trySortie(s, X, Y, CONFIG.ENV_HOLDER_ID, nowMs);
   if (res.ok && s.orders.length > before) return s.orders[s.orders.length - 1];
   return null;
-}
-
-// ── AI 국가 ────────────────────────────────────────────────────────────
-// 시작 시 맵 곳곳에 단일 동으로 흩뿌리는 서로 다른 AI 세력들. 야만인(E)과 달리 각자 독립 holder라
-// 서로도 싸운다 — 인접 중립을 이길 만할 때만 자동 점령하며 확장하다, 블롭이 맞닿으면 서로 못 이겨
-// 전선이 형성된다. (E의 "상한" 제약이 없다 — 진짜 경쟁 세력.)
-
-// holderId가 AI 국가인지(예약 범위 [AI_HOLDER_BASE, ENV_HOLDER_ID)). 렌더·리더보드엔 일반 세력처럼 노출.
-export function isAiNation(holderId: number): boolean {
-  return holderId >= CONFIG.AI_HOLDER_BASE && holderId < CONFIG.ENV_HOLDER_ID;
-}
-
-// AI 국가 스폰. seeds = 시작 동 admIndex 목록(호출자가 랜덤·분산 배치해 전달). 각 seed가 서로 다른
-// AI holder(색·이름)로 단일 동에서 시작(병력 = 상한). 이미 점령된 seed는 건너뛴다.
-export function spawnAiNations(s: GameState, seeds: number[], wallNowMs: number) {
-  let k = 0;
-  for (const seed of seeds) {
-    if (seed < 0 || seed >= s.n || s.ownerId[seed] !== NEUTRAL_HOLDER_ID) continue;
-    const holderId = CONFIG.AI_HOLDER_BASE + k;
-    if (holderId >= CONFIG.ENV_HOLDER_ID) break; // 예약 범위 초과 방지
-    const paletteIdx = AI_PALETTE_IDXS[k % AI_PALETTE_IDXS.length];
-    s.holders.set(holderId, { id: holderId, name: `AI ${k + 1}`, paletteIdx });
-    s.ownerId[seed] = holderId;
-    s.troops[seed] = s.troopCap[seed];
-    s.dirty.add(seed);
-    k++;
-  }
-  if (k > 0) pushLog(s, `${k}개 AI 국가가 등장했습니다.`, wallNowMs);
-}
-
-// AI 국가 확장 1회 — 호출자가 AI_ACT_INTERVAL_SEC 주기로 부른다. 모든 AI 소유 최전선 동이 이길
-// 만한 가장 약한 인접 non-소유 동을 자동 출정한다(못 이기면 보류 → 전선이 그 자리에서 대치).
-// 반환 = 새로 발주된 order 목록(호출자가 DELTA newOrders로 실어 보낸다).
-export function tickAiNations(s: GameState, nowMs: number): Order[] {
-  const out: Order[] = [];
-  for (let i = 0; i < s.n; i++) {
-    const owner = s.ownerId[i];
-    if (!isAiNation(owner)) continue;
-    if (s.troops[i] < CONFIG.AI_MIN_TROOPS) continue;
-    // 인접 non-소유 동 중 병력 최소(=가장 이기기 쉬운) 동
-    let target = -1;
-    let weakest = Infinity;
-    for (const nb of s.neighborIndex[i]) {
-      if (s.ownerId[nb] === owner) continue;
-      if (s.troops[nb] < weakest) {
-        weakest = s.troops[nb];
-        target = nb;
-      }
-    }
-    if (target < 0) continue; // 최전선 아님(인접이 전부 내 동)
-    const amount = Math.floor(s.troops[i] * CONFIG.AI_EXPAND_RATIO);
-    if (amount <= s.troops[target]) continue; // 이길 수 없으면 보류(전선 대치)
-    s.troops[i] -= amount;
-    s.dirty.add(i);
-    const order = makeOrder(s, i, target, amount, owner, nowMs);
-    s.orders.push(order);
-    out.push(order);
-  }
-  return out;
 }
