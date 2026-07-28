@@ -13,9 +13,21 @@ services:
     container_name: game # watchtower가 이 이름으로 감시 대상을 지정한다
     ports:
       - "3000:8080" # madcamp 터널이 city-master 도메인 → VM:3000(localPort)으로 매핑됨. TLS는 Cloudflare가 종단.
+    environment:
+      - REDIS_HOST=redis # 명예의 전당 랭킹(ZSET). redis 서비스가 죽어 있어도 게임은 정상(랭킹만 비활성).
     volumes:
       - ./data:/app/data # H2 유저 DB 영속화 — 재배포에도 계정 유지
       - ./secrets:/app/secrets:ro # firebase-service-account.json (없어도 게스트 접속은 정상)
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: game-redis
+    # AOF 영속화(재배포·재부팅에도 랭킹 유지) + 저사양 VM 보호용 메모리 상한.
+    # noeviction: 랭킹 데이터가 조용히 증발하는 것보다 쓰기 실패(서버가 삼킴)가 낫다.
+    command: redis-server --appendonly yes --maxmemory 64mb --maxmemory-policy noeviction
+    volumes:
+      - ./redis-data:/data
     restart: unless-stopped
 
   watchtower:

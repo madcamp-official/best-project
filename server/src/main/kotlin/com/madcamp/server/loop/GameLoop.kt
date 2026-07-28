@@ -12,6 +12,7 @@ import com.madcamp.server.domain.World
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
+import com.madcamp.server.ranking.RankingService
 import com.madcamp.server.ws.RoomBroadcaster
 import com.madcamp.server.ws.dto.DeltaMessage
 import com.madcamp.server.ws.dto.LeaderboardMessage
@@ -45,6 +46,7 @@ class GameLoop(
     private val messagingTemplate: SimpMessagingTemplate,
     private val appUserRepository: AppUserRepository,
     private val loopMetrics: LoopMetrics,
+    private val rankingService: RankingService,
 ) {
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "game-loop") }
@@ -214,9 +216,13 @@ class GameLoop(
     private fun endRound(room: Room, winnerHolderId: Int, reason: String) {
         val world = room.world
         val leaderboard = world?.let { GameCore.getLeaderboard(it) } ?: emptyList()
-        val winnerName = world?.holders?.get(winnerHolderId)?.name
+        val winner = world?.holders?.get(winnerHolderId)
+        val winnerName = winner?.name
         roomBroadcaster.broadcastRoundEnd(room, reason, winnerHolderId, winnerName, leaderboard)
         log.info("Room {} round ended ({}), winner={}", room.id, reason, winnerName)
+
+        // 명예의 전당(Redis) — 사람 승자만 닉네임으로 기록(AI 봇 제외). 비동기라 tick에 영향 없다.
+        if (winner != null && !winner.isAi && winnerHolderId != HolderIds.ENV) rankingService.recordWin(winner.name)
 
         room.state = RoomState.ENDED
         // 구글 로그인(feat/google-login) 계정에 전적을 쌓는다 — holderId 리셋 전에, 승자와 같은

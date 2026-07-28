@@ -27,6 +27,8 @@ dependencies {
 	// 구글 로그인(feat/google-login) — 유저 계정 영속화(H2 파일 DB) + 구글 ID 토큰 검증(Firebase Admin SDK).
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	runtimeOnly("com.h2database:h2")
+	// 명예의 전당(라운드 우승 누적 랭킹) — Redis ZSET. 미기동 시 RankingService가 랭킹만 비활성화한다.
+	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	implementation("com.google.firebase:firebase-admin:9.4.1")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-websocket-test")
