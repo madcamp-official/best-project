@@ -39,15 +39,16 @@ private data class BoundaryFile(
  * 그대로 오간다. resourcePath는 각 data-gen 스크립트(server/tools/data-gen/generate*.mjs) 산출물.
  */
 object MapCatalog {
-    const val DEFAULT: String = "kr-dong"
+    const val DEFAULT: String = "kr-sgg"
 
+    // 시/군/구 단일 지도 — (구) 전국 법정동(kr-dong, data/nationwide-dong.json)은 비활성화.
+    // 산출물 파일은 남아 있으므로 재활성화 시 여기 항목만 되살리면 된다. 목록에 없는 mapId는
+    // normalize가 기본 지도로 대체하므로 구버전 클라가 kr-dong을 보내도 kr-sgg 방이 된다.
     private val RESOURCE_PATHS: Map<String, String> = mapOf(
-        "kr-dong" to "data/nationwide-dong.json", // 전국 법정동(~5,065개)
-        "kr-sgg" to "data/kr-sgg-cells.json", // 시/군/구(~250개, "한국지리" 모드)
+        "kr-sgg" to "data/kr-sgg-cells.json", // 시/군/구(~250개)
     )
 
     val DISPLAY_NAMES: Map<String, String> = mapOf(
-        "kr-dong" to "전국 법정동",
         "kr-sgg" to "시/군/구",
     )
 

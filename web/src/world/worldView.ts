@@ -25,7 +25,7 @@ export interface WorldView extends GameState {
 // (MapView·uiStore가 이 참조를 들고 world.ownerId 처럼 직접 읽는다.)
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
-  mapId: "kr-dong",
+  mapId: "kr-sgg",
   myRally: -1,
   myAttackQueue: new Set<number>(),
   nukeReadyLocal: [] as number[],

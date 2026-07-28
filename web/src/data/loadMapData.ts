@@ -9,7 +9,6 @@ import { topology } from "topojson-server";
 import { feature, neighbors } from "topojson-client";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { computeLabelPoint } from "./labelPoint";
-import { SCOPE_SIDOCD } from "../config";
 import type { DongStaticMeta } from "../game/types";
 
 // 아크(공유 경계선) 한 조각의 양쪽 셀. b = -1 이면 지도 바깥과 맞닿은 외곽선.
@@ -50,31 +49,16 @@ interface MapAsset {
 }
 
 const MAP_ASSETS: Record<string, MapAsset> = {
-  // 전국 법정동(~5,065개). 소스: web/public/beopjeong-emd.geojson(README §2.1 참조).
-  "kr-dong": {
-    geojsonUrl: `${import.meta.env.BASE_URL}beopjeong-emd.geojson`,
-    namesUrl: `${import.meta.env.BASE_URL}sgg-sido-names.json`,
-    extractMeta: (props, names) => {
-      const code = props.EMD_CD as string | undefined;
-      if (!code) return null;
-      if (SCOPE_SIDOCD !== null && code.slice(0, 2) !== SCOPE_SIDOCD) return null;
-      return {
-        code,
-        name: props.EMD_KOR_NM as string,
-        sggcd: code.slice(0, 5), // [시도2][시군구3] — core.computeRank 시장 판정용
-        sggnm: names?.sggNames[code.slice(0, 5)] ?? "",
-        sidocd: code.slice(0, 2),
-        sidonm: names?.sidoNames[code.slice(0, 2)] ?? "",
-      };
-    },
-  },
-  // 시/군/구(~250개, "한국지리" 모드). 소스: web/public/kr-sgg.geojson(admdongkor sgg
+  // 시/군/구(~250개) — 유일한 플레이 지도. 소스: web/public/kr-sgg.geojson(admdongkor sgg
   // level에서 fetch-sgg-geojson.mjs로 1회 추출 — sggcd/sggnm/sidocd/sidonm이 이미 채워져 있어
   // 별도 이름 조회 테이블이 필요 없다.
   //
   // 이 지도의 최소 단위 자체가 시군구이므로 sggcd=자기 자신 코드로 채운다 — GameCore.computeRank의
   // "sggcd 그룹 전체 장악=시장 계급" 판정이 셀 하나만 가져도 참이 되어, 최하위 계급(동장 상당)이
   // 자연히 생략되고 시장→도지사→대통령 순으로만 오른다(서버 generate-sgg.mjs와 동일한 설계).
+  //
+  // (구) 전국 법정동(kr-dong, beopjeong-emd.geojson)은 시/군/구 단일화로 비활성화했다 —
+  // 자산 파일은 public/에 남아 있으므로 재활성화 시 이 목록에 항목만 되살리면 된다.
   "kr-sgg": {
     geojsonUrl: `${import.meta.env.BASE_URL}kr-sgg.geojson`,
     extractMeta: (props) => {
@@ -92,10 +76,9 @@ const MAP_ASSETS: Record<string, MapAsset> = {
   },
 };
 
-export const DEFAULT_MAP_ID = "kr-dong";
+export const DEFAULT_MAP_ID = "kr-sgg";
 
 export const MAP_DISPLAY_NAMES: Record<string, string> = {
-  "kr-dong": "전국 법정동",
   "kr-sgg": "시/군/구",
 };
 
