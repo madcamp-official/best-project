@@ -18,6 +18,8 @@ class World(
     val neighborIndex: Array<IntArray>,
     val meta: Array<DongStaticMeta>,
     val borderMask: BooleanArray, // 지도 바깥에 닿는 동(0/1, 정적) — 포위 귀속 판정용
+    // 셀별 대략적 반지름(경위도 도, 정적) — 미사일/전술핵 명중 판정 보정용(MissileController 등 참조).
+    val radiusDeg: DoubleArray,
 ) {
     val holders: LinkedHashMap<Int, Holder> = LinkedHashMap()
     val orders: MutableList<Order> = mutableListOf() // 이동 중인 유닛(원)
@@ -80,7 +82,8 @@ class World(
                 DongStaticMeta(c.admIndex, c.code, c.name, c.sggcd, c.sggnm, c.sidocd, c.sidonm, c.centroid)
             }
             val borderMask = BooleanArray(n) { cells[it].border }
-            val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta, borderMask)
+            val radiusDeg = DoubleArray(n) { cells[it].radiusDeg }
+            val world = World(n, ownerId, troops, troopAccum, troopCap, neighborIndex, meta, borderMask, radiusDeg)
             world.holders[HolderIds.NEUTRAL] = Holder(HolderIds.NEUTRAL, "중립", 0)
             initNukeState(world, config)
             return world

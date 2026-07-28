@@ -33,6 +33,35 @@ export function computeLabelPoint(geometry) {
   return polylabel(best, 1e-4);
 }
 
+// 셀의 대략적인 "반지름"(경위도 도 단위) — bounding box 대각선의 절반, 경도는 centroid
+// 위도의 cosLat로 보정(위도가 높을수록 같은 경도차가 실제로는 더 좁은 거리라서). 법정동처럼
+// 작은 셀에서는 거의 0에 가깝지만, 시군구·특히 세계지도 국가/주(러시아 등)처럼 셀 자체가
+// 광범위하면 무시할 수 없는 크기 — 미사일/전술핵 명중 판정(MissileController.withinRadius 등)이
+// "클릭 지점↔centroid" 거리만으로 검증하면 큰 셀 가장자리를 클릭했을 때 폴리곤은 맞았는데도
+// centroid가 멀어 거부되는 문제가 생긴다. 그 보정값으로 쓴다(World.radiusDeg).
+function computeRadiusDeg(geometry, centroid) {
+  const cosLat = Math.cos((centroid[1] * Math.PI) / 180) || 1;
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  const visitRing = (ring) => {
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+  };
+  const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  for (const poly of polygons) for (const ring of poly) visitRing(ring);
+  let lngSpan = maxLng - minLng;
+  // 날짜변경선(±180°)을 걸치는 지역(피지·알래스카 등)은 minLng≈-180, maxLng≈180이 돼
+  // 실제 폭이 아니라 지구를 한 바퀴 두른 값(~360°)으로 잘못 계산된다 — 반대쪽(짧은 호)이
+  // 진짜 폭이므로 그쪽을 취한다.
+  if (lngSpan > 180) lngSpan = 360 - lngSpan;
+  const dx = lngSpan * cosLat;
+  const dy = maxLat - minLat;
+  return Math.sqrt(dx * dx + dy * dy) / 2;
+}
+
 // 아크(공유 경계선)를 정확히 1개 셀만 쓰면 그 아크는 지도 바깥(바다·지도 경계)에 닿는 외곽선
 // → 그 셀은 "경계 셀"(포위 귀속 판정의 탈출구, GameCore.tickAnnex 참조).
 function computeBorderMask(topo, geomCollection, n) {
@@ -82,5 +111,10 @@ export function buildCells(metaList, geometries) {
   const neighborIndex = neighbors(geomCollection.geometries);
   const border = computeBorderMask(topo, geomCollection, metaList.length);
 
-  return metaList.map((m, i) => ({ ...m, neighbors: neighborIndex[i] ?? [], border: border[i] }));
+  return metaList.map((m, i) => ({
+    ...m,
+    neighbors: neighborIndex[i] ?? [],
+    border: border[i],
+    radiusDeg: computeRadiusDeg(geometries[i], m.centroid),
+  }));
 }
