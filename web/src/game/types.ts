@@ -2,6 +2,7 @@ export interface Holder {
   id: number;
   name: string;
   paletteIdx: number;
+  isAi?: boolean; // AI 플레이어면 true. 서버·목 시뮬레이터가 자동 행동/생산 배율 대상을 구분하는 데 쓴다.
 }
 
 // README.md §4.4 — 유닛 이동 이음매. 출발 시 병력을 출발지에서 빼고, arriveTick에

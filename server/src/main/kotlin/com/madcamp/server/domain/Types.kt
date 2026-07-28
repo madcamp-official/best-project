@@ -6,6 +6,7 @@ data class Holder(
     val id: Int,
     var name: String,
     val paletteIdx: Int,
+    val isAi: Boolean = false, // AI 플레이어면 true(생산 배율·자동 행동 대상). 사람·중립은 false.
 )
 
 /** README §4.4 — 유닛 이동 이음매. departTick/arriveTick은 서버 벽시계(epoch ms) 기준. */
