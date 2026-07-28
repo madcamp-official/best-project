@@ -21,10 +21,16 @@ object GameCore {
     //  온라인 다인 데모에서 접속 상태 추적까지 만들 이유가 없어 항상 생산으로 단순화한다.)
     fun tickProduction(world: World, config: GameConfig, dtSec: Double) {
         for (i in 0 until world.n) {
-            if (world.ownerId[i] == HolderIds.NEUTRAL) continue
+            val owner = world.ownerId[i]
+            if (owner == HolderIds.NEUTRAL) continue
             if (world.troops[i] >= world.troopCap[i]) continue
 
-            val mult = if (world.ownerId[i] == HolderIds.ENV) config.envProdMult else 1.0
+            // 생산 배율: E(구 야만인)는 envProdMult, AI 플레이어는 aiProdMult(사람의 80%), 사람은 1.0.
+            val mult = when {
+                owner == HolderIds.ENV -> config.envProdMult
+                world.holders[owner]?.isAi == true -> config.aiProdMult
+                else -> 1.0
+            }
             world.troopAccum[i] += dtSec * world.troopCap[i] / config.fillToCapSec * mult
             val inc = floor(world.troopAccum[i]).toInt()
             if (inc <= 0) continue

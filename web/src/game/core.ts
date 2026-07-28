@@ -165,10 +165,13 @@ export function pickStartIndex(meta: DongStaticMeta[]): number {
 // README §4.1 — 접속 중인(=목업에서는 나의) 동만 상한까지 생산.
 export function tickProduction(s: GameState, dtSec: number) {
   for (let i = 0; i < s.n; i++) {
-    if (s.ownerId[i] === NEUTRAL_HOLDER_ID) continue;
+    const owner = s.ownerId[i];
+    if (owner === NEUTRAL_HOLDER_ID) continue;
     if (s.troops[i] >= s.troopCap[i]) continue;
 
-    s.troopAccum[i] += (dtSec * s.troopCap[i]) / CONFIG.FILL_TO_CAP_SEC;
+    // AI 플레이어는 생산량이 사람의 AI_PROD_MULT배(80%). 사람은 1배.
+    const mult = s.holders.get(owner)?.isAi ? CONFIG.AI_PROD_MULT : 1;
+    s.troopAccum[i] += (dtSec * s.troopCap[i] * mult) / CONFIG.FILL_TO_CAP_SEC;
     const inc = Math.floor(s.troopAccum[i]);
     if (inc <= 0) continue;
 
