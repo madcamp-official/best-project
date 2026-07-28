@@ -590,12 +590,21 @@ export function launchMissile(
   }
   if (src < 0) return { ok: false, reason: "발사할 미사일이 없습니다." };
 
+  // 스폰 방어막이 보호 중인 영토가 목표에 포함되면 발사 자체를 거부한다(미사일 소모 없음).
+  // 예전엔 발사는 되고 보호 동만 피해에서 빠졌는데, 그건 공격자가 미사일만 허비하는 함정이라
+  // 발사 전에 막고 이유를 알려준다. (전술핵은 기존대로 착탄 시 보호 동만 무효화.)
+  for (const h of hits) {
+    if (h < 0 || h >= s.n) continue;
+    if (isShielded(s, s.ownerId[h], wallNowMs)) {
+      return { ok: false, reason: "스폰 방어막이 보호 중인 영토라 발사할 수 없습니다." };
+    }
+  }
+
   s.missiles[src] = 0; // 소모
 
   const neutralized: number[] = [];
   for (const h of hits) {
     if (h < 0 || h >= s.n) continue;
-    if (isShielded(s, s.ownerId[h], wallNowMs)) continue; // 방어막 보호 — 중립화 안 됨
     s.ownerId[h] = NEUTRAL_HOLDER_ID;
     s.troops[h] = 0;
     s.troopAccum[h] = 0;

@@ -443,12 +443,21 @@ object GameCore {
         }
         if (src < 0) return MissileLaunch(ok = false, reason = "발사할 미사일이 없습니다.")
 
+        // 스폰 방어막이 보호 중인 영토가 목표에 포함되면 발사 자체를 거부한다(미사일 소모 없음).
+        // 예전엔 발사는 되고 보호 동만 피해에서 빠졌는데, 그건 공격자가 미사일만 허비하는 함정이라
+        // 발사 전에 막고 이유를 알려준다. (전술핵은 기존대로 착탄 시 보호 동만 무효화.)
+        for (h in hits) {
+            if (h < 0 || h >= world.n) continue
+            if (isShielded(world, world.ownerId[h], wallNowMs)) {
+                return MissileLaunch(ok = false, reason = "스폰 방어막이 보호 중인 영토라 발사할 수 없습니다.")
+            }
+        }
+
         world.missile[src] = false // 소모
 
         val neutralized = ArrayList<Int>()
         for (h in hits) {
             if (h < 0 || h >= world.n) continue
-            if (isShielded(world, world.ownerId[h], wallNowMs)) continue // 방어막 보호 — 중립화 안 됨
             world.ownerId[h] = HolderIds.NEUTRAL
             world.troops[h] = 0
             world.troopAccum[h] = 0.0
