@@ -41,7 +41,9 @@ data class DongStaticMeta(
     val centroid: DoubleArray, // [lng, lat]
 )
 
-enum class Rank { DONGJANG, SIJANG, DOJISA, PRESIDENT }
+// GUCHEONGJANG(구청장) — 법정동 시절의 DONGJANG(동장)을 대체. 시/군/구 지도는 셀 하나가
+// 이미 시군구 하나 전체라 "일부만 소유" 단계가 없어져, 그 자리를 진입 계급이 대신한다.
+enum class Rank { GUCHEONGJANG, SIJANG, DOJISA, PRESIDENT }
 
 data class LeaderboardRow(
     val holderId: Int,

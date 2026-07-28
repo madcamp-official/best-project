@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import type { User } from "firebase/auth";
-import { isFirebaseConfigured, onAuthStateChanged, signInWithGoogle } from "../auth/firebase";
+import { useState } from "react";
+import { isFirebaseConfigured, signInWithGoogle } from "../auth/firebase";
 
 interface Props {
   onGuest: () => void;
@@ -8,26 +7,30 @@ interface Props {
 }
 
 // 진입 관문 — 로비(닉네임/방 목록)로 가기 전에 로그인할지 게스트로 갈지부터 고른다.
-// 이미 구글 세션이 남아 있으면(새로고침 등) 팝업 없이 한 번에 이어간다 — 버튼 문구는 닉네임을
-// 굳이 박제하지 않고 "구글로 계속하기"로 통일(개인정보를 화면에 그대로 노출하지 않는 편이 낫다).
+// 이미 구글 세션이 남아 있어도 항상 팝업(signInWithGoogle)을 띄운다 — 캐시된 세션을 조용히
+// 재사용하면 버튼을 눌러도 화면이 그대로라 "로그인이 안 된다"로 보이고, 만료된 캐시 토큰이 서버에
+// 거부되면 프로필이 안 잡혀 친구 기능도 열리지 않는다. 팝업은 항상 새 토큰을 준다.
 export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
-  const [existingUser, setExistingUser] = useState<User | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => onAuthStateChanged((user) => setExistingUser(user)), []);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGoogle = async () => {
     setBusy(true);
+    setError(null);
     try {
-      if (existingUser) {
-        onLoggedIn(await existingUser.getIdToken(), existingUser.displayName, existingUser.photoURL);
-        return;
-      }
       const { idToken, displayName, photoURL } = await signInWithGoogle();
       onLoggedIn(idToken, displayName, photoURL);
     } catch (e) {
       console.error("[google-signin]", e);
-      alert("구글 로그인에 실패했습니다.");
+      // 팝업 차단·사용자 취소는 흔한 실패라 원인을 화면에 그대로 보여준다(무성 실패 방지).
+      const code = (e as { code?: string }).code ?? "";
+      setError(
+        code === "auth/popup-blocked"
+          ? "브라우저가 팝업을 차단했습니다 — 주소창의 팝업 허용을 켠 뒤 다시 시도해주세요."
+          : code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request"
+            ? "로그인 창이 닫혔습니다 — 다시 시도해주세요."
+            : `구글 로그인에 실패했습니다: ${(e as Error).message}`,
+      );
     } finally {
       setBusy(false);
     }
@@ -37,10 +40,10 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
     <div className="join-overlay">
       <div className="join-card">
         <h1 className="io-logo">
-          <span className="accent">동대장</span> 시뮬레이터
+          <span className="accent">구청장</span> 시뮬레이터
         </h1>
         <p className="io-tagline">
-          실제 전국 법정동 지도에서
+          실제 전국 시/군/구 지도에서
           <br />
           벌이는 실시간 영토 전쟁
         </p>
@@ -53,14 +56,20 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
             onClick={handleGoogle}
             style={{ marginTop: 18 }}
           >
-            {busy ? "로그인 중…" : existingUser ? "구글로 계속하기" : "구글 Google로 로그인"}
+            {busy ? "로그인 중…" : "Google로 로그인"}
           </button>
         )}
 
         <button className="io-btn io-btn-block" type="button" onClick={onGuest} style={{ marginTop: 10 }}>
           게스트로 플레이
         </button>
-        <p className="join-hint">로그인하면 레벨과 친구 목록이 계정에 저장됩니다</p>
+        {error ? (
+          <p className="join-hint" style={{ color: "#ff8a8a" }}>
+            {error}
+          </p>
+        ) : (
+          <p className="join-hint">로그인하면 레벨과 친구 목록이 계정에 저장됩니다</p>
+        )}
       </div>
     </div>
   );

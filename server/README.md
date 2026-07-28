@@ -1,6 +1,6 @@
 # server
 
-동대장 시뮬레이터(PvPvE) 서버 — Spring Boot 4 · Kotlin · WebSocket/STOMP.
+구청장 시뮬레이터(PvPvE) 서버 — Spring Boot 4 · Kotlin · WebSocket/STOMP.
 프로토콜은 [../docs/api-spec.md](../docs/api-spec.md), 게임 규칙은 [../README.md](../README.md), 일정은 [../docs/plan.md](../docs/plan.md) 참조.
 
 ## 실행

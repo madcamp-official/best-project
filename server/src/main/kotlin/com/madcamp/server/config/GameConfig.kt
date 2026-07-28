@@ -22,6 +22,7 @@ data class GameConfig(
     @JsonProperty("ROUND_WIN_RATIO") var roundWinRatio: Double = 0.51, // 라운드 즉시승리(도미네이션) 임계
     @JsonProperty("ROUND_DURATION_SEC") var roundDurationSec: Int = 1800, // 라운드 제한 시간(초, 30분)
     @JsonProperty("PRESIDENT_WIN_RATIO") var presidentWinRatio: Double = 0.4, // 대통령 계급 임계(계급 표시용). web/src/config.ts와 동기.
+    @JsonProperty("MAYOR_RANK_CELLS") var mayorRankCells: Int = 5, // 시장 계급 임계(시/군/구 보유 개수, 계급 표시용). web/src/config.ts와 동기.
     @JsonProperty("ANNEX_HOLD_SEC") var annexHoldSec: Double = 10.0, // 포위 귀속: 완전 포위 유지 시간(초)
 
     // 유닛 이동(README §4.4, 거리 기반 arriveTick)

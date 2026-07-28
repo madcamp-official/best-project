@@ -23,7 +23,7 @@ export function JoinScreen({ onJoin }: Props) {
     <div className="join-overlay">
       <div className="join-card">
         <h1 className="io-logo">
-          <span className="accent">시장</span> 시뮬레이터
+          <span className="accent">구청장</span> 시뮬레이터
         </h1>
         <p className="io-tagline">실제 전국 시/군/구 지도 위에서 벌이는 영토 점령전</p>
         <input

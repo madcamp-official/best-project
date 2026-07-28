@@ -35,7 +35,9 @@ export interface LogEntry {
   message: string;
 }
 
-export type Rank = "동장" | "시장" | "도지사" | "대통령" | null;
+// 법정동 시절의 "동장"(부분 소유)은 시/군/구 지도에서 의미가 없어져(셀 하나=시군구 하나 전체)
+// "구청장"으로 대체됐다 — 시/군/구를 갖기 시작하면 구청장, 여럿 모으면 시장(computeRank 참고).
+export type Rank = "구청장" | "시장" | "도지사" | "대통령" | null;
 
 export interface DongStaticMeta {
   admIndex: number;
