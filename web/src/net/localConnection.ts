@@ -199,8 +199,8 @@ export class LocalConnection implements Connection {
     this.pendingMissileRemove.push(res.removed); // 중립화된 동은 dirty로 cells에 실림
     // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
     this.pendingMissileImpacts.push(...res.neutralized);
-    // ① 반경 안 이동 중 유닛도 파괴("뭉친 병력 끊기"). 위치 보간 시간축 = order와 같은 performance.now().
-    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, radius, performance.now()));
+    // ① 착탄 동 위를 지나던 이동 중 유닛도 전부 파괴(from/to가 착탄 동이면 소멸).
+    this.pendingRemovedOrders.push(...core.destroyOrdersOnCells(this.gs, res.neutralized));
   }
 
   sendNuke(center: [number, number], _radius: number, hits: number[]): void {
@@ -214,8 +214,8 @@ export class LocalConnection implements Connection {
       return;
     }
     this.pendingMissileImpacts.push(...res.neutralized); // 미사일과 같은 폭발 연출 경로
-    // ① 전술핵도 반경 안 이동 중 유닛 파괴(반경만 클 뿐 동일 처리).
-    this.pendingRemovedOrders.push(...core.destroyOrdersInRadius(this.gs, center, nukeRadius, performance.now()));
+    // ① 전술핵도 착탄 동 위 이동 중 유닛 파괴(광역이라 여러 유닛이 걸릴 수 있다).
+    this.pendingRemovedOrders.push(...core.destroyOrdersOnCells(this.gs, res.neutralized));
     this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
   }
 

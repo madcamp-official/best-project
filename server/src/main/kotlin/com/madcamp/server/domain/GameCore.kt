@@ -150,7 +150,25 @@ object GameCore {
     ): Order {
         val travelSec = (centroidDistance(world, from, to) / speedDegPerSec)
             .coerceIn(config.unitTravelMinSec, maxSec)
-        return Order(from, to, amount, holderId, nowMs, nowMs + (travelSec * 1000).toLong(), path)
+        return Order(world.nextOrderId++, from, to, amount, holderId, nowMs, nowMs + (travelSec * 1000).toLong(), path)
+    }
+
+    // 미사일/전술핵이 친 동(cells) 위를 지나는 이동 유닛을 전부 제거한다 — from 또는 to가 타격 동이면
+    // 그 유닛은 타격 영토를 밟고 있는 것으로 보고 소멸시킨다. 반환 = 제거된 order id(호출자가 DELTA로 전파).
+    // web/src/game/core.ts destroyOrdersOnCells 1:1 대응.
+    fun destroyOrdersOnCells(world: World, cells: Collection<Int>): List<Int> {
+        if (cells.isEmpty() || world.orders.isEmpty()) return emptyList()
+        val hit = cells.toHashSet()
+        val removed = ArrayList<Int>()
+        val it = world.orders.iterator()
+        while (it.hasNext()) {
+            val o = it.next()
+            if (o.from in hit || o.to in hit) {
+                removed.add(o.id)
+                it.remove()
+            }
+        }
+        return removed
     }
 
     // B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를 찾아,
