@@ -20,6 +20,7 @@ import {
 import type { Connection } from "../net/connection";
 import { useUIStore } from "../store/uiStore";
 import { CONFIG, PALETTE } from "../config";
+import { RUNTIME_CONFIG } from "../game/runtimeConfig";
 
 interface Props {
   prepared: PreparedMap;
@@ -138,7 +139,10 @@ export function MapView({ prepared, connection }: Props) {
     });
 
     // ── 미사일 조준 상태(이 이펙트 수명 동안 유지되는 명령형 상태) ──
-    const RADIUS = CONFIG.MISSILE_RADIUS_DEG;
+    // 지도별로 스케일이 다른 값(RUNTIME_CONFIG, 서버 WELCOME에서 옴) — 시군구는 법정동보다
+    // 훨씬 큰 반경을 쓴다(runtimeConfig.ts 참조). 이펙트는 prepared(지도)가 바뀔 때마다 다시
+    // 마운트되므로 매 라운드 최신 값을 담는다.
+    const RADIUS = RUNTIME_CONFIG.MISSILE_RADIUS_DEG;
     let lastMouseLngLat: [number, number] | null = null;
     let aimDirty = false; // 마우스가 움직였거나 조준을 막 시작 → 다음 프레임에 원/타격 재계산
     let wasAiming = false;
@@ -404,7 +408,7 @@ export function MapView({ prepared, connection }: Props) {
     // (centroidDistance)지만, 표시는 화면상 원형이 자연스러워 경도를 cosLat로 보정해 그린다
     // (미사일 조준 원과 동일 방식 — Mercator 위도 늘어남 상쇄). 판정 경계와 미세하게 다를 수 있다.
     const drawAirdropRange = (center: [number, number]) => {
-      const r = CONFIG.AIRDROP_MAX_RANGE_DEG;
+      const r = RUNTIME_CONFIG.AIRDROP_MAX_RANGE_DEG;
       const rLng = r / Math.cos((center[1] * Math.PI) / 180); // 경도 반경 보정 → 화면상 원형
       const ring: [number, number][] = [];
       for (let i = 0; i <= 64; i++) {

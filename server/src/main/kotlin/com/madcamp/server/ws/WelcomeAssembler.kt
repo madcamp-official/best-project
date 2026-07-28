@@ -1,6 +1,7 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.domain.ShieldInfo
 import com.madcamp.server.domain.World
 import com.madcamp.server.ws.dto.WelcomeMessage
@@ -13,7 +14,9 @@ import org.springframework.stereotype.Component
 @Component
 class WelcomeAssembler(private val configService: ConfigService) {
     fun build(roomId: String, mapId: String, world: World, holderId: Int, token: String, roundEndsAtMs: Long): WelcomeMessage {
-        val config = configService.current
+        // 지도별 거리 상수 오버라이드(MapCatalog.applyProfile)를 실어 보낸다 — 클라가 이 값을
+        // RUNTIME_CONFIG로 받아써야 시군구의 미사일/공수 반경이 서버 판정과 어긋나지 않는다.
+        val config = MapCatalog.applyProfile(configService.current, mapId)
         val holder = world.holders.getValue(holderId)
         val nowMs = System.currentTimeMillis()
         return WelcomeMessage(

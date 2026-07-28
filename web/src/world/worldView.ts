@@ -9,6 +9,7 @@ import * as core from "../game/core";
 import type { GameState } from "../game/core";
 import type { DeltaMessage, WelcomeMessage } from "../net/protocol";
 import { CONFIG } from "../config";
+import { applyServerConfig } from "../game/runtimeConfig";
 
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
@@ -35,6 +36,7 @@ let offensiveTouched = false;
 
 // WELCOME 적용 — 전체 스냅샷을 1회 반영. 이후 변경은 applyDelta로만.
 export function applyWelcome(msg: WelcomeMessage) {
+  applyServerConfig(msg.config); // 지도별 오버라이드가 반영된 서버 원본 설정(runtimeConfig.ts 참조)
   world.mapId = msg.mapId;
   const n = msg.meta.length;
   world.n = n;

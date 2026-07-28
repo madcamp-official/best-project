@@ -1,8 +1,10 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.data.MapCatalog
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.SortieResult
+import com.madcamp.server.game.RoomManager
 import com.madcamp.server.loop.GameLoop
 import com.madcamp.server.ws.dto.AirdropCommand
 import com.madcamp.server.ws.dto.ErrorMessage
@@ -23,6 +25,7 @@ class AirdropController(
     private val gameLoop: GameLoop,
     private val connectionRegistry: ConnectionRegistry,
     private val configService: ConfigService,
+    private val roomManager: RoomManager,
     private val messagingTemplate: SimpMessagingTemplate,
 ) {
     @MessageMapping("/airdrop")
@@ -30,9 +33,10 @@ class AirdropController(
         val binding = connectionRegistry.bindingOf(principal.name) ?: return
 
         gameLoop.submitOnRoom(binding.roomId) { world ->
+            val mapId = roomManager.get(binding.roomId)?.mapId ?: MapCatalog.DEFAULT
             val result = GameCore.tryAirdrop(
                 world,
-                configService.current,
+                MapCatalog.applyProfile(configService.current, mapId),
                 cmd.sources,
                 cmd.dest,
                 binding.holderId,
