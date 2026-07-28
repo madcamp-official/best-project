@@ -44,6 +44,7 @@ class GameLoop(
     private val roomBroadcaster: RoomBroadcaster,
     private val messagingTemplate: SimpMessagingTemplate,
     private val appUserRepository: AppUserRepository,
+    private val loopMetrics: LoopMetrics,
 ) {
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "game-loop") }
@@ -111,6 +112,7 @@ class GameLoop(
     // 실제로 이 때문에 게임 루프 전체(빈 방 청소 포함, 방 생성도 이 스레드에서 처리됨)가 예외 흔적도
     // 없이 멈춘 적이 있어(2026-07-27), 반드시 여기서 다 삼키고 로그를 남긴다.
     private fun safeTick() {
+        val startedNanos = System.nanoTime()
         try {
             val config = configService.current
             for (room in roomManager.playingRooms()) {
@@ -125,6 +127,8 @@ class GameLoop(
             if (globalTickCount % EMPTY_ROOM_SWEEP_EVERY_N_TICKS == 0L) sweepEmptyRooms()
         } catch (e: Throwable) {
             log.error("game loop tick failed — 다음 tick은 계속 진행됨", e)
+        } finally {
+            loopMetrics.recordTick(System.nanoTime() - startedNanos)
         }
     }
 
