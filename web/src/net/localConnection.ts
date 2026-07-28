@@ -119,32 +119,41 @@ export class LocalConnection implements Connection {
     }
   }
 
-  // AI 국가 시작 동을 랜덤·분산 선정한다. 인접 있는 중립 동(플레이어 시작 동은 이미 소유라 제외)을
-  // 섞어 순회하며, 이미 고른 시드들과 최소 거리(AI_MIN_SEED_DIST_DEG) 이상 떨어진 것만 채택 →
-  // 전국에 고루 흩뿌려진 단일 동 시드 count개(다 못 채우면 가능한 만큼).
+  // AI 국가 시작 동을 맵 전체에 고르게 분포시킨다(farthest-point 샘플링). 첫 씨앗만 랜덤으로 잡고
+  // (게임마다 배치가 조금씩 달라지게), 이후엔 이미 고른 씨앗들에서 '가장 먼' 중립 동을 반복 선택 →
+  // 시드들이 서로 최대한 멀어져 전국에 균등하게 퍼진다. count개(가능한 만큼).
   private pickAiSeeds(count: number): number[] {
     const { n, neighborIndex } = this.prepared;
-    const minD2 = CONFIG.AI_MIN_SEED_DIST_DEG * CONFIG.AI_MIN_SEED_DIST_DEG;
-    const order: number[] = [];
+    const usable: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0) order.push(i);
+      if (this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0) usable.push(i);
     }
-    // Fisher-Yates 셔플(랜덤 배치).
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
-    }
-    const seeds: number[] = [];
-    for (const cand of order) {
-      if (seeds.length >= count) break;
-      let ok = true;
-      for (const s of seeds) {
-        if (this.centroidDistSq(cand, s) < minD2) {
-          ok = false;
-          break;
+    if (usable.length === 0) return [];
+
+    const first = usable[Math.floor(Math.random() * usable.length)];
+    const seeds: number[] = [first];
+    // minD2[i] = 이미 고른 씨앗들과의 최소 제곱거리. 씨앗을 추가할 때마다 증분 갱신(전체 O(count·n)).
+    const minD2 = new Float64Array(n).fill(Infinity);
+    for (const i of usable) minD2[i] = this.centroidDistSq(i, first);
+    minD2[first] = -1; // 다시 안 뽑히게
+
+    while (seeds.length < count && seeds.length < usable.length) {
+      let best = -1;
+      let bestD = -1;
+      for (const i of usable) {
+        if (minD2[i] > bestD) {
+          bestD = minD2[i];
+          best = i;
         }
       }
-      if (ok) seeds.push(cand);
+      if (best < 0) break;
+      seeds.push(best);
+      minD2[best] = -1;
+      for (const i of usable) {
+        if (minD2[i] < 0) continue;
+        const d = this.centroidDistSq(i, best);
+        if (d < minD2[i]) minD2[i] = d;
+      }
     }
     return seeds;
   }

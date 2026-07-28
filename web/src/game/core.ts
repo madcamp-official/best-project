@@ -164,7 +164,9 @@ export function tickProduction(s: GameState, dtSec: number) {
     if (s.ownerId[i] === NEUTRAL_HOLDER_ID) continue;
     if (s.troops[i] >= s.troopCap[i]) continue;
 
-    s.troopAccum[i] += (dtSec * s.troopCap[i]) / CONFIG.FILL_TO_CAP_SEC;
+    // AI 국가는 플레이어보다 생산이 느리다(AI_PROD_MULT=0.9 → 10% 약하게).
+    const mult = isAiNation(s.ownerId[i]) ? CONFIG.AI_PROD_MULT : 1;
+    s.troopAccum[i] += (dtSec * s.troopCap[i] * mult) / CONFIG.FILL_TO_CAP_SEC;
     const inc = Math.floor(s.troopAccum[i]);
     if (inc <= 0) continue;
 
