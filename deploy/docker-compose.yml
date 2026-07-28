@@ -12,7 +12,7 @@ services:
     image: ghcr.io/madcamp-official/best-project:latest
     container_name: game # watchtower가 이 이름으로 감시 대상을 지정한다
     ports:
-      - "80:8080" # 도메인(Cloudflare)이 VM:80을 오리진으로 바라본다. TLS는 Cloudflare가 종단.
+      - "3000:8080" # madcamp 터널이 city-master 도메인 → VM:3000(localPort)으로 매핑됨. TLS는 Cloudflare가 종단.
     volumes:
       - ./data:/app/data # H2 유저 DB 영속화 — 재배포에도 계정 유지
       - ./secrets:/app/secrets:ro # firebase-service-account.json (없어도 게스트 접속은 정상)
