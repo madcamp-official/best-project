@@ -1,5 +1,6 @@
 package com.madcamp.server.auth
 
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -46,7 +47,16 @@ class FirebaseAuthService(
         }
         try {
             val credentials = FileInputStream(file).use { GoogleCredentials.fromStream(it) }
-            val options = FirebaseOptions.builder().setCredentials(credentials).build()
+            // HTTP 전송을 NetHttpTransport(순정 HttpURLConnection)로 못박는다.
+            // 안 그러면 google-http-client가 클래스패스를 보고 ApacheHttpTransport를 고르는데,
+            // Spring Boot가 끌고 오는 Apache HttpClient 4.5는 gzip을 자동으로 풀어주면서
+            // Content-Encoding 헤더는 남겨둔다 → google-http-client가 평문을 한 번 더 풀려다
+            // "Not in GZIP format"으로 죽고, 구글 공개키를 못 받아 모든 토큰 검증이 401이 된다.
+            // (실측: 컨테이너에서 curl·순정 Java는 정상 gzip 수신, 앱 안에서만 실패했다.)
+            val options = FirebaseOptions.builder()
+                .setCredentials(credentials)
+                .setHttpTransport(NetHttpTransport())
+                .build()
             app = if (FirebaseApp.getApps().isEmpty()) FirebaseApp.initializeApp(options) else FirebaseApp.getInstance()
             log.info("Firebase Admin 초기화 완료 — 구글 로그인 활성화됨")
         } catch (e: Exception) {
