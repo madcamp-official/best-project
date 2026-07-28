@@ -17,16 +17,15 @@ internal object StartCellAssigner {
      *  - 아직 아무도 없으면(첫 배치) 완전 무작위 → 판마다 전체 배치가 회전/변형된다.
      *  - 이미 자리 잡은 실제 플레이어가 있으면, "가장 가까운 기존 플레이어까지의 거리"가 충분히
      *    큰(=멀리 떨어진) 후보들 중에서 무작위로 고른다 → 서로 뭉치지 않고 고르게 흩어진다.
-     * 고립 동(인접 0 — 섬·월경지)은 제외한다(거기 두면 자라지도 싸우지도 못한다).
-     * 배정 가능한 중립 동이 전혀 없으면 null.
+     * 무조건 본토(최대 연결 컴포넌트)에서만 배정한다 — 섬(제주·울릉 등 본토와 인접이 끊긴
+     * 별도 컴포넌트)은 후보에서 제외한다. 본토에 빈 중립 동이 없으면 null.
      */
     fun pick(world: World): Int? {
-        val usable = (0 until world.n).filter {
-            world.ownerId[it] == HolderIds.NEUTRAL && world.neighborIndex[it].isNotEmpty()
+        val mainland = mainlandCells(world)
+        val pool = (0 until world.n).filter {
+            world.ownerId[it] == HolderIds.NEUTRAL && it in mainland
         }
-        // 폴백: 고립 여부 불문 아무 중립 동(전부 섬이거나 맵이 거의 가득 찬 극단 상황).
-        val pool = usable.ifEmpty { (0 until world.n).filter { world.ownerId[it] == HolderIds.NEUTRAL } }
-        if (pool.isEmpty()) return null
+        if (pool.isEmpty()) return null // 본토에 빈 중립 동이 없음 — 섬엔 두지 않는다
 
         val refs = (0 until world.n).filter {
             val o = world.ownerId[it]
@@ -38,6 +37,32 @@ internal object StartCellAssigner {
         val maxD = scored.maxOf { it.second }
         val far = scored.filter { it.second >= maxD * FAR_FRACTION }.map { it.first }
         return far.random()
+    }
+
+    // 본토(인접 그래프의 최대 연결 컴포넌트) 동 집합. 섬은 별도 컴포넌트라 빠진다. 인접은 정적이라
+    // 소유와 무관하게 그래프 구조만으로 계산한다. web/src/game/core.ts largestComponentSet 대응.
+    private fun mainlandCells(world: World): Set<Int> {
+        val seen = BooleanArray(world.n)
+        var best: List<Int> = emptyList()
+        for (start in 0 until world.n) {
+            if (seen[start]) continue
+            val comp = ArrayList<Int>()
+            val queue = ArrayDeque<Int>()
+            queue.addLast(start)
+            seen[start] = true
+            while (queue.isNotEmpty()) {
+                val c = queue.removeFirst()
+                comp.add(c)
+                for (nb in world.neighborIndex[c]) {
+                    if (!seen[nb]) {
+                        seen[nb] = true
+                        queue.addLast(nb)
+                    }
+                }
+            }
+            if (comp.size > best.size) best = comp
+        }
+        return best.toHashSet()
     }
 
     // 후보 c에서 가장 가까운 기존 플레이어 동까지의 제곱거리(경위도).

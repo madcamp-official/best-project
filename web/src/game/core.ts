@@ -991,11 +991,9 @@ export function respawnPlayer(s: GameState, holderId: number, wallNowMs: number)
   if (!holder || holderId === NEUTRAL_HOLDER_ID || holderId === CONFIG.ENV_HOLDER_ID) return false;
   if (ownedCount(s, holderId) > 0) return false; // 아직 안 죽음 — 무시
 
-  const neutralCells: number[] = [];
-  for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) neutralCells.push(i);
-  if (neutralCells.length === 0) return false; // 빈 동이 없으면 실패
-
-  const newCell = neutralCells[Math.floor(Math.random() * neutralCells.length)];
+  // 신규 참가와 같은 배정 규칙 — 본토에서만(섬 제외), 기존 플레이어와 멀리.
+  const newCell = pickStartCell(s);
+  if (newCell === null) return false; // 본토에 빈 중립 셀이 없으면 실패
   s.ownerId[newCell] = holderId;
   s.troops[newCell] = s.troopCap[newCell];
   s.dirty.add(newCell);
@@ -1276,20 +1274,48 @@ function allocateHolderId(s: GameState): number {
   throw new Error("holderId 254개가 모두 사용 중입니다.");
 }
 
-// 시작 동 배정 — 전국에 랜덤하면서도 고르게(최원점 샘플링, server StartCellAssigner.pick 대응).
-// 첫 배치는 무작위, 이후엔 "가장 가까운 기존 플레이어까지의 거리"가 충분히 먼 후보 중 무작위.
+// 시작 동 배정 — 본토(최대 연결 컴포넌트)에서만, 랜덤하면서도 고르게(최원점 샘플링,
+// server StartCellAssigner.pick 대응). 첫 배치는 무작위, 이후엔 "가장 가까운 기존
+// 플레이어까지의 거리"가 충분히 먼 후보 중 무작위. 섬은 스폰 후보에서 제외한다.
 const START_FAR_FRACTION = 0.6; // 최원점(제곱거리) 대비 이 비율 이상 떨어진 후보 = "충분히 먼 곳"
+
+// 본토 판정 — 인접 그래프의 최대 연결 컴포넌트(=본토) 셀 집합. 섬(제주·울릉 등 본토와 인접이
+// 끊긴 별도 컴포넌트)은 여기 안 들어가므로 스폰 후보에서 자연히 빠진다. 인접은 정적이라
+// 소유와 무관하게 그래프 구조만으로 계산한다. server StartCellAssigner.mainlandCells 대응.
+export function largestComponentSet(
+  neighborIndex: readonly (readonly number[])[],
+  n: number
+): Set<number> {
+  const seen = new Uint8Array(n);
+  let best: number[] = [];
+  for (let start = 0; start < n; start++) {
+    if (seen[start]) continue;
+    const comp: number[] = [];
+    const queue = [start];
+    seen[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const c = queue[head];
+      comp.push(c);
+      for (const nb of neighborIndex[c]) {
+        if (!seen[nb]) {
+          seen[nb] = 1;
+          queue.push(nb);
+        }
+      }
+    }
+    if (comp.length > best.length) best = comp;
+  }
+  return new Set(best);
+}
+
 export function pickStartCell(s: GameState): number | null {
-  const usable: number[] = [];
+  // 무조건 본토에서만 스폰 — 섬(별도 컴포넌트)은 후보에서 제외한다.
+  const mainland = largestComponentSet(s.neighborIndex, s.n);
+  const pool: number[] = [];
   for (let i = 0; i < s.n; i++) {
-    if (s.ownerId[i] === NEUTRAL_HOLDER_ID && s.neighborIndex[i].length > 0) usable.push(i);
+    if (s.ownerId[i] === NEUTRAL_HOLDER_ID && mainland.has(i)) pool.push(i);
   }
-  let pool = usable;
-  if (pool.length === 0) {
-    pool = [];
-    for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) pool.push(i);
-  }
-  if (pool.length === 0) return null;
+  if (pool.length === 0) return null; // 본토에 빈 중립 셀이 없음 — 섬엔 두지 않는다
 
   const refs: number[] = [];
   for (let i = 0; i < s.n; i++) {
