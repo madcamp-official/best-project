@@ -271,11 +271,8 @@ object GameCore {
                 world.dirty.add(order.from)
             }
         } else {
+            // 스폰 방어막은 미사일·전술핵만 막는다 — 유닛 도착 전투는 방어막과 무관하게 정상 진행.
             val prevOwner = world.ownerId[to]
-            if (isShielded(world, prevOwner, nowMs)) {
-                // 방어막에 막힘 — 공격 병력 소멸, 방어측 무피해(스폰 방어막 보호 기간).
-                return null
-            }
             val remaining = world.troops[to] - amount
             if (remaining < 0) {
                 val prevHolder = world.holders[prevOwner]
@@ -544,7 +541,7 @@ object GameCore {
                 }
                 for (nb in world.neighborIndex[d]) if (!visited[nb]) { visited[nb] = true; queue.add(nb) }
             } else {
-                if (isShielded(world, world.ownerId[d], wallNowMs)) continue // 방어막 — 투하 불가, 통과도 불가
+                // 방어막은 미사일 전용 — 공수도 유닛 공격이라 방어막 셀에 정상 투하·전투한다.
                 val defenders = world.troops[d]
                 if (remaining > defenders) {
                     world.ownerId[d] = holderId
@@ -861,8 +858,9 @@ object GameCore {
     }
 
     // ── 스폰 방어막 ───────────────────────────────────────────────────
-    // 신규 참가·재시작 직후 SPAWN_SHIELD_SEC 동안 그 플레이어의 동은 전투/미사일/포위/공수로부터
-    // 보호된다("시작하자마자 죽는다" 실사용 피드백 대응). SessionService(신규 참가)와
+    // 신규 참가·재시작 직후 SPAWN_SHIELD_SEC 동안 그 플레이어의 동은 미사일·전술핵 중립화와
+    // 포위 귀속으로부터 보호된다. 유닛 공격(출정·행군·공수)은 방어막과 무관하게 정상 전투 —
+    // 방어막은 원거리 즉사 수단만 막는다. SessionService(신규 참가)와
     // respawnPlayer(재시작) 둘 다 이 함수로 부여한다 — 시작 계기가 뭐든 규칙은 하나.
     fun applyShield(world: World, config: GameConfig, holderId: Int, wallNowMs: Long) {
         val until = wallNowMs + (config.spawnShieldSec * 1000).toLong()

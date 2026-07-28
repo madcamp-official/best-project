@@ -488,11 +488,8 @@ function resolveArrival(s: GameState, order: Order, nowMs: number, wallNowMs: nu
       s.dirty.add(from);
     }
   } else {
+    // 스폰 방어막은 미사일·전술핵만 막는다 — 유닛 도착 전투는 방어막과 무관하게 정상 진행.
     const prevOwner = s.ownerId[to];
-    if (isShielded(s, prevOwner, wallNowMs)) {
-      // 방어막에 막힘 — 공격 병력 소멸, 방어측 무피해(스폰 방어막 보호 기간).
-      return null;
-    }
     const remaining = s.troops[to] - amount; // 부호 있는 일반 number 연산으로 먼저 계산
     if (remaining < 0) {
       const prevHolder = s.holders.get(prevOwner);
@@ -967,7 +964,7 @@ function resolveAirdrop(s: GameState, dest: number, amount: number, holderId: nu
       }
       for (const nb of s.neighborIndex[d]) if (!visited[nb]) { visited[nb] = 1; queue.push(nb); }
     } else {
-      if (isShielded(s, s.ownerId[d], wallNowMs)) continue; // 방어막 — 투하 불가, 통과도 불가
+      // 방어막은 미사일 전용 — 공수도 유닛 공격이라 방어막 셀에 정상 투하·전투한다.
       const defenders = s.troops[d];
       if (remaining > defenders) {
         s.ownerId[d] = holderId;
@@ -1024,7 +1021,8 @@ export function respawnPlayer(s: GameState, holderId: number, wallNowMs: number)
 
 // ── 스폰 방어막 ───────────────────────────────────────────────────────
 // 신규 참가(createGameState)·재시작(respawnPlayer) 직후 SPAWN_SHIELD_SEC 동안 그 플레이어의
-// 동은 전투/미사일/포위/공수로부터 보호된다("시작하자마자 죽는다" 피드백 대응). 시작 계기가
+// 동은 미사일·전술핵 중립화와 포위 귀속으로부터 보호된다. 유닛 공격(출정·행군·공수)은
+// 방어막과 무관하게 정상 전투 — 방어막은 원거리 즉사 수단만 막는다. 시작 계기가
 // 뭐든 규칙은 하나 — 이 함수 하나로 부여한다.
 export function applyShield(s: GameState, holderId: number, wallNowMs: number): ShieldInfo {
   const until = wallNowMs + CONFIG.SPAWN_SHIELD_SEC * 1000;
@@ -1379,7 +1377,7 @@ function aiSortieCapture(
 }
 
 // 확장 — server PlayerAi.expand 대응.
-function aiExpand(s: GameState, holderId: number, nowMs: number, wallNowMs: number, out: Order[]) {
+function aiExpand(s: GameState, holderId: number, nowMs: number, out: Order[]) {
   const moves: { from: number; to: number; score: number }[] = [];
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] !== holderId) continue;
@@ -1390,7 +1388,6 @@ function aiExpand(s: GameState, holderId: number, nowMs: number, wallNowMs: numb
     for (const nb of s.neighborIndex[i]) {
       const o = s.ownerId[nb];
       if (o === holderId) continue;
-      if (isShielded(s, o, wallNowMs)) continue; // 방어막 = 공격 낭비
       if (s.troops[nb] < bestT) {
         bestT = s.troops[nb];
         best = nb;
@@ -1447,13 +1444,13 @@ function aiReinforce(s: GameState, holderId: number, nowMs: number, out: Order[]
   }
 }
 
-// 모든 AI 홀더가 한 번씩 행동(server PlayerAi.actAll 대응). nowMs=단조 시각(출정 타이밍),
-// wallNowMs=벽시계(방어막 판정). 새로 발주된 order 전부를 반환한다.
-export function tickPlayerAi(s: GameState, nowMs: number, wallNowMs: number): Order[] {
+// 모든 AI 홀더가 한 번씩 행동(server PlayerAi.actAll 대응). nowMs=단조 시각(출정 타이밍).
+// 새로 발주된 order 전부를 반환한다.
+export function tickPlayerAi(s: GameState, nowMs: number): Order[] {
   const out: Order[] = [];
   for (const h of s.holders.values()) {
     if (!h.isAi) continue;
-    aiExpand(s, h.id, nowMs, wallNowMs, out);
+    aiExpand(s, h.id, nowMs, out);
     aiReinforce(s, h.id, nowMs, out);
   }
   return out;

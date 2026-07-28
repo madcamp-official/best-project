@@ -286,7 +286,7 @@ export class LocalConnection implements Connection {
     this.aiTimerMs += TICK_MS;
     if (this.aiTimerMs >= CONFIG.AI_ACT_INTERVAL_SEC * 1000) {
       this.aiTimerMs = 0;
-      const aiOrders = core.tickPlayerAi(this.gs, now, wall);
+      const aiOrders = core.tickPlayerAi(this.gs, now);
       if (aiOrders.length > 0) this.pendingOrders.push(...aiOrders);
     }
 
