@@ -268,10 +268,6 @@ export class StompConnection implements Connection {
     this.client.publish({ destination: "/app/nuke", body: JSON.stringify({ center, radius, hits }) });
   }
 
-  sendRally(index: number): void {
-    this.client.publish({ destination: "/app/rally", body: JSON.stringify({ index }) });
-  }
-
   sendAttackTarget(index: number): void {
     this.client.publish({ destination: "/app/attack-queue", body: JSON.stringify({ index }) });
   }

@@ -26,11 +26,8 @@ class World(
     val dirty: MutableSet<Int> = HashSet()
     val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)
 
-    // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 크기 256 = holderId 예약 범위(0 중립 … 255 E).
-    // web/src/game/core.ts GameState.rally 대응.
-    val rally: IntArray = IntArray(256) { -1 }
-
-    // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정.
+    // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정하고,
+    // 후방 병력은 tickSupply가 가장 가까운 대상(전선)으로 자동 전진시킨다(예전 집결지(rally) 대체).
     // web/src/game/core.ts GameState.attackQueue 대응.
     val attackQueue: Array<MutableSet<Int>> = Array(256) { HashSet() }
 

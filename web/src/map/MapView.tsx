@@ -11,9 +11,7 @@ import {
   drainCaptureFlashes,
   drainMissilesTouched,
   drainMissileImpacts,
-  drainRallyTouched,
   drainRespawnCell,
-  setMyRally,
   toggleMyAttackTarget,
   drainAttackQueueTouched,
   pruneCapturedAttackTargets,
@@ -61,11 +59,6 @@ const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 �
 const NUKE_SOURCE = "nuke-silos"; // 전술핵 사일로(제주) 고정 마커
 const NUKE_LAYER = "nuke-silos-layer";
 const NUKE_IMAGE_ID = "nuke-silo-icon"; // 일반 미사일보다 훨씬 큰 로켓 = 사일로 표식
-const RALLY_SOURCE = "rally"; // B2 집결지 깃발 마커
-const RALLY_LAYER = "rally-layer";
-const RALLY_IMAGE_ID = "rally-icon"; // addImage로 얹는 🚩 아이콘 이름
-const RALLY_EMOJI = "🚩";
-
 const ATTACK_QUEUE_SOURCE = "attack-queue"; // 공격 큐 ⚔️ 마커(내 큐 대상마다)
 const ATTACK_QUEUE_LAYER = "attack-queue-layer";
 const ATTACK_QUEUE_IMAGE_ID = "attack-queue-icon"; // addImage로 얹는 ⚔️ 아이콘 이름
@@ -184,24 +177,6 @@ export function MapView({ prepared, connection }: Props) {
           geometry: { type: "Point" as const, coordinates: world.meta[i].centroid },
         })),
       });
-    };
-
-    // 내 집결지(B2)에 깃발 마커를 그린다. 없으면(myRally<0) 비운다.
-    const updateRallyMarker = (m: MaplibreMap) => {
-      const src = m.getSource(RALLY_SOURCE) as GeoJSONSource | undefined;
-      if (!src) return;
-      const idx = world.myRally;
-      const features =
-        idx >= 0 && idx < world.n
-          ? [
-              {
-                type: "Feature" as const,
-                properties: {},
-                geometry: { type: "Point" as const, coordinates: world.meta[idx].centroid },
-              },
-            ]
-          : [];
-      src.setData({ type: "FeatureCollection", features });
     };
 
     // 내 공격 큐 대상마다 ⚔️ 마커를 그린다. 비었으면 소스를 비운다.
@@ -921,47 +896,11 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
-      // B2 집결지 깃발 마커 — 내 집결지 centroid에 🚩. (미사일 마커와 같은 이모지-아이콘 방식.)
-      map.addSource(RALLY_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      const rallyIcon = makeEmojiIcon(RALLY_EMOJI, 30);
-      if (rallyIcon) {
-        if (!map.hasImage(RALLY_IMAGE_ID)) {
-          map.addImage(RALLY_IMAGE_ID, rallyIcon.data, { pixelRatio: rallyIcon.pixelRatio });
-        }
-        map.addLayer({
-          id: RALLY_LAYER,
-          type: "symbol",
-          source: RALLY_SOURCE,
-          layout: {
-            "icon-image": RALLY_IMAGE_ID,
-            "icon-size": 1,
-            "icon-allow-overlap": true,
-            "icon-ignore-placement": true,
-            "icon-anchor": "bottom", // 깃발 밑동이 동을 가리키게
-          },
-        });
-      } else {
-        map.addLayer({
-          id: RALLY_LAYER,
-          type: "circle",
-          source: RALLY_SOURCE,
-          paint: {
-            "circle-radius": 6,
-            "circle-color": "#2ecc71",
-            "circle-stroke-color": "#0b3d1f",
-            "circle-stroke-width": 2,
-          },
-        });
-      }
-
       // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 전국 개요로
       // 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 시군구 단위로 들어가면
       // 셀 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
       // maxzoom을 NAME/BADGE의 minzoom(LABEL_MIN_ZOOM)과 맞춰 한 지점에서 깔끔히 교대시킨다.
-      // 유닛 원(UNIT_CIRCLE_LAYER)·집결지 깃발(RALLY_LAYER)보다 나중에(=위에) 그려야 그것들에
+      // 유닛 원(UNIT_CIRCLE_LAYER)보다 나중에(=위에) 그려야 그것들에
       // 가려지지 않는다 — 이전엔 더 먼저 추가돼 있어서 마커 근처에서 라벨이 안 보이는 문제가 있었다.
       map.addSource(PLAYER_LABEL_SOURCE, {
         type: "geojson",
@@ -1113,7 +1052,7 @@ export function MapView({ prepared, connection }: Props) {
         paint: { "line-color": "#ffd9a8", "line-width": 1.5, "line-opacity": 0.95 },
       });
 
-      // 공격 큐 ⚔️ 마커 — 내 큐 대상 centroid마다. (집결지 🚩 마커와 같은 이모지-아이콘 방식.)
+      // 공격 큐 ⚔️ 마커 — 내 큐 대상 centroid마다. (미사일 마커와 같은 이모지-아이콘 방식.)
       map.addSource(ATTACK_QUEUE_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -1162,8 +1101,6 @@ export function MapView({ prepared, connection }: Props) {
       updatePlayerLabels(map);
       updateMissileMarkers(map);
       drainMissilesTouched();
-      updateRallyMarker(map);
-      drainRallyTouched();
       updateAttackQueueMarker(map);
       drainAttackQueueTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
@@ -1314,15 +1251,6 @@ export function MapView({ prepared, connection }: Props) {
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
         if (target >= 0) handleToggleAttack(target, connection);
-      });
-
-      // 더블클릭 = 집결지 지정/해제(B2). 내 동을 더블클릭하면 집결지로, 현재 집결지를 다시 더블클릭하면 해제.
-      map.on("dblclick", (e) => {
-        const st = useUIStore.getState();
-        if (st.isAiming || st.isNukeAiming || st.isTransporting) return;
-        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
-        const hit = hits[0];
-        if (hit && hit.id !== undefined) handleSetRally(Number(hit.id), connection);
       });
 
       useUIStore.getState().setPhase("ready");
@@ -1522,14 +1450,10 @@ export function MapView({ prepared, connection }: Props) {
         hadUnits = false;
       }
 
-      // 집결지를 잃으면(적에게 함락/미사일 등) 로컬 마커·상태도 정리한다(서버도 보급을 자동 해제).
-      if (world.myRally >= 0 && world.ownerId[world.myRally] !== world.myHolderId) setMyRally(-1);
       // 점령 완료된 공격 큐 대상은 마커에서 정리한다(서버 tick도 큐에서 제거).
       pruneCapturedAttackTargets();
       // 미사일 마커(스폰/소모 시 갱신)
       if (drainMissilesTouched()) updateMissileMarkers(map);
-      // 집결지 깃발(지정/해제 시 갱신)
-      if (drainRallyTouched()) updateRallyMarker(map);
       // 공격 큐 ⚔️ 마커(토글/점령 정리 시 갱신)
       if (drainAttackQueueTouched()) updateAttackQueueMarker(map);
 
@@ -1828,25 +1752,6 @@ function arrowPolygon(a: [number, number], b: [number, number]) {
   return [
     { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [ring] } },
   ];
-}
-
-// 더블클릭으로 호출: 내 동을 집결지로 설정, 현재 집결지를 다시 더블클릭하면 해제한다(B2).
-// 마커·요약은 낙관적으로 즉시 반영(setMyRally)하고, 서버는 sendRally로 검증·저장한다.
-function handleSetRally(idx: number, connection: Connection) {
-  const { showToast, rallyIndex } = useUIStore.getState();
-  if (world.ownerId[idx] !== world.myHolderId) {
-    showToast("내 동만 집결지로 지정할 수 있습니다.");
-    return;
-  }
-  if (rallyIndex === idx) {
-    connection.sendRally(-1);
-    setMyRally(-1);
-    showToast("집결지를 해제했습니다.");
-  } else {
-    connection.sendRally(idx);
-    setMyRally(idx);
-    showToast(`집결지: ${world.meta[idx].name}`);
-  }
 }
 
 // 이모지를 캔버스에 렌더해 지도 아이콘(addImage)용 픽셀 데이터로 만든다. glyphs 서버가 없어

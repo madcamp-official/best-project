@@ -33,7 +33,6 @@ data class WelcomeMessage(
     val holders: List<Holder>,
     val orders: List<Order>,
     val missiles: List<Int>, // 미사일이 얹힌 동 admIndex 목록
-    val rally: Int, // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 복구용.
     val attackQueue: List<Int>, // 이 플레이어의 공격 큐 admIndex 목록. 재접속 복구용.
     val shields: List<ShieldInfo>, // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
     // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
@@ -60,9 +59,6 @@ data class LaunchMissileCommand(
     val radius: Double = 0.0,
     val hits: List<Int> = emptyList(),
 )
-
-// B2 집결지 지정/해제(C→S, /app/rally). index = 내 소유 admIndex, -1이면 해제.
-data class SetRallyCommand(val index: Int = -1)
 
 // 공격 큐 토글(C→S, /app/attack-queue). index = 국경에 인접한 적·중립 admIndex.
 // 이미 큐에 있으면 해제, 없으면(적·중립 + 내 영토 인접) 추가한다.

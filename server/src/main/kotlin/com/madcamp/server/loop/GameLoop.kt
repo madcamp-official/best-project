@@ -169,7 +169,7 @@ class GameLoop(
             if (spawned >= 0) world.pendingMissileAdd.add(spawned)
         }
 
-        // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 행군
+        // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 공격 목표(전선) 방향으로 후방 병력 한 홉 행군
         room.supplyAccumSec += dtSec
         if (room.supplyAccumSec >= config.supplyIntervalSec) {
             room.supplyAccumSec = 0.0
