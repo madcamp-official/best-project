@@ -83,9 +83,10 @@ data class GameConfig(
     @JsonProperty("ATTACK_QUEUE_RATIO") var attackQueueRatio: Double = 0.5,
     @JsonProperty("ATTACK_QUEUE_MIN_TROOPS") var attackQueueMinTroops: Int = 3,
 
-    // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
+    // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력을 목적지에 투하, 초과분은 인접 flood.
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)
     @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 1.0, // 사거리 상한(남한 절반 규모, 0.5에서 2배 상향). 클라 config.ts와 동기. 사일로 섬(제주) 공수는 예외
+    @JsonProperty("AIRDROP_MAX_TROOPS") var airdropMaxTroops: Int = 300, // 한 번에 수송 가능한 최대 병력(밸런스) — 초과분은 출발 동에 남는다. 클라 config.ts와 동기
 
     // 공수 삼각형 유닛 이동 속도 — 일반 유닛보다 조금 느리게(수송이 또렷이 보이게). 클라 config.ts와 동기.
     @JsonProperty("AIRDROP_SPEED_DEG_PER_SEC") var airdropSpeedDegPerSec: Double = 0.013,

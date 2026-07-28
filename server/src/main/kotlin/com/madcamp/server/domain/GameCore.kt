@@ -532,21 +532,29 @@ object GameCore {
         if (total <= 0) return SortieResult.Err(SortieErrorCode.NO_TROOPS, "수송할 병력이 없습니다.")
 
         val origin = nearestSourceToCentroid(world, valid, holderId) // 삼각형 유닛 출발 위치(원 중심 근사)
-        // 사일로 섬(울릉도·제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
-        // (두 섬은 본토와 인접이 끊겨 있어 공수 외 도달 수단이 없다 — 전술핵 사일로 쟁탈전의 통로.)
+        // 사일로 섬(제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
+        // (제주는 본토와 인접이 끊겨 있어 공수 외 도달 수단이 없다 — 전술핵 사일로 쟁탈전의 통로.)
         val rangeExempt = world.nukeIslandMask[origin] || world.nukeIslandMask[dest]
         if (!rangeExempt && airdropScaledDist(world, origin, dest) > config.airdropMaxRangeDeg) {
             return SortieResult.Err(SortieErrorCode.AIRDROP_RANGE, "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.")
         }
-        for (i in valid) if (world.troops[i] > 0) {
-            world.troops[i] = 0 // 전부(100%) 실어 보낸다
-            world.dirty.add(i)
+        // 밸런스 — 한 번에 최대 airdropMaxTroops까지만 싣는다. 초과분은 출발 동에 그대로 남는다.
+        val amount = min(total, config.airdropMaxTroops)
+        var capacity = amount
+        for (i in valid) {
+            if (capacity <= 0) break
+            val take = min(world.troops[i], capacity)
+            if (take > 0) {
+                world.troops[i] -= take
+                capacity -= take
+                world.dirty.add(i)
+            }
         }
         world.airdropReadyAt[holderId] = nowMs + (config.airdropCooldownSec * 1000).toLong()
 
         // 공수는 일반 유닛보다 조금 느리게(전용 속도·상한) 날아가 수송이 또렷이 보이게 한다.
         val order = makeOrder(
-            world, config, origin, dest, total, holderId, nowMs,
+            world, config, origin, dest, amount, holderId, nowMs,
             speedDegPerSec = config.airdropSpeedDegPerSec,
             maxSec = config.airdropTravelMaxSec,
         ).copy(airdrop = true)

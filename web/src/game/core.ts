@@ -836,9 +836,15 @@ export function tryAirdrop(
   if (!rangeExempt && airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
     return { ok: false, reason: "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.", code: "AIRDROP_RANGE" };
   }
+  // 밸런스 — 한 번에 최대 AIRDROP_MAX_TROOPS까지만 싣는다. 초과분은 출발 동에 그대로 남는다.
+  const amount = Math.min(total, CONFIG.AIRDROP_MAX_TROOPS);
+  let capacity = amount;
   for (const i of valid) {
-    if (s.troops[i] > 0) {
-      s.troops[i] = 0; // 전부(100%) 실어 보낸다
+    if (capacity <= 0) break;
+    const take = Math.min(s.troops[i], capacity);
+    if (take > 0) {
+      s.troops[i] -= take;
+      capacity -= take;
       s.dirty.add(i);
     }
   }
@@ -849,7 +855,7 @@ export function tryAirdrop(
     s,
     origin,
     dest,
-    total,
+    amount,
     holderId,
     nowMs,
     undefined,
