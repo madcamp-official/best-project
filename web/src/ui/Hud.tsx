@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
-import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
+import { CONFIG, PALETTE } from "../config";
 import { SGG_SPECIALTY } from "../data/sggSpecialty";
 import type { Connection } from "../net/connection";
 
@@ -32,7 +32,6 @@ export function Hud({ connection, isMock }: Props) {
   const selectedInfo = useUIStore((s) => s.selectedInfo);
   const leaderboard = useUIStore((s) => s.leaderboard);
   const myHolderId = useUIStore((s) => s.myHolderId);
-  const envCells = useUIStore((s) => s.envCells);
   const myRank = useUIStore((s) => s.myRank);
   const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
@@ -180,16 +179,6 @@ export function Hud({ connection, isMock }: Props) {
               </div>
             );
           })}
-          <div className="hud-env">
-            {envCells > 0 ? (
-              <>
-                <span className="hud-swatch" style={{ background: PALETTE[ENV_PALETTE_IDX].stroke }} />{" "}
-                야만인 잔존: {envCells}개 동
-              </>
-            ) : (
-              <span className="hud-env-clear">야만인 정리됨 ✓</span>
-            )}
-          </div>
         </div>
       </div>
 
