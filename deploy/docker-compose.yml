@@ -15,6 +15,10 @@ services:
       - "3000:8080" # madcamp 터널이 city-master 도메인 → VM:3000(localPort)으로 매핑됨. TLS는 Cloudflare가 종단.
     environment:
       - REDIS_HOST=redis # 명예의 전당 랭킹(ZSET). redis 서비스가 죽어 있어도 게임은 정상(랭킹만 비활성).
+      # 이 VM은 IPv6 아웃바운드가 완전히 막혀 있다(컨테이너에서 curl -6 → 응답 0바이트).
+      # JVM이 IPv6를 먼저 잡으면 구글 공개키 인증서 수신이 빈 응답으로 깨져
+      # ("Not in GZIP format") 구글 로그인 검증이 전부 401로 실패한다 → IPv4로 고정.
+      - JAVA_TOOL_OPTIONS=-Djava.net.preferIPv4Stack=true
     volumes:
       - ./data:/app/data # H2 유저 DB 영속화 — 재배포에도 계정 유지
       - ./secrets:/app/secrets:ro # firebase-service-account.json (없어도 게스트 접속은 정상)
