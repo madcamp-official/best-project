@@ -240,7 +240,7 @@ export function Hud({ connection, isMock }: Props) {
           </div>
         </div>
 
-        {/* 전술핵 — 울릉도·제주 사일로 보유 시에만 별도 액션 */}
+        {/* 전술핵 — 제주 사일로 보유 시에만 별도 액션 */}
         {nukeOwned && (
           <button
             type="button"

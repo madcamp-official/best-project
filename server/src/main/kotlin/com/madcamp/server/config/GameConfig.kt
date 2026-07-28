@@ -60,8 +60,8 @@ data class GameConfig(
     // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
     @JsonProperty("MISSILE_SPAWN_SEC") var missileSpawnSec: Double = 5.0, // 체감상 적어서 2배로 상향
     @JsonProperty("MISSILE_MAX_TOTAL") var missileMaxTotal: Int = 60, // 맵 전체 동시 존재 상한(2배 상향, 개인 한도 없음)
-    @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.02,
-    @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.06, // 발사 반경 검증 상한
+    @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.25, // 시군구 셀 규모(1~2셀). 클라 config.ts와 동기
+    @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.4, // 발사 반경 검증 상한(핵 포함)
     @JsonProperty("MISSILE_HIT_MARGIN_DEG") var missileHitMarginDeg: Double = 0.05, // 타격 centroid 근접 여유
 
     // 경로 자동 출정(B1) — 멀리 있는 내 동으로 내 영토를 따라 최단 경로 연쇄 출정.
@@ -80,7 +80,7 @@ data class GameConfig(
 
     // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)
-    @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 0.55, // 사거리 상한(출발↔목적지 centroid 도 단위)
+    @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 1.0, // 사거리 상한(남한 절반 규모). 클라 config.ts와 동기
 
     // 공수 삼각형 유닛 이동 속도 — 일반 유닛보다 조금 느리게(수송이 또렷이 보이게). 클라 config.ts와 동기.
     @JsonProperty("AIRDROP_SPEED_DEG_PER_SEC") var airdropSpeedDegPerSec: Double = 0.013,
@@ -95,7 +95,7 @@ data class GameConfig(
     // 일반 미사일이 단일 표적으로 바뀐 뒤로, 전술핵은 같은 반경(×1)이되 원에 걸친 여러 동을 한 번에 타격하는 광역 무기다.
     // 두 섬은 본토와 인접이 끊긴 컴포넌트라, 사일로 섬을 오가는 공수는 사거리 제한을 받지 않는다.
     // web/src/config.ts NUKE_*와 동기.
-    @JsonProperty("NUKE_SILO_CODES") var nukeSiloCodes: List<String> = listOf("47940250", "50110134"),
+    @JsonProperty("NUKE_SILO_CODES") var nukeSiloCodes: List<String> = listOf("50110"), // [제주시] 시군구 코드
     @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 1.0,
     @JsonProperty("NUKE_COOLDOWN_SEC") var nukeCooldownSec: Double = 180.0,
 )

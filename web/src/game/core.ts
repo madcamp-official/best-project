@@ -1,4 +1,4 @@
-import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID, PLAYER_PALETTE_IDXS } from "../config";
 import type { DongStaticMeta, Holder, LogEntry, Order, Rank, ShieldInfo } from "./types";
 
 // ── 헥사고날 도메인 코어 ──────────────────────────────────────────────
@@ -44,7 +44,7 @@ export interface GameState {
   // 반경 미사일을 쏠 수 있다. 정적 데이터에서 파생되므로 클라·서버가 각자 initNukeState로 계산.
   nukeSilos: number[];
   nukeReadyAt: Float64Array; // 사일로별 재발사 가능 시각(호출자 시간축). 0=즉시 가능.
-  // 사일로가 있는 섬(울릉도·제주 본섬 = 본토와 인접이 끊긴 컴포넌트) 소속 동 마스크(0/1).
+  // 사일로가 있는 섬(제주 = 본토와 인접이 끊긴 컴포넌트) 소속 동 마스크(0/1).
   // 이 섬을 오가는 공수는 사거리 제한을 받지 않는다.
   nukeIslandMask: Uint8Array;
   logEntries: LogEntry[];
@@ -120,7 +120,7 @@ export function createGameState(
 export function initNukeState(s: GameState) {
   s.nukeSilos = CONFIG.NUKE_SILO_CODES.map((code) => s.meta.findIndex((m) => m.code === code));
   s.nukeIslandMask = new Uint8Array(s.n);
-  // 사일로 동에서 인접 그래프를 flood — 그 연결요소 전체가 "사일로 섬"(울릉도·제주 본섬).
+  // 사일로 동에서 인접 그래프를 flood — 그 연결요소 전체가 "사일로 섬"(제주).
   for (const silo of s.nukeSilos) {
     if (silo < 0 || s.nukeIslandMask[silo]) continue;
     const stack = [silo];
@@ -540,7 +540,7 @@ export function launchMissile(
 }
 
 // ── 전술핵 사일로 ─────────────────────────────────────────────────────
-// 울릉도·제주의 사일로 동(NUKE_SILO_CODES)을 소유한 플레이어는 소모품 미사일 없이도
+// 제주의 사일로 셀(NUKE_SILO_CODES)을 소유한 플레이어는 소모품 미사일 없이도
 // NUKE_COOLDOWN_SEC마다 일반 미사일의 NUKE_RADIUS_MULT배 반경 미사일을 발사할 수 있다.
 
 export type NukeResult =
@@ -572,7 +572,7 @@ export function launchNuke(
       break;
     }
   }
-  if (ownedK < 0) return { ok: false, reason: "전술핵 사일로(울릉도·제주)를 보유해야 발사할 수 있습니다." };
+  if (ownedK < 0) return { ok: false, reason: "전술핵 사일로(제주)를 보유해야 발사할 수 있습니다." };
   if (readyK < 0) {
     const left = Math.ceil((s.nukeReadyAt[ownedK] - nowMs) / 1000);
     return { ok: false, reason: `전술핵 재장전까지 ${left}초 남았습니다.` };
@@ -766,7 +766,7 @@ export function tryAirdrop(
   if (total <= 0) return { ok: false, reason: "수송할 병력이 없습니다.", code: "NO_TROOPS" };
 
   const origin = nearestSourceToCentroid(s, valid, holderId); // 삼각형 유닛 출발 위치(원 중심 근사)
-  // 사일로 섬(울릉도·제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
+  // 사일로 섬(제주) 예외 — 그 섬으로 보내거나 그 섬에서 출발하는 공수는 사거리 무제한.
   // (두 섬은 본토와 인접이 끊겨 있어 공수 외 도달 수단이 없다 — 전술핵 사일로 쟁탈전의 통로.)
   const rangeExempt = s.nukeIslandMask[origin] === 1 || s.nukeIslandMask[dest] === 1;
   if (!rangeExempt && airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
@@ -843,7 +843,7 @@ export function airdropInRange(s: GameState, sources: number[], dest: number, ho
   const valid = sources.filter((i) => i >= 0 && i < s.n && s.ownerId[i] === holderId);
   if (valid.length === 0) return false;
   const origin = nearestSourceToCentroid(s, valid, holderId);
-  // 사일로 섬(울릉도·제주) 출발/도착은 사거리 무제한 — tryAirdrop과 같은 규칙(클라 UX 일치).
+  // 사일로 섬(제주) 출발/도착은 사거리 무제한 — tryAirdrop과 같은 규칙(클라 UX 일치).
   if (s.nukeIslandMask[origin] === 1 || s.nukeIslandMask[dest] === 1) return true;
   return airdropScaledDist(s, origin, dest) <= CONFIG.AIRDROP_MAX_RANGE_DEG;
 }

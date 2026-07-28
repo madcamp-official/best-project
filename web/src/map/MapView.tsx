@@ -58,7 +58,7 @@ const MISSILE_SOURCE = "missiles";
 const MISSILE_LAYER = "missiles-layer";
 const MISSILE_IMAGE_ID = "missile-icon"; // addImage로 얹는 🚀 아이콘 이름
 const MISSILE_EMOJI = "🚀"; // 미사일 마커 이모지 (Unicode에 전용 미사일 이모지가 없어 로켓 사용)
-const NUKE_SOURCE = "nuke-silos"; // 전술핵 사일로(울릉도·제주) 고정 마커
+const NUKE_SOURCE = "nuke-silos"; // 전술핵 사일로(제주) 고정 마커
 const NUKE_LAYER = "nuke-silos-layer";
 const NUKE_IMAGE_ID = "nuke-silo-icon"; // 일반 미사일보다 훨씬 큰 로켓 = 사일로 표식
 const RALLY_SOURCE = "rally"; // B2 집결지 깃발 마커
@@ -295,7 +295,7 @@ export function MapView({ prepared, connection }: Props) {
 
     // 지금 조준 반경 — 전술핵 조준 중이면 일반 미사일의 NUKE_RADIUS_MULT배.
     const aimRadius = () =>
-      useUIStore.getState().isNukeAiming ? RADIUS * CONFIG.NUKE_RADIUS_MULT : RADIUS;
+      useUIStore.getState().isNukeAiming ? RADIUS * RUNTIME_CONFIG.NUKE_RADIUS_MULT : RADIUS;
 
     // 마우스 위치를 중심으로 조준 원을 그리고, 원에 걸친 동을 targetSet에 담는다.
     // ownedOnly=true면 내 소유 동만(공수 source 단계), false면 모든 동(미사일·전술핵 조준).
@@ -369,7 +369,7 @@ export function MapView({ prepared, connection }: Props) {
     const fireMissile = (center: [number, number]) => {
       const st = useUIStore.getState();
       if (st.isNukeAiming) {
-        connection.sendNuke(center, RADIUS * CONFIG.NUKE_RADIUS_MULT, Array.from(aimedSet));
+        connection.sendNuke(center, RADIUS * RUNTIME_CONFIG.NUKE_RADIUS_MULT, Array.from(aimedSet));
         clearAim(aimedSet);
         st.setNukeAiming(false);
         return;
@@ -807,7 +807,7 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
-      // 전술핵 사일로(울릉도·제주) 마커 — 일반 미사일(28px)보다 훨씬 큰 로켓(48px)으로 구분.
+      // 전술핵 사일로(제주) 마커 — 일반 미사일(28px)보다 훨씬 큰 로켓(48px)으로 구분.
       // 사일로 위치는 정적이라 여기서 한 번만 그린다(소유가 바뀌어도 마커는 그대로).
       map.addSource(NUKE_SOURCE, {
         type: "geojson",

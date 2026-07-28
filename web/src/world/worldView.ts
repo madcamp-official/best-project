@@ -217,7 +217,7 @@ export function drainMissilesTouched(): boolean {
 // 내가 보유한 미사일 수 = 내 소유 동에 얹힌 미사일 수.
 export const myMissileCount = () => core.missileCount(world, world.myHolderId);
 
-// 전술핵 상태 요약(Hud용). owned=사일로(울릉도·제주) 보유 여부, cooldownLeftMs=남은 재장전(0=발사 가능).
+// 전술핵 상태 요약(Hud용). owned=사일로(제주) 보유 여부, cooldownLeftMs=남은 재장전(0=발사 가능).
 // 둘 다 보유 시 더 빨리 준비되는 쪽 기준.
 export function myNukeStatus(): { owned: boolean; cooldownLeftMs: number } {
   const mine = core.ownedNukeSilos(world, world.myHolderId);

@@ -53,7 +53,7 @@ interface UIState {
   missileCount: number; // 내 보유 미사일 수 (오른쪽 아래 표시)
   isAiming: boolean; // 미사일 조준 모드(발사 버튼 누른 상태)
   isNukeAiming: boolean; // 전술핵 조준 모드(사일로 보유자 전용, 반경 3배)
-  nukeOwned: boolean; // 전술핵 사일로(울릉도·제주) 보유 여부
+  nukeOwned: boolean; // 전술핵 사일로(제주) 보유 여부
   nukeCooldownLeft: number; // 전술핵 남은 재장전(ms). refreshSummary가 갱신
   rallyIndex: number; // B2 — 내 집결지 admIndex(-1=없음). 지정은 지도 더블클릭으로.
   attackQueueCount: number; // 내 공격 큐에 담긴 대상 수. 지정은 적·중립 지역 우클릭으로.

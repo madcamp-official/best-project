@@ -58,22 +58,15 @@ object MapCatalog {
     fun normalize(mapId: String?): String = mapId?.takeIf { RESOURCE_PATHS.containsKey(it) } ?: DEFAULT
 
     /**
-     * 지도별 거리 기반 물리 상수 오버라이드. 미사일/공수 범위는 실제 지리 거리(centroid 도 단위)에
-     * 하한 클램프 없이 그대로 비교되므로(GameCore.tryAirdrop/MissileController.withinRadius),
-     * 한국 동 지도 기준으로 튜닝된 기본값을 시군구(동보다 훨씬 큰 셀)에 그대로 쓰면 미사일이
-     * 사실상 안 보이고 공수는 항상 사거리 밖이 된다. 유닛 이동 속도(UNIT_SPEED_DEG_PER_SEC)는
-     * 건드리지 않는다 — 이동 시간이 UNIT_TRAVEL_MAX_SEC로 이미 클램프돼 거리가 커도 자연히
-     * 상한에서 멈춘다. world는 이 브랜치에 아직 없는 지도지만, feat/world-expansion과 병합을
+     * 지도별 거리 기반 물리 상수 오버라이드. 시군구(kr-sgg)가 유일한 지도가 되면서 그 값들은
+     * GameConfig 기본값으로 승격했다(클라 config.ts와 동기·단일 진실) — 여기엔 향후 지도(world)
+     * 항목만 남는다. world는 이 브랜치에 아직 없는 지도지만, feat/world-expansion과 병합을
      * 쉽게 하려고 오버라이드 키 자체는 그대로 둔다(RESOURCE_PATHS에 없어 실제로는 호출되지 않음).
-     *
-     * 아래 값은 셀 실측 거리(이웃 centroid 간 중간값 등)를 참고한 1차 추정치 — 플레이테스트로
-     * 조정 예정. missileHitMarginDeg는 World.radiusDeg(셀별 크기 보정)가 따로 있어 지도별로
-     * 크게 늘릴 필요는 없다(withinRadius 참조).
      */
-    private val MISSILE_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("kr-sgg" to 0.25, "world" to 3.0)
-    private val MISSILE_MAX_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("kr-sgg" to 0.4, "world" to 6.0)
+    private val MISSILE_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 3.0)
+    private val MISSILE_MAX_RADIUS_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 6.0)
     private val MISSILE_HIT_MARGIN_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 1.5)
-    private val AIRDROP_MAX_RANGE_DEG_OVERRIDES: Map<String, Double> = mapOf("kr-sgg" to 3.0, "world" to 60.0)
+    private val AIRDROP_MAX_RANGE_DEG_OVERRIDES: Map<String, Double> = mapOf("world" to 60.0)
 
     /** 방의 mapId에 맞춰 거리 기반 필드만 덮어쓴 GameConfig 사본을 만든다. 나머지(생산·전투 비율
      * 등 지도 무관 튜닝값)는 admin 설정 그대로 유지한다. */

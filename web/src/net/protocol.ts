@@ -51,7 +51,7 @@ export interface LaunchMissileCommand {
   hits: number[];
 }
 
-// 전술핵 발사(C→S). 사일로(울릉도·제주) 소유자만. hits = 전술핵 반경(일반 미사일의
+// 전술핵 발사(C→S). 사일로(제주) 소유자만. hits = 전술핵 반경(일반 미사일의
 // NUKE_RADIUS_MULT배) 원에 겹치는 동 admIndex 목록(클라 계산). 서버가 소유·쿨다운·근접을 검증한다.
 export interface LaunchNukeCommand {
   center: [number, number];
