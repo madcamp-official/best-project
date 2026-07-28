@@ -90,6 +90,9 @@
   inset: 0;
   pointer-events: none;
   font-size: 13px;
+  /* HUD 전체 확대 배율. 각 코너 패널이 자기 앵커 코너를 기준(transform-origin)으로 이 값만큼
+     scale 되어, 화면 모서리에 붙은 채로 함께 커진다. 크기 조절은 이 한 값만 바꾸면 된다. */
+  --hud-scale: 1.3;
 }
 
 .hud-center {
@@ -142,6 +145,8 @@
   bottom: 12px;
   left: 12px;
   max-width: 260px;
+  transform: scale(var(--hud-scale));
+  transform-origin: bottom left;
 }
 
 .hud-bottom-right {
@@ -219,6 +224,8 @@
 .hud-bottom-right {
   min-width: 200px;
   bottom: 34px; /* 지도 저작권(attribution) 바 위로 올려 겹침 방지 */
+  transform: scale(var(--hud-scale));
+  transform-origin: bottom right;
 }
 
 .hud-ratio-head {
@@ -684,7 +691,8 @@
   position: absolute;
   top: 12px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hud-scale));
+  transform-origin: top center;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -724,11 +732,15 @@
 .hud-col-left {
   left: 12px;
   width: 235px;
+  transform: scale(var(--hud-scale));
+  transform-origin: top left;
 }
 
 .hud-col-right {
   right: 12px;
   width: 235px;
+  transform: scale(var(--hud-scale));
+  transform-origin: top right;
 }
 
 /* ── HUD: 점유율 바 순위표(io 스타일) ── */

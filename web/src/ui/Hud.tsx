@@ -204,8 +204,8 @@ export function Hud({ connection, isMock }: Props) {
       </div>
 
       <div className="hud-panel hud-bottom-right">
-        {/* 액션 버튼 두 칸 — 미사일 · 공수 (즉시 쓰는 능동 기술) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end" }}>
+        {/* 액션 버튼 — 미사일 · 공수 (즉시 쓰는 능동 기술). 한 줄에 하나씩 세로로 쌓는다. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
           <div>
             <div className="hud-ratio-head">
               <span className="hud-title">미사일 🚀</span>
@@ -270,14 +270,14 @@ export function Hud({ connection, isMock }: Props) {
         >
           <div style={LEGEND_ROW}>
             <span style={KEY_BADGE}>우클릭</span>
-            <span style={{ flex: 1 }}>공격 큐 ⚔️ 담기 / 빼기</span>
+            <span style={{ flex: 1 }}>공격 목표 지정 ⚔️</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {attackQueueCount > 0 ? `${attackQueueCount}곳` : "없음"}
             </strong>
           </div>
           <div style={LEGEND_ROW}>
             <span style={KEY_BADGE}>더블클릭</span>
-            <span style={{ flex: 1 }}>집결지 🚩 지정 / 해제</span>
+            <span style={{ flex: 1 }}>집결지 설정 🚩</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {rallyName ?? "없음"}
             </strong>

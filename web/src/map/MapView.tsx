@@ -1229,8 +1229,8 @@ export function MapView({ prepared, connection }: Props) {
         if (next && st.isTransporting) st.setTransporting(false); // 공수 중이었으면 해제하고 조준으로
         return;
       }
-      // Left Shift = 공수부대(병력 수송) 모드 토글 (오른쪽 아래 버튼과 동일 동작).
-      if (e.code === "ShiftLeft") {
+      // Shift(좌·우 모두) = 공수부대(병력 수송) 모드 토글 (오른쪽 아래 버튼과 동일 동작).
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
         if (e.repeat) return; // 키를 누르고 있을 때의 리핏으로 반복 토글되지 않게.
         e.preventDefault();
         const st = useUIStore.getState();
