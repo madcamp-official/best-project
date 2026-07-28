@@ -48,17 +48,17 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
           벌이는 실시간 영토 전쟁
         </p>
 
-        {isFirebaseConfigured && (
-          <button
-            className="io-btn io-btn-primary io-btn-lg io-btn-block"
-            type="button"
-            disabled={busy}
-            onClick={handleGoogle}
-            style={{ marginTop: 18 }}
-          >
-            {busy ? "로그인 중…" : "Google로 로그인"}
-          </button>
-        )}
+        {/* 설정이 없을 때 버튼을 조용히 숨기면 "로그인 기능이 고장났다"로 오해하게 된다 —
+            비활성 버튼 + 이유를 남겨, 받는 사람이 자기 환경 설정 문제임을 바로 알게 한다. */}
+        <button
+          className="io-btn io-btn-primary io-btn-lg io-btn-block"
+          type="button"
+          disabled={busy || !isFirebaseConfigured}
+          onClick={handleGoogle}
+          style={{ marginTop: 18 }}
+        >
+          {busy ? "로그인 중…" : "Google로 로그인"}
+        </button>
 
         <button className="io-btn io-btn-block" type="button" onClick={onGuest} style={{ marginTop: 10 }}>
           게스트로 플레이
@@ -66,6 +66,11 @@ export function AuthChoiceScreen({ onGuest, onLoggedIn }: Props) {
         {error ? (
           <p className="join-hint" style={{ color: "#ff8a8a" }}>
             {error}
+          </p>
+        ) : !isFirebaseConfigured ? (
+          <p className="join-hint" style={{ color: "#ffcf8a" }}>
+            이 PC에 구글 로그인 설정이 없어 비활성화됨 — web/.env.example을 복사해
+            web/.env.local을 채우면 켜집니다(팀에 값 요청). 게스트로는 바로 플레이할 수 있어요.
           </p>
         ) : (
           <p className="join-hint">로그인하면 레벨과 친구 목록이 계정에 저장됩니다</p>
