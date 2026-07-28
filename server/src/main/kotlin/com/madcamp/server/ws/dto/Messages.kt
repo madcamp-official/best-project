@@ -105,6 +105,9 @@ data class DeltaMessage(
     // 전술핵 발사로 사일로 쿨다운이 바뀐 tick에만 실린다(NUKE_SILO_CODES 순서, serverTimeMs 시간축).
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val nukeReadyAtMs: List<Long>? = null,
+    // 이번 tick에 제거된 이동 유닛 id(미사일·전술핵 착탄 동 위의 유닛). 클라가 world.orders에서 뺀다.
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val removedOrders: List<Int>? = null,
 )
 
 data class LeaderboardMessage(

@@ -50,6 +50,8 @@ class NukeController(
                 // 소모되는 미사일이 없으므로 missileRemove는 건드리지 않는다(사일로는 영구).
                 // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 폭발 연출 경로는 미사일과 공유.
                 world.pendingMissileImpacts.addAll(res.neutralized)
+                // 착탄 동 위를 지나던 이동 유닛도 전부 소멸(광역이라 여러 유닛이 걸릴 수 있다).
+                world.pendingRemovedOrders.addAll(GameCore.destroyOrdersOnCells(world, res.neutralized))
             }
         }
     }

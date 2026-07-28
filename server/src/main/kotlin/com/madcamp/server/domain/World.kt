@@ -67,9 +67,11 @@ class World(
     val pendingMissileImpacts: MutableList<Int> = mutableListOf() // 이번 구간 미사일 착탄 동(폭발 연출용)
     val pendingNewHolders: MutableList<Holder> = mutableListOf() // 신규 참가자 holder (색상 동기화용)
     val pendingShields: MutableList<ShieldInfo> = mutableListOf() // 새로 생기거나 갱신된 방어막
+    val pendingRemovedOrders: MutableList<Int> = mutableListOf() // 이번 tick에 제거된 유닛 id(미사일 타격)
 
     var nextHolderId: Int = 1 // 0=중립, 255=E 예약이므로 1부터. 254 도달 시 순환(HolderIdAllocator).
     var nextLogId: Int = 1
+    var nextOrderId: Int = 1 // 이동 유닛(order) 고유 id 발급 카운터(미사일 타격 등으로 제거 시 지목용).
     var envLastActMs: Long = 0L
 
     /** 1..254 순환 할당(0 중립·255 E 예약). 이미 쓰는 id는 건너뛴다. 254개 다 차면 예외.

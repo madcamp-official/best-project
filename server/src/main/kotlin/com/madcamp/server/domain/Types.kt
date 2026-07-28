@@ -11,6 +11,7 @@ data class Holder(
 
 /** README §4.4 — 유닛 이동 이음매. departTick/arriveTick은 서버 벽시계(epoch ms) 기준. */
 data class Order(
+    val id: Int, // 이동 유닛 고유 id(미사일 타격 등으로 제거 시 클라에서 지목용). web/src/game/types.ts Order.id 대응.
     val from: Int,
     val to: Int,
     val amount: Int,

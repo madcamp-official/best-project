@@ -51,6 +51,8 @@ class MissileController(
                 world.pendingMissileRemove.add(res.removed) // 중립화된 동은 dirty로 cells에 실린다
                 // 착탄 동 전부(이미 중립이던 동 포함)를 실어 보낸다 — 소유권 변화가 없어도 폭발이 뜨게.
                 world.pendingMissileImpacts.addAll(res.neutralized)
+                // 착탄 동 위를 지나던 이동 유닛도 전부 소멸 — 클라 렌더에서 사라지도록 removedOrders로 전파.
+                world.pendingRemovedOrders.addAll(GameCore.destroyOrdersOnCells(world, res.neutralized))
             }
         }
     }
