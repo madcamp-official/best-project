@@ -1,6 +1,7 @@
 package com.madcamp.server.game
 
 import com.madcamp.server.data.MapCatalog
+import com.madcamp.server.domain.LeaderboardRow
 import com.madcamp.server.domain.World
 
 /** 방 생명주기 상태. LOBBY(대기)에서 시작 → PLAYING(라운드 진행) → ENDED(결과) → 다시 LOBBY. */
@@ -42,7 +43,14 @@ class Room(
     var supplyAccumSec: Double = 0.0 // 보급 흐름 주기 누산기
     var attackAccumSec: Double = 0.0 // 공격 큐 주기 누산기
     var aiActAccumSec: Double = 0.0 // AI 플레이어 행동 주기 누산기
-    var lastEnclosedKey: String = "" // 직전 브로드캐스트의 포위 동 집합 키 — 바뀔 때만 enclosed 전송
+    // 직전 브로드캐스트 시점의 enclosedBy 복사본 — 달라진 tick에만 enclosed를 싣는다.
+    // (예전엔 매 tick 포위 목록을 문자열 키로 만들어 비교했는데, 그 방식은 tick마다 리스트·문자열을
+    //  할당한다. IntArray 원본 비교는 안 바뀐 tick에 할당이 전혀 없다.)
+    var lastEnclosedBy: IntArray = IntArray(0)
+    // 직전에 전송한 리더보드 — 내용이 같으면 스킵한다(강제 재전송 주기 제외, GameLoop 참조).
+    var lastLeaderboard: List<LeaderboardRow>? = null
+    var lastEnvCells: Int = -1
+    var lastLeaderboardTick: Long = 0L
     val rng: java.util.Random = java.util.Random()
 }
 
