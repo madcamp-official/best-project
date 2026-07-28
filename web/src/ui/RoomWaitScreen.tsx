@@ -40,9 +40,7 @@ export function RoomWaitScreen({ connection }: Props) {
           {currentRoom?.name ?? "방"}
         </h1>
         <p className="io-tagline">
-          {isRoomHost
-            ? "👑 방장입니다 — 모두 준비되면 시작하세요 (혼자면 야만인과 대결)"
-            : "준비를 누르면 방장이 게임을 시작할 수 있어요"}
+          {isRoomHost ? "👑 방장 — 모두 준비되면 시작" : "준비 완료를 누르세요"}
         </p>
 
         {currentRoom?.joinCode && (
@@ -121,16 +119,6 @@ export function RoomWaitScreen({ connection }: Props) {
             나가기
           </button>
         </div>
-
-        <p className="join-hint">
-          {isRoomHost
-            ? allReady
-              ? "모두 준비됐어요 — 시작할 수 있습니다!"
-              : "모든 플레이어가 준비하면 시작 버튼이 켜져요"
-            : myReady
-              ? "방장이 시작하기를 기다리는 중…"
-              : "준비 완료를 누르고 기다려 주세요"}
-        </p>
       </div>
     </div>
   );
