@@ -376,6 +376,8 @@
   font-weight: 900;
   letter-spacing: 2px;
   color: #f1f5f9;
+  /* 좁은 화면에서 "시뮬레/이터"처럼 단어 중간이 꺾이지 않게 — 공백(구청장|시뮬레이터)에서만 줄바꿈 */
+  word-break: keep-all;
 }
 
 .io-logo .accent {

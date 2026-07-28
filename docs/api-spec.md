@@ -158,6 +158,7 @@ interface ErrorMessage {
 | `NO_TROOPS` | `floor(troops[from] * ratio) <= 0` | 출정 가능한 병력이 없습니다. |
 | `ALREADY_FULL` | `to`가 내 동이고 `troopCap[to] - troops[to] <= 0`(이미 상한) | 이미 병력이 가득 찬 동입니다. |
 | `NO_MISSILE` | 발사자 소유 동 중 미사일이 얹힌 동이 없음 | 발사할 미사일이 없습니다. |
+| `NO_MISSILE` | 목표(hits)에 스폰 방어막 보호 동이 포함됨 — 발사 거부, 미사일 소모 없음 | 스폰 방어막이 보호 중인 영토라 발사할 수 없습니다. |
 
 - `to`가 내 동(증원)인데 상한 여유가 있지만 `amount`보다 적으면 거부하지 않는다 — 서버가 `amount`를 여유분(`troopCap[to] - troops[to]`)으로 **클램프해서 보낸다**(넘치는 병력이 출발조차 안 함, 초과분 소멸 방지).
 - `NO_MISSILE`는 `from`/`to`가 의미 없어 둘 다 `-1`로 온다.

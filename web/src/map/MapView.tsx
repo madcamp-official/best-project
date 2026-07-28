@@ -1,6 +1,12 @@
 import { useEffect, useRef } from "react";
-import { AttributionControl, Map as MaplibreMap, type GeoJSONSource, type MapMouseEvent } from "maplibre-gl";
+import { AttributionControl, Map as MaplibreMap, setWorkerUrl, type GeoJSONSource, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre 웹워커(타일 파싱·렌더 백엔드) URL을 명시 지정. 기본 동작은 메인 모듈의
+// import.meta.url 기준 상대 경로(./maplibre-gl-worker.mjs)라서 Vite 프로덕션 번들에선
+// /assets/maplibre-gl-worker.mjs 404 → 지도가 통째로 빈 화면이 된다(dev는 node_modules
+// 직서빙이라 멀쩡해 눈에 안 띔). ?worker&url = 워커를 의존성까지 자립 청크로 번들한 URL.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+setWorkerUrl(maplibreWorkerUrl);
 import type { PreparedMap } from "../data/loadMapData";
 import {
   world,

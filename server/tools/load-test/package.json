@@ -1,0 +1,13 @@
+{
+  "name": "load-test",
+  "private": true,
+  "type": "module",
+  "description": "STOMP 가짜 클라이언트 부하 테스트 — 방 N개 × 클라 M명으로 대역폭·지연·서버 틱 시간을 측정",
+  "scripts": {
+    "load": "node load.mjs"
+  },
+  "dependencies": {
+    "@stomp/stompjs": "^7.0.0",
+    "ws": "^8.18.0"
+  }
+}

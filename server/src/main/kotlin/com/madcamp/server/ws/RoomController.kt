@@ -122,7 +122,10 @@ class RoomController(
         room.supplyAccumSec = 0.0
         room.attackAccumSec = 0.0
         room.aiActAccumSec = 0.0
-        room.lastEnclosedKey = ""
+        room.lastEnclosedBy = IntArray(world.n) { -1 } // 프레시 월드는 포위 없음 — 첫 tick 불필요 전송 방지
+        room.lastLeaderboard = null
+        room.lastEnvCells = -1
+        room.lastLeaderboardTick = 0L
         room.lastTickNanos = System.nanoTime()
         room.roundStartMs = System.currentTimeMillis()
         room.winnerHolderId = -1

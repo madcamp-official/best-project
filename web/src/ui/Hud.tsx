@@ -252,7 +252,11 @@ export function Hud({ connection, isMock }: Props) {
         >
           <div style={LEGEND_ROW}>
             <span style={KEY_BADGE}>우클릭</span>
-            <span style={{ flex: 1 }}>공격 목표 지정 ⚔️</span>
+            <span style={{ flex: 1 }}>
+              공격 목표 지정 ⚔️
+              <br />
+              (인접한 지역만 가능)
+            </span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {attackQueueCount > 0 ? `${attackQueueCount}곳` : "없음"}
             </strong>

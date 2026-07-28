@@ -12,6 +12,7 @@ import com.madcamp.server.domain.World
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
+import com.madcamp.server.ranking.RankingService
 import com.madcamp.server.ws.RoomBroadcaster
 import com.madcamp.server.ws.dto.DeltaMessage
 import com.madcamp.server.ws.dto.LeaderboardMessage
@@ -44,6 +45,8 @@ class GameLoop(
     private val roomBroadcaster: RoomBroadcaster,
     private val messagingTemplate: SimpMessagingTemplate,
     private val appUserRepository: AppUserRepository,
+    private val loopMetrics: LoopMetrics,
+    private val rankingService: RankingService,
 ) {
     private val log = LoggerFactory.getLogger(GameLoop::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "game-loop") }
@@ -58,6 +61,7 @@ class GameLoop(
         // 레거시/스모크테스트 호환 브리지: 기본 방을 PLAYING으로 띄운다(정식 경로는 로비).
         val room = roomManager.createWithId(RoomManager.DEFAULT_ROOM_ID, "기본 방")
         room.world = createFreshWorld(room.mapId)
+        room.lastEnclosedBy = IntArray(room.world!!.n) { -1 }
         room.state = RoomState.PLAYING
         room.roundStartMs = System.currentTimeMillis()
         room.lastTickNanos = System.nanoTime()
@@ -111,6 +115,7 @@ class GameLoop(
     // 실제로 이 때문에 게임 루프 전체(빈 방 청소 포함, 방 생성도 이 스레드에서 처리됨)가 예외 흔적도
     // 없이 멈춘 적이 있어(2026-07-27), 반드시 여기서 다 삼키고 로그를 남긴다.
     private fun safeTick() {
+        val startedNanos = System.nanoTime()
         try {
             val config = configService.current
             for (room in roomManager.playingRooms()) {
@@ -125,6 +130,8 @@ class GameLoop(
             if (globalTickCount % EMPTY_ROOM_SWEEP_EVERY_N_TICKS == 0L) sweepEmptyRooms()
         } catch (e: Throwable) {
             log.error("game loop tick failed — 다음 tick은 계속 진행됨", e)
+        } finally {
+            loopMetrics.recordTick(System.nanoTime() - startedNanos)
         }
     }
 
@@ -209,9 +216,13 @@ class GameLoop(
     private fun endRound(room: Room, winnerHolderId: Int, reason: String) {
         val world = room.world
         val leaderboard = world?.let { GameCore.getLeaderboard(it) } ?: emptyList()
-        val winnerName = world?.holders?.get(winnerHolderId)?.name
+        val winner = world?.holders?.get(winnerHolderId)
+        val winnerName = winner?.name
         roomBroadcaster.broadcastRoundEnd(room, reason, winnerHolderId, winnerName, leaderboard)
         log.info("Room {} round ended ({}), winner={}", room.id, reason, winnerName)
+
+        // 명예의 전당(Redis) — 사람 승자만 닉네임으로 기록(AI 봇 제외). 비동기라 tick에 영향 없다.
+        if (winner != null && !winner.isAi && winnerHolderId != HolderIds.ENV) rankingService.recordWin(winner.name)
 
         room.state = RoomState.ENDED
         // 구글 로그인(feat/google-login) 계정에 전적을 쌓는다 — holderId 리셋 전에, 승자와 같은
@@ -273,9 +284,8 @@ class GameLoop(
         val updatedOrders = world.pendingUpdatedOrders.toList()
         world.pendingUpdatedOrders.clear()
 
-        val enclosedList = (0 until world.n).filter { world.enclosedBy[it] >= 0 }
-        val enclosedKey = enclosedList.joinToString(",")
-        val enclosedChanged = enclosedKey != room.lastEnclosedKey
+        // 안 바뀐 tick(대부분)엔 IntArray 비교만 하고 아무것도 할당하지 않는다(Room.lastEnclosedBy 참조).
+        val enclosedChanged = !world.enclosedBy.contentEquals(room.lastEnclosedBy)
 
         val nukeChanged = world.nukeDirty
         world.nukeDirty = false
@@ -287,13 +297,13 @@ class GameLoop(
         ) {
             return
         }
-        room.lastEnclosedKey = enclosedKey
+        if (enclosedChanged) room.lastEnclosedBy = world.enclosedBy.copyOf()
 
         val cells = dirty.map { intArrayOf(it, world.ownerId[it], world.troops[it]) }
         val msg = DeltaMessage(
             nowMs, cells, newOrders, events, missileAdd, missileRemove, missileImpacts, newHolders,
             shieldUpdates,
-            enclosed = if (enclosedChanged) enclosedList else null,
+            enclosed = if (enclosedChanged) (0 until world.n).filter { world.enclosedBy[it] >= 0 } else null,
             nukeReadyAtMs = if (nukeChanged) world.nukeReadyAt.toList() else null,
             removedOrders = removedOrders.ifEmpty { null },
             updatedOrders = updatedOrders.ifEmpty { null },
@@ -306,6 +316,13 @@ class GameLoop(
         val world = room.world ?: return
         val rows = GameCore.getLeaderboard(world)
         val envCells = GameCore.ownedCount(world, HolderIds.ENV)
+        // 순위가 그대로면 스킵 — 단, 강제 재전송 주기마다 한 번은 보내서 중간 합류·재접속 클라의
+        // HUD가 오래 비어 있지 않게 한다(리더보드는 WELCOME 스냅샷에 안 실리는 유일한 HUD 정보).
+        val unchanged = rows == room.lastLeaderboard && envCells == room.lastEnvCells
+        if (unchanged && room.tickCount - room.lastLeaderboardTick < LEADERBOARD_FORCE_EVERY_N_TICKS) return
+        room.lastLeaderboard = rows
+        room.lastEnvCells = envCells
+        room.lastLeaderboardTick = room.tickCount
         val msg = LeaderboardMessage(rows, envCells, world.n)
         messagingTemplate.convertAndSend(leaderboardTopic(room.id), msg)
         if (room.id == RoomManager.DEFAULT_ROOM_ID) messagingTemplate.convertAndSend(LEGACY_LEADERBOARD_TOPIC, msg)
@@ -314,6 +331,7 @@ class GameLoop(
     companion object {
         private const val TICK_MS = 200L // 5Hz
         private const val LEADERBOARD_EVERY_N_TICKS = 5L // 1Hz
+        private const val LEADERBOARD_FORCE_EVERY_N_TICKS = 50L // 내용이 안 바뀌어도 10초마다 한 번은 전송
         private const val EMPTY_ROOM_SWEEP_EVERY_N_TICKS = 25L // 5초마다 — 빈 방 청소 안전망
         private const val LEGACY_WORLD_TOPIC = "/topic/world"
         private const val LEGACY_LEADERBOARD_TOPIC = "/topic/leaderboard"
