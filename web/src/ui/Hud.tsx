@@ -262,18 +262,6 @@ export function Hud({ connection, isMock }: Props) {
           <div className="hud-ratio-hint">
             내 동 <strong>더블클릭</strong> = 지정·해제 · 후방 병력이 매 초 한 칸씩 집결
           </div>
-
-          <div className="hud-ratio-hint" style={{ marginTop: 8 }}>
-            🚀 <strong>미사일</strong>: Space로 조준 → 클릭한 지역 중립화
-          </div>
-          <div className="hud-ratio-hint">
-            🪂 <strong>공수</strong>: Shift로 조준 → 원으로 내 동 선택 → 목적지 투하(섬 가능)
-          </div>
-          {nukeOwned && (
-            <div className="hud-ratio-hint">
-              ☢ <strong>전술핵</strong>: 사일로 보유 시 3분마다 3배 광역 미사일
-            </div>
-          )}
         </div>
       </div>
 
