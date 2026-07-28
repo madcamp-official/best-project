@@ -84,12 +84,13 @@ export class LocalConnection implements Connection {
     }
   }
 
-  // 사람 시작 동 — 인접 있는(고립 아닌) 동 중 무작위. 첫 배치라 기준점이 없어 완전 무작위이고,
-  // 이후 AI는 core.pickStartCell이 이 위치에서 멀리 고르게 배치한다.
+  // 사람 시작 동 — 본토(서울에서 인접 BFS로 도달) 중 무작위. 섬(제주·울릉 등)은 제외한다. 첫
+  // 배치라 기준점이 없어 완전 무작위이고, 이후 AI는 core.pickStartCell이 이 위치에서 멀리 배치한다.
   private pickRandomStartIndex(): number {
+    const mainland = core.mainlandFromSeoul(this.prepared.neighborIndex, this.prepared.meta, this.prepared.n);
     const usable: number[] = [];
     for (let i = 0; i < this.prepared.n; i++) {
-      if (this.prepared.neighborIndex[i].length > 0) usable.push(i);
+      if (mainland.has(i)) usable.push(i);
     }
     if (usable.length === 0) return 0;
     return usable[Math.floor(Math.random() * usable.length)];

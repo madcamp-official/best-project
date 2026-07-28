@@ -1,0 +1,17 @@
+# VM용 compose — 빌드 없이 GHCR 이미지를 pull해서 실행한다(빌드는 GitHub Actions가 담당).
+# VM의 ~/deploy/docker-compose.yml 로 복사해 두면 deploy.yml의 ssh 단계가
+# `docker compose pull && up -d`로 새 버전을 교체한다.
+#
+# 준비물(1회):
+#   mkdir -p ~/deploy/secrets
+#   (선택) 구글 로그인 서버 검증: secrets/firebase-service-account.json 업로드
+#   GHCR 패키지를 private로 유지하면: docker login ghcr.io (read:packages PAT)
+services:
+  game:
+    image: ghcr.io/madcamp-official/best-project:latest
+    ports:
+      - "80:8080"
+    volumes:
+      - ./data:/app/data # H2 유저 DB 영속화 — 재배포에도 계정 유지
+      - ./secrets:/app/secrets:ro # firebase-service-account.json (없어도 게스트 접속은 정상)
+    restart: unless-stopped

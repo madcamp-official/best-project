@@ -836,9 +836,15 @@ export function tryAirdrop(
   if (!rangeExempt && airdropScaledDist(s, origin, dest) > CONFIG.AIRDROP_MAX_RANGE_DEG) {
     return { ok: false, reason: "공수 사거리를 벗어났습니다 — 더 가까운 목적지를 선택하세요.", code: "AIRDROP_RANGE" };
   }
+  // 밸런스 — 한 번에 최대 AIRDROP_MAX_TROOPS까지만 싣는다. 초과분은 출발 동에 그대로 남는다.
+  const amount = Math.min(total, CONFIG.AIRDROP_MAX_TROOPS);
+  let capacity = amount;
   for (const i of valid) {
-    if (s.troops[i] > 0) {
-      s.troops[i] = 0; // 전부(100%) 실어 보낸다
+    if (capacity <= 0) break;
+    const take = Math.min(s.troops[i], capacity);
+    if (take > 0) {
+      s.troops[i] -= take;
+      capacity -= take;
       s.dirty.add(i);
     }
   }
@@ -849,7 +855,7 @@ export function tryAirdrop(
     s,
     origin,
     dest,
-    total,
+    amount,
     holderId,
     nowMs,
     undefined,
@@ -985,11 +991,9 @@ export function respawnPlayer(s: GameState, holderId: number, wallNowMs: number)
   if (!holder || holderId === NEUTRAL_HOLDER_ID || holderId === CONFIG.ENV_HOLDER_ID) return false;
   if (ownedCount(s, holderId) > 0) return false; // 아직 안 죽음 — 무시
 
-  const neutralCells: number[] = [];
-  for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) neutralCells.push(i);
-  if (neutralCells.length === 0) return false; // 빈 동이 없으면 실패
-
-  const newCell = neutralCells[Math.floor(Math.random() * neutralCells.length)];
+  // 신규 참가와 같은 배정 규칙 — 본토에서만(섬 제외), 기존 플레이어와 멀리.
+  const newCell = pickStartCell(s);
+  if (newCell === null) return false; // 본토에 빈 중립 셀이 없으면 실패
   s.ownerId[newCell] = holderId;
   s.troops[newCell] = s.troopCap[newCell];
   s.dirty.add(newCell);
@@ -1270,20 +1274,53 @@ function allocateHolderId(s: GameState): number {
   throw new Error("holderId 254개가 모두 사용 중입니다.");
 }
 
-// 시작 동 배정 — 전국에 랜덤하면서도 고르게(최원점 샘플링, server StartCellAssigner.pick 대응).
-// 첫 배치는 무작위, 이후엔 "가장 가까운 기존 플레이어까지의 거리"가 충분히 먼 후보 중 무작위.
+// 시작 동 배정 — 본토(서울에서 인접 BFS로 도달)에서만, 랜덤하면서도 고르게(최원점 샘플링,
+// server StartCellAssigner.pick 대응). 첫 배치는 무작위, 이후엔 "가장 가까운 기존
+// 플레이어까지의 거리"가 충분히 먼 후보 중 무작위. 섬은 스폰 후보에서 제외한다.
 const START_FAR_FRACTION = 0.6; // 최원점(제곱거리) 대비 이 비율 이상 떨어진 후보 = "충분히 먼 곳"
+const SPAWN_ANCHOR_SIDOCD = "11"; // 서울 — BFS 시드(도달 가능한 곳이 곧 본토)
+const SPAWN_EXCLUDE_SIDOCD = "50"; // 제주 — 시작 지점에서 명시적으로 제외
+
+// 스폰 가능한 본토 판정 — 서울(sidocd "11")에서 인접 그래프로 BFS해 도달하는 셀 집합.
+// 섬(서울과 인접이 끊긴 별도 컴포넌트)은 도달하지 못해 자연히 빠지고, 제주(sidocd "50")는
+// 혹시 데이터상 연결돼 있더라도 명시적으로 제외한다. 인접은 정적이라 소유와 무관하게
+// 그래프 구조만으로 계산한다. server StartCellAssigner.mainlandFromSeoul 대응.
+export function mainlandFromSeoul(
+  neighborIndex: readonly (readonly number[])[],
+  meta: readonly { sidocd: string }[],
+  n: number
+): Set<number> {
+  const seen = new Uint8Array(n);
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (meta[i].sidocd === SPAWN_ANCHOR_SIDOCD) {
+      seen[i] = 1;
+      queue.push(i);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    for (const nb of neighborIndex[queue[head]]) {
+      if (!seen[nb]) {
+        seen[nb] = 1;
+        queue.push(nb);
+      }
+    }
+  }
+  const out = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    if (seen[i] && meta[i].sidocd !== SPAWN_EXCLUDE_SIDOCD) out.add(i);
+  }
+  return out;
+}
+
 export function pickStartCell(s: GameState): number | null {
-  const usable: number[] = [];
+  // 무조건 본토에서만 스폰 — 서울에서 BFS로 못 닿는 섬·제주는 후보에서 제외한다.
+  const mainland = mainlandFromSeoul(s.neighborIndex, s.meta, s.n);
+  const pool: number[] = [];
   for (let i = 0; i < s.n; i++) {
-    if (s.ownerId[i] === NEUTRAL_HOLDER_ID && s.neighborIndex[i].length > 0) usable.push(i);
+    if (s.ownerId[i] === NEUTRAL_HOLDER_ID && mainland.has(i)) pool.push(i);
   }
-  let pool = usable;
-  if (pool.length === 0) {
-    pool = [];
-    for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) pool.push(i);
-  }
-  if (pool.length === 0) return null;
+  if (pool.length === 0) return null; // 본토에 빈 중립 셀이 없음 — 섬엔 두지 않는다
 
   const refs: number[] = [];
   for (let i = 0; i < s.n; i++) {
