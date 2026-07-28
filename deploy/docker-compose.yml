@@ -1,17 +1,26 @@
 # VM용 compose — 빌드 없이 GHCR 이미지를 pull해서 실행한다(빌드는 GitHub Actions가 담당).
-# VM의 ~/deploy/docker-compose.yml 로 복사해 두면 deploy.yml의 ssh 단계가
-# `docker compose pull && up -d`로 새 버전을 교체한다.
+# VM의 ~/deploy/docker-compose.yml 로 복사해 두고 최초 1회 `docker compose up -d` 하면,
+# 이후에는 watchtower가 30초마다 GHCR의 :latest 갱신을 감지해 자동으로 pull+재기동한다
+# (kcloud VM은 외부에서 ssh 불가라 push 배포 대신 pull 배포 — deploy.yml 참조).
 #
 # 준비물(1회):
 #   mkdir -p ~/deploy/secrets
+#   GHCR 패키지(best-project)를 Public으로 설정 — 아니면 docker login ghcr.io 필요
 #   (선택) 구글 로그인 서버 검증: secrets/firebase-service-account.json 업로드
-#   GHCR 패키지를 private로 유지하면: docker login ghcr.io (read:packages PAT)
 services:
   game:
     image: ghcr.io/madcamp-official/best-project:latest
+    container_name: game # watchtower가 이 이름으로 감시 대상을 지정한다
     ports:
-      - "80:8080"
+      - "80:8080" # 도메인(Cloudflare)이 VM:80을 오리진으로 바라본다. TLS는 Cloudflare가 종단.
     volumes:
       - ./data:/app/data # H2 유저 DB 영속화 — 재배포에도 계정 유지
       - ./secrets:/app/secrets:ro # firebase-service-account.json (없어도 게스트 접속은 정상)
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 30 --cleanup game # game 컨테이너만 감시, 옛 이미지는 자동 정리
     restart: unless-stopped
