@@ -46,6 +46,7 @@ export interface GameState {
   nukeIslandMask: Uint8Array;
   logEntries: LogEntry[];
   nextLogId: number;
+  nextOrderId: number; // 이동 유닛(order) 고유 id 발급 카운터.
 }
 
 export type SortieResult = { ok: true } | { ok: false; reason: string };
@@ -99,6 +100,7 @@ export function createGameState(
     nukeIslandMask: new Uint8Array(n),
     logEntries: [],
     nextLogId: 1,
+    nextOrderId: 1,
   };
   initNukeState(s);
 
@@ -275,6 +277,7 @@ function makeOrder(
     maxSec
   );
   return {
+    id: s.nextOrderId++,
     from,
     to,
     amount,
@@ -283,6 +286,91 @@ function makeOrder(
     arriveTick: nowMs + travelSec * 1000,
     ...(path && path.length > 0 ? { path } : {}),
   };
+}
+
+// 이동 유닛의 현재 보간 위치([lng,lat]) — 렌더러의 보간과 동일(departTick→arriveTick 선형).
+function orderPosition(s: GameState, o: Order, nowMs: number): [number, number] {
+  const span = o.arriveTick - o.departTick;
+  const t = span > 0 ? Math.min(1, Math.max(0, (nowMs - o.departTick) / span)) : 1;
+  const a = s.meta[o.from].centroid;
+  const b = s.meta[o.to].centroid;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+// ① 미사일이 이동 유닛도 타격 — center 반경 안에 있는 이동 중 유닛(order)을 전부 파괴한다.
+// 반환 = 파괴된 order id 목록(호출자가 DELTA removedOrders로 실어 클라 렌더에서 제거).
+// launchMissile/launchNuke는 동(territory)만 중립화하므로, 유닛 타격은 이 헬퍼를 따로 호출한다.
+export function destroyOrdersInRadius(
+  s: GameState,
+  center: [number, number],
+  radiusDeg: number,
+  nowMs: number
+): number[] {
+  const cosLat = Math.cos((center[1] * Math.PI) / 180) || 1;
+  const r2 = radiusDeg * radiusDeg;
+  const removed: number[] = [];
+  const survivors: Order[] = [];
+  for (const o of s.orders) {
+    const p = orderPosition(s, o, nowMs);
+    const dx = (p[0] - center[0]) * cosLat;
+    const dy = p[1] - center[1];
+    if (dx * dx + dy * dy <= r2) removed.push(o.id);
+    else survivors.push(o);
+  }
+  if (removed.length > 0) s.orders = survivors;
+  return removed;
+}
+
+// ② 같은 통로 정면충돌 — A→B와 B→A(같은 변, 반대 방향, 다른 소유주)가 서로를 지나친 순간
+// 중간에서 클래시한다: 작은 쪽 소멸, 큰 쪽은 차액으로 계속(같으면 둘 다 소멸). 호출자가 매 tick 호출.
+// 반환 = 제거된 id + 병력이 바뀐 유닛{ id, amount } (DELTA removedOrders/updatedOrders로 반영).
+export function tickOrderClashes(
+  s: GameState,
+  nowMs: number
+): { removed: number[]; updated: { id: number; amount: number }[] } {
+  const removed: number[] = [];
+  const updated: { id: number; amount: number }[] = [];
+  // 방향별 변 인덱스: `from_to` → 그 방향으로 이동 중인 order들.
+  const byEdge = new Map<string, Order[]>();
+  for (const o of s.orders) {
+    if (nowMs >= o.arriveTick) continue; // 곧 도착(tickOrders가 처리) — 충돌 대상 아님
+    const k = o.from + "_" + o.to;
+    const arr = byEdge.get(k);
+    if (arr) arr.push(o);
+    else byEdge.set(k, [o]);
+  }
+  const progress = (o: Order) => {
+    const span = o.arriveTick - o.departTick;
+    return span > 0 ? Math.min(1, Math.max(0, (nowMs - o.departTick) / span)) : 1;
+  };
+  const consumed = new Set<number>();
+  for (const o1 of s.orders) {
+    if (consumed.has(o1.id) || nowMs >= o1.arriveTick) continue;
+    const opp = byEdge.get(o1.to + "_" + o1.from); // 반대 방향(같은 변)
+    if (!opp) continue;
+    for (const o2 of opp) {
+      if (consumed.has(o1.id)) break;
+      if (consumed.has(o2.id) || o2.holderId === o1.holderId) continue; // 아군끼리는 통과
+      if (progress(o1) + progress(o2) < 1) continue; // 아직 서로를 안 지나침
+      if (o1.amount > o2.amount) {
+        o1.amount -= o2.amount;
+        updated.push({ id: o1.id, amount: o1.amount });
+        consumed.add(o2.id);
+        removed.push(o2.id);
+      } else if (o2.amount > o1.amount) {
+        o2.amount -= o1.amount;
+        updated.push({ id: o2.id, amount: o2.amount });
+        consumed.add(o1.id);
+        removed.push(o1.id);
+      } else {
+        consumed.add(o1.id);
+        consumed.add(o2.id);
+        removed.push(o1.id, o2.id);
+      }
+    }
+  }
+  if (consumed.size > 0) s.orders = s.orders.filter((o) => !consumed.has(o.id));
+  return { removed, updated };
 }
 
 // README §B1 — 경로 자동 출정. 멀리 있는 내 동(finalTarget)까지 내 영토만 밟는 최단 경로를
