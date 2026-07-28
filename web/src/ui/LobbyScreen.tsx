@@ -81,7 +81,7 @@ export function LobbyScreen({ connection }: Props) {
         {/* 오른쪽: 브랜딩 + 닉네임 + 방 만들기 */}
         <div className="lobby-right">
           <h1 className="io-logo">
-            <span className="accent">동대장</span> 시뮬레이터
+            <span className="accent">시장</span> 시뮬레이터
           </h1>
           <p className="io-tagline">
             실제 전국 시/군/구 지도에서
