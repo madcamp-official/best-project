@@ -88,6 +88,11 @@ const AIRDROP_UNIT_SOURCE = "airdrop-units"; // 공수부대 삼각형 유닛(�
 const AIRDROP_UNIT_LAYER = "airdrop-unit-icon";
 const AIRDROP_UNIT_LABEL = "airdrop-unit-label";
 const TRIANGLE_IMAGE_ID = "airdrop-triangle";
+const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표(HOI 스타일 블록 화살표)
+const ATTACK_ARROW_FILL = "attack-arrow-fill";
+const ATTACK_ARROW_LINE = "attack-arrow-line";
+// 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨. (드래그 이동/쓸기·행군이 공유)
+const SORTIE_SEND_RATIO = 1;
 
 // 셀 이름·병력 배지가 보이기 시작하는 줌 임계. 이 지도(kr-sgg 시군구)는 셀 하나가 옛 법정동보다
 // 훨씬 커서, 동 기준으로 튜닝됐던 값(10)을 그대로 쓰면 한참 확대해야만 이름·병력이 보였다.
@@ -141,7 +146,7 @@ export function MapView({ prepared, connection }: Props) {
     map.boxZoom.disable();
     // 개발 편의용 디버그 훅 (프로덕션 빌드에선 제외됨).
     if (import.meta.env.DEV) {
-      Object.assign(window, { __map: map, __world: world });
+      Object.assign(window, { __map: map, __world: world, __arrowPolygon: arrowPolygon });
     }
 
     map.on("error", (e) => {
@@ -288,10 +293,74 @@ export function MapView({ prepared, connection }: Props) {
       src.setData({ type: "FeatureCollection", features });
     };
 
-    // 우클릭 공격 큐 상태 — 우클릭을 '눌렀다 뗀' 지점 이동이 임계(px) 미만이면 '클릭'으로 보고
-    // 커서 아래 지역을 공격 큐에 토글한다. 임계 이상 움직였으면 맵 회전 등 드래그로 보고 무시한다.
+    // 우클릭 두 방식 공존 — '눌렀다 뗀' 지점 이동이 임계(px) 미만이면 '클릭'으로 보고 커서 아래
+    // 지역을 공격 큐에 토글하고, 내 동에서 시작해 임계 이상 끌면 '드래그'로 확정해 예전 방식의
+    // 병력 이동(화살표 단일 파견 / 인접 적·중립 쓸기 일괄 출정 / 먼 내 동 행군)을 실행한다.
     const RIGHT_CLICK_THRESHOLD_PX = 6;
     let rightDownPoint: { x: number; y: number } | null = null;
+    let rightDownDong = -1; // 우클릭이 눌린 동(내 동일 때만 드래그 출발지가 된다)
+    let dragging = false;
+    let dragSource = -1;
+    let dragTargets: number[] = []; // 이번 드래그에서 갈 수 있는 동들(드래그 확정 시 1회 계산)
+    let dragTargetSet = new Set<number>();
+    // 드래그 쓸기: 커서가 지나간 '인접 적·중립' 목표를 모아 놓았다 놓을 때 한 번에 출정한다.
+    let dragAdj = new Set<number>(); // 출발지에 인접한 non-소유 동(쓸기로 집을 수 있는 대상)
+    let dragPicked: number[] = []; // 이번 드래그에서 쓸어 담은 목표(순서 보존)
+    let dragPickedSet = new Set<number>();
+
+    // 출발지(from)에서 커서로 이어지는 공격 화살표(본선 + 화살촉)를 그린다. from<0이면 비운다.
+    const updateArrow = (from: number, cursor: [number, number] | null) => {
+      const src = map.getSource(ATTACK_ARROW_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      if (from < 0 || from >= world.n || !cursor) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      src.setData({
+        type: "FeatureCollection",
+        features: arrowPolygon(world.meta[from].centroid as [number, number], cursor),
+      });
+    };
+
+    // 출발지(from)에서 여러 목표(targets) 중심으로 향하는 화살표들을 한꺼번에 그린다(드래그 쓸기).
+    const updateArrows = (from: number, targets: number[]) => {
+      const src = map.getSource(ATTACK_ARROW_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      if (from < 0 || from >= world.n || targets.length === 0) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      const a = world.meta[from].centroid as [number, number];
+      const features = targets.flatMap((t) => arrowPolygon(a, world.meta[t].centroid as [number, number]));
+      src.setData({ type: "FeatureCollection", features });
+    };
+
+    // 드래그 중 화살표가 가리킬(= 놓았을 때 실제로 보낼) 대상 동을 정한다.
+    //  · 커서 아래 동이 갈 수 있는 대상이면 그 동
+    //  · 아니면(그 방향으로 더 멀거나 불가한 곳) 갈 수 있는 동 중 커서에 가장 가까운 동 = 그 방향 최대치
+    //  · 출발지 위이거나 갈 수 있는 동이 없으면 -1(화살표 없음)
+    const resolveDragTarget = (point: { x: number; y: number }, lngLat: [number, number]): number => {
+      if (!dragging || dragTargets.length === 0) return -1;
+      const hits = map.queryRenderedFeatures([point.x, point.y], { layers: [FILL_LAYER] });
+      const over = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+      if (over === dragSource) return -1;
+      if (over >= 0 && dragTargetSet.has(over)) return over;
+      const [cx, cy] = lngLat;
+      const cosLat = Math.cos((cy * Math.PI) / 180);
+      let best = -1;
+      let bestD = Infinity;
+      for (const c of dragTargets) {
+        const m = world.meta[c].centroid;
+        const dx = (m[0] - cx) * cosLat;
+        const dy = m[1] - cy;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      return best;
+    };
 
     // 지금 조준 반경 — 전술핵 조준 중이면 일반 미사일의 NUKE_RADIUS_MULT배.
     const aimRadius = () =>
@@ -1025,6 +1094,25 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
+      // 우클릭 드래그 공격 화살표 — HOI 스타일 블록 화살표(반투명 주황 채움 + 밝은 테두리).
+      map.addSource(ATTACK_ARROW_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: ATTACK_ARROW_FILL,
+        type: "fill",
+        source: ATTACK_ARROW_SOURCE,
+        paint: { "fill-color": "#ff5a2b", "fill-opacity": 0.55 },
+      });
+      map.addLayer({
+        id: ATTACK_ARROW_LINE,
+        type: "line",
+        source: ATTACK_ARROW_SOURCE,
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#ffd9a8", "line-width": 1.5, "line-opacity": 0.95 },
+      });
+
       // 공격 큐 ⚔️ 마커 — 내 큐 대상 centroid마다. (집결지 🚩 마커와 같은 이모지-아이콘 방식.)
       map.addSource(ATTACK_QUEUE_SOURCE, {
         type: "geojson",
@@ -1107,6 +1195,47 @@ export function MapView({ prepared, connection }: Props) {
         const st = useUIStore.getState();
         if (st.isAiming || st.isNukeAiming) aimDirty = true;
         if (st.isTransporting && airdropPhase === "source") aimDirty = true;
+        // 우클릭을 누른 채 임계 이상 움직이면 드래그 이동/공격으로 확정(내 동에서 시작한 경우만).
+        if (rightDownPoint && (e.originalEvent.buttons & 2) !== 0) {
+          if (!dragging) {
+            const moved = Math.hypot(e.point.x - rightDownPoint.x, e.point.y - rightDownPoint.y);
+            if (
+              moved > RIGHT_CLICK_THRESHOLD_PX &&
+              rightDownDong >= 0 &&
+              world.ownerId[rightDownDong] === world.myHolderId
+            ) {
+              dragging = true;
+              dragSource = rightDownDong;
+              dragTargets = reachableTargets(dragSource); // 갈 수 있는 동을 이번 드래그 시작 시 1회 계산
+              dragTargetSet = new Set(dragTargets);
+              // 쓸기로 집을 수 있는 대상 = 출발지에 인접한 non-소유 동(적·중립). 드래그 시작 시 1회 계산.
+              dragAdj = new Set(
+                world.neighborIndex[dragSource].filter((nb) => world.ownerId[nb] !== world.myHolderId)
+              );
+              dragPicked = [];
+              dragPickedSet = new Set();
+              selectDong(map, dragSource, useUIStore.getState().select); // 출발지 강조
+            }
+          }
+          if (dragging) {
+            // 쓸기: 커서가 인접 적·중립 위를 지나가면 그 동을 목표로 담는다(한 번 담기면 유지).
+            const hitsMove = map.queryRenderedFeatures([e.point.x, e.point.y], { layers: [FILL_LAYER] });
+            const over = hitsMove.length > 0 && hitsMove[0].id !== undefined ? Number(hitsMove[0].id) : -1;
+            if (over >= 0 && dragAdj.has(over) && !dragPickedSet.has(over)) {
+              dragPickedSet.add(over);
+              dragPicked.push(over);
+            }
+            if (dragPicked.length > 0) {
+              // 담은 목표들로 향하는 화살표를 전부 그린다(자석처럼 각 동 중심에 붙음).
+              updateArrows(dragSource, dragPicked);
+            } else {
+              // 아직 아무것도 안 담았으면 단일 화살표(그 방향 최대치 동)를 보여준다.
+              const t = resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]);
+              if (t >= 0) updateArrow(dragSource, world.meta[t].centroid as [number, number]);
+              else updateArrow(-1, null);
+            }
+          }
+        }
       });
 
       // 좌클릭 = 동 선택. 조준 중이면 = 미사일/전술핵 발사, 공수 중이면 = 공수 클릭.
@@ -1126,12 +1255,12 @@ export function MapView({ prepared, connection }: Props) {
         else selectDong(map, null, useUIStore.getState().select);
       });
 
-      // 우클릭 공격 큐 — 국경에 인접한 적·중립 지역을 우클릭하면 공격 큐에 토글한다(⚔️ 마커).
-      // 눌렀다 뗀 이동이 임계 미만이면 '클릭'으로 큐 토글, 이상이면 맵 회전 드래그로 보고 무시.
-      // 기본 컨텍스트 메뉴는 막는다.
+      // 우클릭 — 두 방식 공존. 짧은 클릭(임계 미만) = 공격 큐 토글(⚔️ 마커),
+      // 내 동에서 시작한 드래그(임계 이상) = 예전 병력 이동(화살표 파견/쓸기 일괄 출정/행군).
+      // 내 동 밖에서 시작한 드래그는 무시. 기본 컨텍스트 메뉴는 막는다.
       map.getCanvas().addEventListener("contextmenu", (ev) => ev.preventDefault());
       map.on("contextmenu", () => {
-        // 우클릭 = 공수 취소(그 외 공격 큐 토글은 mousedown/mouseup이 처리하므로 여기선 안 함).
+        // 우클릭 = 공수 취소(그 외 공격은 mousedown/mouseup이 처리하므로 여기선 안 함).
         const st = useUIStore.getState();
         if (st.isTransporting) st.setTransporting(false);
       });
@@ -1139,15 +1268,49 @@ export function MapView({ prepared, connection }: Props) {
       map.on("mousedown", (e) => {
         if (e.originalEvent.button !== 2) return; // 우클릭만
         const st = useUIStore.getState();
-        if (st.isAiming || st.isNukeAiming || st.isTransporting) return; // 특수 모드 중엔 큐 토글 비활성
-        rightDownPoint = { x: e.point.x, y: e.point.y }; // 뗄 때 이동량으로 클릭/드래그 판정
+        if (st.isAiming || st.isNukeAiming || st.isTransporting) return; // 특수 모드 중엔 우클릭 비활성
+        // 누른 지점·동만 기록해 둔다. 드래그 확정은 mousemove의 임계 판정이 한다.
+        rightDownPoint = { x: e.point.x, y: e.point.y };
+        const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
+        rightDownDong = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
+        dragging = false;
+        dragSource = -1;
       });
 
       map.on("mouseup", (e) => {
         if (e.originalEvent.button !== 2 || !rightDownPoint) return; // 우클릭 뗄 때만
         const moved = Math.hypot(e.point.x - rightDownPoint.x, e.point.y - rightDownPoint.y);
-        rightDownPoint = null;
-        if (moved > RIGHT_CLICK_THRESHOLD_PX) return; // 맵 회전 등 드래그 → 큐 토글 안 함
+        const wasDragging = dragging;
+        const from = dragSource;
+        // 쓸어 담은 목표들(2개 이상이면 한 번에 균등 분할 출정). 리셋 전에 스냅샷.
+        const picked = dragPicked.slice();
+        // 아무것도 안 담았으면 화살표가 가리키던 대상(그 방향 최대치)을 그대로 쓴다 — 리셋 전에 계산.
+        const dragTarget =
+          wasDragging && picked.length === 0 ? resolveDragTarget(e.point, [e.lngLat.lng, e.lngLat.lat]) : -1;
+
+        rightDownPoint = null; // 상태 리셋
+        rightDownDong = -1;
+        dragging = false;
+        dragSource = -1;
+        dragTargets = [];
+        dragTargetSet = new Set();
+        dragAdj = new Set();
+        dragPicked = [];
+        dragPickedSet = new Set();
+        updateArrow(-1, null); // 화살표 지우기
+
+        if (wasDragging) {
+          if (picked.length >= 2) {
+            // 여러 인접 목표를 쓸었으면 균등 분할해 한 번에 출정(클릭 감소).
+            connection.sendMultiSortie(from, picked, SORTIE_SEND_RATIO);
+          } else if (picked.length === 1) {
+            doAttack(from, picked[0], connection); // 하나만 쓸었으면 단일 출정
+          } else if (dragTarget >= 0) {
+            doAttack(from, dragTarget, connection); // 아무것도 안 쓸었으면 방향이 가리킨 동(먼 내 동=행군 등)
+          }
+          return;
+        }
+        if (moved > RIGHT_CLICK_THRESHOLD_PX) return; // 내 동 밖에서 시작한 드래그 → 아무것도 안 함
         const hits = map.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] });
         const target = hits.length > 0 && hits[0].id !== undefined ? Number(hits[0].id) : -1;
         if (target >= 0) handleToggleAttack(target, connection);
@@ -1561,6 +1724,110 @@ function handleToggleAttack(idx: number, connection: Connection) {
   toggleMyAttackTarget(idx);
   connection.sendAttackTarget(idx);
   showToast(`공격 대상: ${world.meta[idx].name}`);
+}
+
+// 우클릭 드래그 이동/공격: 출발지(from)에서 대상(to)으로 병력 파견(서버에 명령 전송).
+//  · 인접 적/중립 → 전투    · 인접 내 동 → 증원    · 먼 내 동 → 경로 자동 출정(B1, 내 영토 따라 연쇄)
+// 실제 처리는 서버(로컬 mock)가 하고, 결과는 DELTA(채움·국경·유닛)/ERROR(토스트)로 돌아온다.
+function doAttack(from: number, to: number, connection: Connection) {
+  const { showToast } = useUIStore.getState();
+
+  if (from < 0 || world.ownerId[from] !== world.myHolderId) return; // 출발지가 내 동이 아니면 무시
+  if (from === to) return; // 같은 동에 놓으면 취소
+
+  const adjacent = world.neighborIndex[from]?.includes(to) ?? false;
+
+  // 인접이 아니면: 내 동이면 경로 자동 출정(B1), 아니면 공격은 인접만 가능함을 안내.
+  if (!adjacent) {
+    if (world.ownerId[to] === world.myHolderId) {
+      connection.sendMarch(from, to, SORTIE_SEND_RATIO);
+    } else {
+      showToast("먼 내 동은 자동 행군, 공격은 인접 동만 가능합니다.");
+    }
+    return;
+  }
+
+  // 인접 증원인데 이미 가득 찼으면(여유 0) 보낼 게 없으니 왕복 전에 막는다.
+  // (여유가 있으면 그대로 보내고, 서버가 상한 여유분만큼만 잘라서 증원한다.)
+  if (world.ownerId[to] === world.myHolderId && world.troops[to] >= world.troopCap[to]) {
+    showToast("이미 병력이 가득 찬 동입니다.");
+    return;
+  }
+
+  connection.sendSortie(from, to, SORTIE_SEND_RATIO);
+}
+
+// 드래그 이동/공격에서 이 출발지로부터 '갈 수 있는' 동 목록:
+//  · 행군/증원 가능한 내 영토 연결요소(소유 인접으로 이어진 내 동들, 출발지 제외)
+//  · 공격 가능한 인접 적/중립(1홉)
+// 커서가 유효 대상 밖일 때 '그 방향으로 갈 수 있는 최대치'를 이 목록 중 커서 최근접으로 고른다.
+function reachableTargets(source: number): number[] {
+  const me = world.myHolderId;
+  const out: number[] = [];
+  const seen = new Uint8Array(world.n);
+  seen[source] = 1;
+  const q = [source];
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h];
+    if (cur !== source) out.push(cur); // 내 영토 연결요소(행군/증원 대상)
+    for (const nb of world.neighborIndex[cur]) {
+      if (!seen[nb] && world.ownerId[nb] === me) {
+        seen[nb] = 1;
+        q.push(nb);
+      }
+    }
+  }
+  for (const nb of world.neighborIndex[source]) {
+    if (!seen[nb] && world.ownerId[nb] !== me) {
+      seen[nb] = 1;
+      out.push(nb); // 인접 적/중립(공격 대상, 1홉)
+    }
+  }
+  return out;
+}
+
+// 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
+// 얇게 시작해 넓어지는 테이퍼 샤프트 + 그보다 넓은 삼각 촉으로 굵고 또렷한 공세 화살표를 만든다.
+// 경도는 위도에 따라 실제 거리가 달라 cosLat로 스케일해 방향/수직 벡터를 계산한 뒤 lng/lat로 환산한다.
+function arrowPolygon(a: [number, number], b: [number, number]) {
+  const cosLat = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180) || 1;
+  const dx = (b[0] - a[0]) * cosLat;
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return [];
+
+  const ux = dx / len; // 진행 방향(단위)
+  const uy = dy / len;
+  const px = -uy; // 왼쪽 수직(단위)
+  const py = ux;
+
+  // 화살표 끝은 '항상 대상 동 중심(b)'에 정확히 맞춘다. 폭·촉은 실제 거리(len)에 비례시켜
+  // 짧아도 뭉개지지 않게 한다(짧으면 그만큼 작은 화살표 — 위치는 항상 정확).
+  const shaftW = Math.min(0.0038, len * 0.055); // 촉 밑변쪽 샤프트 반폭(길이에 비례, 상한만)
+  const startW = shaftW * 0.5; // 시작부는 얇게
+  const headW = shaftW * 2.0; // 화살촉 날개 반폭(가장 넓음)
+  const headLen = Math.min(len * 0.5, Math.max(len * 0.28, headW * 1.4)); // 화살촉 길이
+  const baseLen = len - headLen; // 샤프트 끝(=촉 밑변)까지 거리
+
+  // 스케일 공간 (진행거리 along, 수직 side) → lng/lat.
+  const P = (along: number, side: number): [number, number] => [
+    a[0] + (ux * along + px * side) / cosLat,
+    a[1] + (uy * along + py * side),
+  ];
+
+  const ring: [number, number][] = [
+    P(0, startW), // 시작부 왼쪽(얇음)
+    P(baseLen, shaftW), // 촉 밑변 왼쪽(넓어짐)
+    P(baseLen, headW), // 촉 왼쪽 날개(가장 넓음)
+    P(len, 0), // 뾰족한 끝 = 대상 동 중심(b)에 정확히 안착
+    P(baseLen, -headW), // 촉 오른쪽 날개
+    P(baseLen, -shaftW), // 촉 밑변 오른쪽
+    P(0, -startW), // 시작부 오른쪽(얇음)
+    P(0, startW), // 닫기
+  ];
+  return [
+    { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [ring] } },
+  ];
 }
 
 // 더블클릭으로 호출: 내 동을 집결지로 설정, 현재 집결지를 다시 더블클릭하면 해제한다(B2).
