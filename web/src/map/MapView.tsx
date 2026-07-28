@@ -389,6 +389,20 @@ export function MapView({ prepared, connection }: Props) {
       circleSrc?.setData({ type: "FeatureCollection", features: [] });
     };
 
+    // 일반 미사일 조준(단일 표적) — 커서가 가리키는 동 하나만 targetSet에 담는다. 원은 쓰지 않으므로 비운다.
+    const updateAimSingle = (center: [number, number], targetSet: Set<number>) => {
+      const circleSrc = map.getSource(AIM_CIRCLE_SOURCE) as GeoJSONSource | undefined;
+      circleSrc?.setData({ type: "FeatureCollection", features: [] });
+
+      const feats = map.queryRenderedFeatures(map.project(center), { layers: [FILL_LAYER] });
+      const id = feats.length > 0 && feats[0].id !== undefined ? Number(feats[0].id) : -1;
+      for (const idx of targetSet) {
+        if (idx !== id) map.setFeatureState({ source: SOURCE_ID, id: idx }, { aim: 0 });
+      }
+      targetSet.clear();
+      if (id >= 0) targetSet.add(id);
+    };
+
     // 발사: 지금 원에 걸린 동 목록을 서버로 보내고 조준 모드를 끝낸다. 서버가 중립화 후 DELTA.
     // 전술핵 조준 중이면 사일로 발사(sendNuke, 반경 3배) — 검증·쿨다운은 서버가 담당.
     const fireMissile = (center: [number, number]) => {
@@ -399,7 +413,14 @@ export function MapView({ prepared, connection }: Props) {
         st.setNukeAiming(false);
         return;
       }
-      connection.sendMissile(center, RADIUS, Array.from(aimedSet));
+      // 일반 미사일 — 클릭 순간 커서가 가리키는 단일 지역만 타격 대상으로 확정.
+      const feats = map.queryRenderedFeatures(map.project(center), { layers: [FILL_LAYER] });
+      const target = feats.length > 0 && feats[0].id !== undefined ? Number(feats[0].id) : -1;
+      if (target < 0) {
+        st.showToast("공격할 지역을 가리켜 주세요.");
+        return; // 미사일 소모 없이 취소
+      }
+      connection.sendMissile(center, RADIUS, [target]);
       clearAim(aimedSet);
       st.setAiming(false);
     };
@@ -1450,7 +1471,9 @@ export function MapView({ prepared, connection }: Props) {
       if (aimingNow) {
         if (!wasAiming) aimDirty = true; // 조준 시작 → 즉시 한 번 그린다
         if (aimDirty && lastMouseLngLat) {
-          updateAim(lastMouseLngLat, aimedSet, false, aimRadius());
+          // 전술핵은 원 범위(AoE), 일반 미사일은 커서가 가리키는 단일 지역만.
+          if (stAim.isNukeAiming) updateAim(lastMouseLngLat, aimedSet, false, aimRadius());
+          else updateAimSingle(lastMouseLngLat, aimedSet);
           aimDirty = false;
         }
         const pulse = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(now / 140));
