@@ -14,7 +14,6 @@ import { applyServerConfig } from "../game/runtimeConfig";
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
   mapId: string; // 이 방이 쓰는 지도(data/loadMapData.ts MAP_ASSETS 키). Hud.tsx가 지도별 표시 분기에 쓴다.
-  myRally: number; // B2 — 내 집결지 admIndex(-1=없음). 렌더러가 깃발 마커를 그린다.
   myAttackQueue: Set<number>; // 내 공격 큐 admIndex 집합. 렌더러가 ⚔️ 마커를 그린다.
   // 전술핵 사일로별 재발사 가능 시각을 로컬 시계(Date.now)로 환산한 값 — Hud 쿨다운 표시용.
   // (서버 nukeReadyAtMs는 serverTimeMs 시간축이라 받은 시점에 로컬로 번역해 둔다.)
@@ -26,15 +25,12 @@ export interface WorldView extends GameState {
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
   mapId: "kr-sgg",
-  myRally: -1,
   myAttackQueue: new Set<number>(),
   nukeReadyLocal: [] as number[],
 });
 
 // 미사일이 얹힌 동 집합이 바뀌면(WELCOME/DELTA) set — 렌더러가 마커를 다시 그린다.
 let missilesTouched = false;
-// 내 집결지가 바뀌면(WELCOME/낙관적 지정) set — 렌더러가 깃발 마커를 다시 그린다.
-let rallyTouched = false;
 // 내 공격 큐가 바뀌면(WELCOME/낙관적 토글/점령 정리) set — 렌더러가 ⚔️ 마커를 다시 그린다.
 let attackQueueTouched = false;
 
@@ -60,8 +56,6 @@ export function applyWelcome(msg: WelcomeMessage) {
   world.logEntries = [];
   world.nextLogId = 1;
   world.myHolderId = msg.holderId;
-  world.myRally = msg.rally ?? -1;
-  rallyTouched = true;
   world.myAttackQueue = new Set(msg.attackQueue ?? []);
   attackQueueTouched = true;
   world.shieldUntil = new Float64Array(256);
@@ -251,19 +245,6 @@ export const airdropInRange = (sources: number[], dest: number) =>
 
 // 공수 사거리 원의 중심이 되는 출발 동 admIndex (없으면 -1).
 export const airdropOrigin = (sources: number[]) => core.airdropOrigin(world, sources, world.myHolderId);
-
-// 집결지 깃발 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
-export function drainRallyTouched(): boolean {
-  if (!rallyTouched) return false;
-  rallyTouched = false;
-  return true;
-}
-
-// 집결지를 낙관적으로 갱신한다(명령 전송 시 즉시 반영 — 서버 WELCOME이 최종 진실). idx<0 이면 해제.
-export function setMyRally(idx: number) {
-  world.myRally = idx;
-  rallyTouched = true;
-}
 
 // ⚔️ 공격 큐 마커를 다시 그려야 하면 true 반환 후 플래그를 내린다(렌더러가 rAF에서 호출).
 export function drainAttackQueueTouched(): boolean {

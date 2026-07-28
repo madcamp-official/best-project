@@ -219,12 +219,9 @@ export class LocalConnection implements Connection {
     this.nukeDirty = true; // 다음 DELTA에 사일로 쿨다운 갱신을 실어 보낸다
   }
 
-  sendRally(index: number): void {
-    core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
-  }
-
   sendAttackTarget(index: number): void {
-    core.toggleAttackTarget(this.gs, this.holderId, index); // 다음 공격 tick부터 인접 내 동들이 이 대상을 공격
+    // 다음 공격 tick부터 인접 내 동들이 이 대상을 공격하고, 후방 병력도 이 대상(전선)으로 자동 전진한다.
+    core.toggleAttackTarget(this.gs, this.holderId, index);
   }
 
   // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
@@ -298,7 +295,7 @@ export class LocalConnection implements Connection {
       if (spawned >= 0) this.pendingMissileAdd.push(spawned);
     }
 
-    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 집결지 방향으로 후방 병력 한 홉 행군(B2)
+    // 보급선 흐름 (SUPPLY_INTERVAL_SEC 주기) — 공격 목표(전선) 방향으로 후방 병력 한 홉 행군
     this.supplyTimerMs += TICK_MS;
     if (this.supplyTimerMs >= CONFIG.SUPPLY_INTERVAL_SEC * 1000) {
       this.supplyTimerMs = 0;
@@ -418,7 +415,6 @@ export class LocalConnection implements Connection {
       holders: Array.from(this.gs.holders.values()),
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
-      rally: this.gs.rally[this.holderId],
       attackQueue: Array.from(this.gs.attackQueue[this.holderId]),
       shields: this.collectShields(),
       nukeReadyAtMs: Array.from(this.gs.nukeReadyAt), // serverTimeMs와 같은 performance.now() 시간축

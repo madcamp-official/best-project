@@ -580,40 +580,36 @@ object GameCore {
         pushLog(world, "공수 착륙 — ${captured}개 동 점령, ${reinforced}개 동 증원", wallNowMs)
     }
 
-    // ── 보급선 (B2, web/src/game/core.ts setRally/tickSupply 대응) ────────
-    // 집결지를 향해 후방 병력을 매 주기 한 홉씩 자동 전진시킨다(내 소유 동 사이 흐름, 전투 없음).
+    // ── 공격 목표 자동 보급 (web/src/game/core.ts tickSupply 대응) ────────
+    // 공격 목표(attackQueue)를 지정하면 후방 병력이 매 주기 내 영토 경사를 따라 가장 가까운 공격
+    // 전선(목표에 인접한 내 동)으로 한 홉씩 자동 전진한다(내 소유 동 사이 흐름, 전투 없음). 전선에
+    // 모인 병력은 tickAttackQueue가 목표로 내보낸다. 예전 집결지(rally)를 대체한다.
 
-    fun setRally(world: World, holderId: Int, index: Int) {
-        if (index < 0) {
-            world.rally[holderId] = -1
-            return
-        }
-        if (index >= world.n || world.ownerId[index] != holderId) return
-        world.rally[holderId] = index
-    }
-
-    // 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진(GameLoop이 supplyIntervalSec 주기로 호출).
+    // 공격 목표를 가진 모든 holder에 대해 후방 병력을 전선 방향으로 한 홉씩 전진(GameLoop이 주기 호출).
     // 새 보급 유닛(order)은 world.orders/pendingNewOrders에 추가돼 다음 DELTA로 퍼진다.
     fun tickSupply(world: World, config: GameConfig, nowMs: Long) {
-        for (h in world.rally.indices) {
-            val rallyIdx = world.rally[h]
-            if (rallyIdx < 0) continue
-            if (world.ownerId[rallyIdx] != h) {
-                world.rally[h] = -1 // 집결지를 잃으면 자동 해제
-                continue
-            }
-            supplyToward(world, config, h, rallyIdx, nowMs)
+        for (h in world.attackQueue.indices) {
+            if (world.attackQueue[h].isEmpty()) continue
+            supplyTowardFronts(world, config, h, world.attackQueue[h], nowMs)
         }
     }
 
-    // 집결지에서 BFS로 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로 병력 일부를
-    // 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다. 도착 처리(증원·
-    // 상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
-    private fun supplyToward(world: World, config: GameConfig, holderId: Int, rallyIdx: Int, nowMs: Long) {
+    // 전선(공격 목표에 인접한 내 동) = 거리 0인 다중 소스에서 내 영토 위로 BFS 홉거리를 구하고, 각 후방
+    // 동이 '전선에 한 칸 더 가까운' 이웃으로 병력 일부를 행군(order)시킨다 — 여러 목표가 있으면 가장 가까운
+    // 목표 쪽으로 흐른다. 도착 처리(증원·상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 동일.
+    private fun supplyTowardFronts(world: World, config: GameConfig, holderId: Int, targets: Set<Int>, nowMs: Long) {
         val dist = IntArray(world.n) { -1 }
-        dist[rallyIdx] = 0
         val q = ArrayList<Int>()
-        q.add(rallyIdx)
+        // 전선: 공격 목표에 인접한 내 동(거리 0). 여러 목표에서 동시에 퍼지는 다중 소스 BFS.
+        for (target in targets) {
+            if (target < 0 || target >= world.n) continue
+            for (nb in world.neighborIndex[target]) {
+                if (world.ownerId[nb] == holderId && dist[nb] == -1) {
+                    dist[nb] = 0
+                    q.add(nb)
+                }
+            }
+        }
         var k = 0
         while (k < q.size) {
             val cur = q[k]; k++
@@ -623,10 +619,12 @@ object GameCore {
                 q.add(nb)
             }
         }
-        for (idx in 1 until q.size) {
+        // 후방 동(거리>0)만 전진시킨다 — 전선(거리 0)의 병력은 tickAttackQueue가 목표 공격에 쓴다.
+        for (idx in q.indices) {
             val i = q[idx]
+            if (dist[i] <= 0) continue
             if (world.troops[i] <= config.supplyMinTroops) continue
-            var j = -1 // 집결지에 한 칸 더 가까운 이웃
+            var j = -1 // 전선에 한 칸 더 가까운 이웃
             for (nb in world.neighborIndex[i]) {
                 if (dist[nb] == dist[i] - 1) { j = nb; break }
             }

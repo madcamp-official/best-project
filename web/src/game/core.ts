@@ -22,10 +22,8 @@ export interface GameState {
   dirty: Set<number>; // feature-state 리페인트 대상 admIndex
   orders: Order[]; // 이동 중인 유닛(원) 목록
   missiles: Uint8Array; // 동별 미사일 보유 여부(0/1). 동에 종속 — 그 동 소유자가 발사 가능.
-  // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 후방 병력이 이 동을 향해 자동 전진한다.
-  // 크기 256 = holderId 예약 범위(0 중립 … 255 E). 시뮬레이터(목/서버)만 채우고 클라 사본은 -1.
-  rally: Int32Array;
-  // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정한다.
+  // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정하고,
+  // 후방 병력은 tickSupply가 가장 가까운 대상(전선)으로 자동 전진시킨다(예전 집결지(rally) 대체).
   // 크기 256(holderId별). 시뮬레이터(목/서버)만 채운다(클라 사본은 world.myAttackQueue로 내 것만 추적).
   attackQueue: Set<number>[];
   // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
@@ -92,7 +90,6 @@ export function createGameState(
     dirty: new Set<number>(),
     orders: [],
     missiles: new Uint8Array(n),
-    rally: new Int32Array(256).fill(-1),
     attackQueue: Array.from({ length: 256 }, () => new Set<number>()),
     airdropReadyAt: new Float64Array(256),
     shieldUntil: new Float64Array(256),
@@ -664,50 +661,45 @@ export function launchNuke(
   return { ok: true, silo: s.nukeSilos[readyK], readyAtMs: s.nukeReadyAt[readyK], neutralized };
 }
 
-// ── 보급선 (B2) ───────────────────────────────────────────────────────
-// 집결지(rally)를 정하면 매 보급 tick마다 후방 병력이 내 영토 경사를 따라 집결지 방향으로
-// 한 홉씩 자동 전진한다. 내 소유 동 사이에서만 흐르므로 전투는 없다. 전선 동을 집결지로 잡으면
-// 후방 생산분이 손 안 대도 전선으로 모인다.
+// ── 공격 목표 자동 보급 ────────────────────────────────────────────────
+// 공격 목표(attackQueue)를 지정하면, 후방 병력이 매 보급 tick마다 내 영토 경사를 따라 가장 가까운
+// 공격 전선(공격 목표에 인접한 내 동)으로 한 홉씩 자동 전진한다. 내 소유 동 사이에서만 흐르므로
+// 전투는 없다 — 전선에 모인 병력은 tickAttackQueue가 목표로 내보낸다. (예전 집결지(rally) 대체.)
 
-// 집결지 지정/해제. index<0 이면 해제, 아니면 내 소유 동일 때만 등록(무효는 무시).
-export function setRally(s: GameState, holderId: number, index: number) {
-  if (index < 0) {
-    s.rally[holderId] = -1;
-    return;
-  }
-  if (index >= s.n || s.ownerId[index] !== holderId) return;
-  s.rally[holderId] = index;
-}
-
-// 집결지를 가진 모든 holder에 대해 보급을 한 홉씩 전진시킨다(시뮬레이터가 SUPPLY_INTERVAL_SEC 주기 호출).
+// 공격 목표를 가진 모든 holder에 대해 후방 병력을 전선 방향으로 한 홉씩 전진시킨다(SUPPLY_INTERVAL_SEC 주기).
 // 반환 = 이번 주기에 새로 출발한 보급 유닛(order) — 호출자가 DELTA newOrders로 실어 보낸다.
 export function tickSupply(s: GameState, nowMs: number): Order[] {
   const out: Order[] = [];
-  for (let h = 0; h < s.rally.length; h++) {
-    const rallyIdx = s.rally[h];
-    if (rallyIdx < 0) continue;
-    if (s.ownerId[rallyIdx] !== h) {
-      s.rally[h] = -1; // 집결지를 잃으면 자동 해제
-      continue;
-    }
-    supplyToward(s, h, rallyIdx, nowMs, out);
+  for (let h = 0; h < s.attackQueue.length; h++) {
+    if (s.attackQueue[h].size === 0) continue;
+    supplyTowardFronts(s, h, s.attackQueue[h], nowMs, out);
   }
   return out;
 }
 
-// 집결지에서 BFS로 각 내 동까지의 홉 거리를 구하고, 각 동이 '집결지에 한 칸 더 가까운' 이웃으로
-// 병력 일부를 실제로 행군(order)시킨다 — 순간이동이 아니라 유닛이 이동 시간을 두고 도착한다.
-// 도착 처리(증원·상한 초과분 반환)는 tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다.
-function supplyToward(
+// 전선(공격 목표에 인접한 내 동) = 거리 0인 다중 소스에서 내 영토 위로 BFS 홉거리를 구하고, 각 후방
+// 동이 '전선에 한 칸 더 가까운' 이웃으로 병력 일부를 행군(order)시킨다 — 여러 목표가 있으면 각 후방
+// 동은 가장 가까운 목표 쪽으로 흐른다. 순간이동이 아니라 유닛이 이동 시간을 두고 도착하며, 도착 처리는
+// tickOrders/resolveArrival가 일반 출정과 똑같이 담당한다(증원·상한 초과분 반환).
+function supplyTowardFronts(
   s: GameState,
   holderId: number,
-  rallyIdx: number,
+  targets: Set<number>,
   nowMs: number,
   out: Order[]
 ) {
   const dist = new Int32Array(s.n).fill(-1);
-  dist[rallyIdx] = 0;
-  const q = [rallyIdx];
+  const q: number[] = [];
+  // 전선: 공격 목표에 인접한 내 동(거리 0). 여러 목표에서 동시에 퍼지는 다중 소스 BFS.
+  for (const target of targets) {
+    if (target < 0 || target >= s.n) continue;
+    for (const nb of s.neighborIndex[target]) {
+      if (s.ownerId[nb] === holderId && dist[nb] === -1) {
+        dist[nb] = 0;
+        q.push(nb);
+      }
+    }
+  }
   for (let k = 0; k < q.length; k++) {
     const cur = q[k];
     for (const nb of s.neighborIndex[cur]) {
@@ -716,10 +708,12 @@ function supplyToward(
       q.push(nb);
     }
   }
-  for (let k = 1; k < q.length; k++) {
+  // 후방 동(거리>0)만 전진시킨다 — 전선(거리 0)의 병력은 tickAttackQueue가 목표 공격에 쓴다.
+  for (let k = 0; k < q.length; k++) {
     const i = q[k];
+    if (dist[i] <= 0) continue;
     if (s.troops[i] <= CONFIG.SUPPLY_MIN_TROOPS) continue;
-    let j = -1; // 집결지에 한 칸 더 가까운 이웃
+    let j = -1; // 전선에 한 칸 더 가까운 이웃
     for (const nb of s.neighborIndex[i]) {
       if (dist[nb] === dist[i] - 1) {
         j = nb;

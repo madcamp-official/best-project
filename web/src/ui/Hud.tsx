@@ -43,7 +43,6 @@ export function Hud({ connection, isMock }: Props) {
   const nukeOwned = useUIStore((s) => s.nukeOwned);
   const nukeCooldownLeft = useUIStore((s) => s.nukeCooldownLeft);
   const nukeCoolSec = Math.ceil(nukeCooldownLeft / 1000);
-  const rallyIndex = useUIStore((s) => s.rallyIndex);
   const attackQueueCount = useUIStore((s) => s.attackQueueCount);
   const isTransporting = useUIStore((s) => s.isTransporting);
   const setTransporting = useUIStore((s) => s.setTransporting);
@@ -58,7 +57,6 @@ export function Hud({ connection, isMock }: Props) {
   const currentRoom = useUIStore((s) => s.currentRoom);
   const roundEndsAt = useUIStore((s) => s.roundEndsAt);
   const totalCells = useUIStore((s) => s.totalCells);
-  const rallyName = rallyIndex >= 0 && rallyIndex < world.n ? world.meta[rallyIndex].name : null;
 
   // 방어막 카운트다운 — world.shieldUntil은 rAF 루프가 아니라 여기서 직접 읽으므로,
   // 표시를 갱신하려면 0.5초마다 리렌더를 스스로 트리거해야 한다(전투 로직과는 무관, 표시 전용).
@@ -145,11 +143,7 @@ export function Hud({ connection, isMock }: Props) {
             <div>
               병력: {selectedInfo.troops} / {selectedInfo.cap}
             </div>
-            {selectedInfo.isMine && (
-              <div className="hud-sortie">
-                내 동 · <strong>더블클릭</strong>으로 집결지 지정
-              </div>
-            )}
+            {selectedInfo.isMine && <div className="hud-sortie">내 동</div>}
           </div>
         )}
       </div>
@@ -259,16 +253,9 @@ export function Hud({ connection, isMock }: Props) {
         >
           <div style={LEGEND_ROW}>
             <span style={KEY_BADGE}>우클릭</span>
-            <span style={{ flex: 1 }}>공격 목표 지정 ⚔️</span>
+            <span style={{ flex: 1 }}>공격 목표 지정 ⚔️ · 후방 병력 자동 집결</span>
             <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
               {attackQueueCount > 0 ? `${attackQueueCount}곳` : "없음"}
-            </strong>
-          </div>
-          <div style={LEGEND_ROW}>
-            <span style={KEY_BADGE}>더블클릭</span>
-            <span style={{ flex: 1 }}>집결지 설정 🚩</span>
-            <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
-              {rallyName ?? "없음"}
             </strong>
           </div>
         </div>

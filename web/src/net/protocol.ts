@@ -60,12 +60,6 @@ export interface LaunchNukeCommand {
   hits: number[];
 }
 
-// B2 집결지 지정/해제(C→S). index = 내 소유 admIndex(집결지), -1이면 해제. 서버가 소유를 검증하고
-// 이후 매 주기 후방 병력을 이 동을 향해 자동 전진시킨다.
-export interface SetRallyCommand {
-  index: number;
-}
-
 // 공격 큐 토글(C→S). index = 국경에 인접한 적·중립 admIndex. 이미 큐에 있으면 해제, 없으면
 // (적·중립 + 내 영토 인접) 추가한다. 이후 매 주기 그 대상에 인접한 내 동들이 자동 공격한다.
 export interface ToggleAttackTargetCommand {
@@ -107,7 +101,6 @@ export interface WelcomeMessage {
   holders: Holder[]; // 중립·환경세력 포함
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
-  rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
   attackQueue: number[]; // 이 플레이어의 공격 큐 admIndex 목록. 재접속 시 복구용.
   shields: ShieldInfo[]; // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
   // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
