@@ -3,6 +3,7 @@ import { useUIStore } from "../store/uiStore";
 import { world } from "../world/worldView";
 import { CONFIG, ENV_PALETTE_IDX, PALETTE } from "../config";
 import { displayRank } from "../game/rankLabels";
+import { SGG_SPECIALTY } from "../data/sggSpecialty";
 import type { Connection } from "../net/connection";
 
 interface Props {
@@ -120,6 +121,12 @@ export function Hud({ connection, isMock }: Props) {
         {selectedInfo && (
           <div className="hud-panel">
             <div className="hud-title">{selectedInfo.name}</div>
+            {world.mapId === "kr-sgg" &&
+              (() => {
+                const code = world.meta[selectedInfo.index]?.code;
+                const specialty = code ? SGG_SPECIALTY[code] : undefined;
+                return specialty ? <div>🏷 특산물: {specialty}</div> : null;
+              })()}
             <div>소유자: {selectedInfo.ownerName}</div>
             <div>
               병력: {selectedInfo.troops} / {selectedInfo.cap}
