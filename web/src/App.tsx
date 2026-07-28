@@ -16,7 +16,7 @@ import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
 import { fetchMyProfile, type AccountProfile } from "./auth/api";
-import { signOutGoogle } from "./auth/firebase";
+import { onIdTokenChanged, signOutGoogle } from "./auth/firebase";
 import {
   applyWelcome,
   applyDelta,
@@ -54,6 +54,25 @@ function App() {
   const [showFriends, setShowFriends] = useState(false);
   // 게스트 배지 표시용 — 로그인 유저는 profile.nickname이 우선하고, 게스트는 이 값(로비 입력과 동기화).
   const nickname = useUIStore((s) => s.nickname);
+  // 로그인 여부의 기준은 idToken 하나다 — profile(별도 REST 호출)은 실패할 수 있고, 그걸 기준으로
+  // 삼으면 "로그인은 됐는데 게스트로 보이는" 상태가 된다. 친구 패널도 idToken만 있으면 동작한다.
+  const loggedIn = idToken !== null;
+
+  // 로그인 세션을 App 한 곳에서 구독한다 — (1) 새로고침 뒤 남아 있던 구글 세션 복원,
+  // (2) Firebase가 약 1시간마다 토큰을 갱신할 때 자동 반영(만료 토큰이 서버에 거부되는 것 방지).
+  // 로그인 관문(AuthChoiceScreen)의 onLoggedIn과 중복 실행돼도 같은 값이라 문제없다.
+  useEffect(() => {
+    return onIdTokenChanged((auth) => {
+      if (!auth) {
+        setIdToken(null);
+        setProfile(null);
+        setPhotoURL(null);
+        return;
+      }
+      setIdToken(auth.idToken);
+      setPhotoURL(auth.photoURL);
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,24 +194,38 @@ function App() {
     connectionRef.current?.listRooms();
   };
   const handleGuest = () => enterLobby();
-  const handleLoggedIn = async (tok: string, displayName: string | null, photo: string | null) => {
+  const handleLoggedIn = (tok: string, displayName: string | null, photo: string | null) => {
+    // 토큰만 세우고 바로 로비로 — 프로필(레벨/전적)은 아래 effect가 토큰을 보고 따로 받아온다.
+    // 프로필 응답을 기다리다 실패하면 로그인 자체가 안 된 것처럼 보였던 문제를 이렇게 분리한다.
     setIdToken(tok);
     setPhotoURL(photo);
     if (displayName && !localStorage.getItem("nickname")) {
       localStorage.setItem("nickname", displayName.slice(0, 12));
     }
-    try {
-      const p = await fetchMyProfile(tok);
-      setProfile(p);
-      useUIStore.getState().setNickname(p.nickname); // 배지·로비 닉네임 입력을 계정 닉네임으로 맞춘다
-    } catch (e) {
-      // 프로필이 없으면 친구·전적 UI가 전부 안 열리는데(profile null 조건부 렌더), 조용히 넘기면
-      // "로그인은 됐는데 아무 것도 안 생긴다"로 보인다 — 실패를 반드시 알린다.
-      console.error("[profile]", e);
-      useUIStore.getState().showToast("로그인은 됐지만 프로필을 불러오지 못했습니다 — 친구 기능이 제한됩니다");
-    }
     enterLobby();
   };
+
+  // 로그인 토큰이 생기거나 갱신될 때마다 프로필(레벨/전적)을 받아온다. 실패해도 로그인 상태
+  // (idToken)는 유지되므로 친구·로그아웃은 그대로 쓸 수 있고, 다음 토큰 갱신 때 자동 재시도된다.
+  useEffect(() => {
+    if (!idToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await fetchMyProfile(idToken);
+        if (cancelled) return;
+        setProfile(p);
+        useUIStore.getState().setNickname(p.nickname); // 배지·로비 닉네임 입력을 계정 닉네임으로 맞춘다
+      } catch (e) {
+        if (cancelled) return;
+        console.error("[profile]", e);
+        useUIStore.getState().showToast("전적을 불러오지 못했습니다 — 로그인은 유지됩니다");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [idToken]);
   // 로그아웃 — 구글 세션 종료 + 로그인 상태 초기화 후 선택 관문으로 되돌린다(게스트로 이어할지 다시 고름).
   const handleLogout = async () => {
     await signOutGoogle();
@@ -249,12 +282,13 @@ function App() {
       {(phase === "lobby" || phase === "room" || phase === "results") && (
         <ProfileBadge
           nickname={profile?.nickname ?? (nickname || "게스트")}
-          photoURL={profile ? photoURL : null}
+          photoURL={loggedIn ? photoURL : null}
           onClick={() => setShowMyPage(true)}
         />
       )}
       {showMyPage && (
         <MyPage
+          loggedIn={loggedIn}
           profile={profile}
           guestNickname={nickname}
           onClose={() => setShowMyPage(false)}

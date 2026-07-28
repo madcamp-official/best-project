@@ -1,5 +1,6 @@
 package com.madcamp.server.auth
 
+import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -14,10 +15,15 @@ data class IdTokenRequest(val idToken: String = "")
  */
 @RestController
 class AccountController(private val accountService: AccountService) {
+    private val log = LoggerFactory.getLogger(AccountController::class.java)
+
     @PostMapping("/api/account/me")
     fun me(@RequestBody req: IdTokenRequest): ResponseEntity<AccountProfile> = try {
         ResponseEntity.ok(accountService.getProfile(req.idToken))
     } catch (e: GoogleAuthException) {
+        // 401을 조용히 돌려주면 "로그인은 됐는데 프로필만 안 뜨는" 상황의 원인을 서버에서 알 수 없다.
+        // 토큰 자체는 절대 남기지 않고(자격 증명) 실패 사유만 남긴다.
+        log.warn("프로필 조회 실패 — idToken 검증 거부: {}", e.message)
         ResponseEntity.status(401).build()
     }
 }

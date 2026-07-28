@@ -7,6 +7,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged as firebaseOnAuthStateChanged,
+  onIdTokenChanged as firebaseOnIdTokenChanged,
   signInWithPopup,
   signOut as firebaseSignOut,
   type User,
@@ -56,6 +57,26 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
 export function onAuthStateChanged(cb: (user: User | null) => void): () => void {
   if (!auth) return () => {};
   return firebaseOnAuthStateChanged(auth, cb);
+}
+
+/**
+ * 로그인 상태 + 항상 유효한 ID 토큰을 흘려보낸다. Firebase가 토큰을 갱신할 때마다(약 1시간 주기)
+ * 다시 불리므로, 화면이 들고 있던 토큰이 만료돼 서버에 거부되는 일이 없다. 새로고침 뒤 남아 있던
+ * 세션도 여기서 복원된다(로그인 상태 유지). 로그아웃/미설정이면 null을 흘린다. 구독 해제 함수 반환.
+ */
+export function onIdTokenChanged(
+  cb: (auth: { idToken: string; displayName: string | null; photoURL: string | null } | null) => void,
+): () => void {
+  if (!auth) return () => {};
+  return firebaseOnIdTokenChanged(auth, async (user) => {
+    if (!user) return cb(null);
+    try {
+      cb({ idToken: await user.getIdToken(), displayName: user.displayName, photoURL: user.photoURL });
+    } catch (e) {
+      console.error("[firebase] getIdToken 실패", e);
+      cb(null);
+    }
+  });
 }
 
 export async function signOutGoogle(): Promise<void> {

@@ -128,7 +128,9 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
           </h1>
           <p className="io-tagline">실시간 영토 전쟁</p>
 
-          {profile && (
+          {/* 로그인했으면(idToken) 항상 띄운다 — 전적(profile)은 늦게 오거나 실패할 수 있는
+              부가 정보라, 그걸 조건으로 걸면 로그인하고도 친구 버튼이 사라진다. */}
+          {idToken && (
             <div
               style={{
                 display: "flex",
@@ -142,7 +144,7 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
               }}
             >
               <span style={{ fontSize: 13, color: "#cdd6e4" }}>
-                Lv.{profile.level} · {profile.wins}승 {profile.gamesPlayed}판
+                {profile ? `Lv.${profile.level} · ${profile.wins}승 ${profile.gamesPlayed}판` : "로그인됨"}
               </span>
               <button className="io-btn io-btn-sm" type="button" onClick={onOpenFriends}>
                 👥 친구
