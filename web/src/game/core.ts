@@ -1211,19 +1211,50 @@ function allocateHolderId(s: GameState): number {
   throw new Error("holderId 254개가 모두 사용 중입니다.");
 }
 
-// 시작 동 배정 — 이미 플레이어가 있는 시군구를 우선 피해 무작위(server StartCellAssigner.pick 대응).
+// 시작 동 배정 — 전국에 랜덤하면서도 고르게(최원점 샘플링, server StartCellAssigner.pick 대응).
+// 첫 배치는 무작위, 이후엔 "가장 가까운 기존 플레이어까지의 거리"가 충분히 먼 후보 중 무작위.
+const START_FAR_FRACTION = 0.6; // 최원점(제곱거리) 대비 이 비율 이상 떨어진 후보 = "충분히 먼 곳"
 export function pickStartCell(s: GameState): number | null {
-  const neutral: number[] = [];
-  for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) neutral.push(i);
-  if (neutral.length === 0) return null;
-  const usedSgg = new Set<string>();
+  const usable: number[] = [];
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] === NEUTRAL_HOLDER_ID && s.neighborIndex[i].length > 0) usable.push(i);
+  }
+  let pool = usable;
+  if (pool.length === 0) {
+    pool = [];
+    for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) pool.push(i);
+  }
+  if (pool.length === 0) return null;
+
+  const refs: number[] = [];
   for (let i = 0; i < s.n; i++) {
     const o = s.ownerId[i];
-    if (o !== NEUTRAL_HOLDER_ID && o !== CONFIG.ENV_HOLDER_ID) usedSgg.add(s.meta[i].sggcd);
+    if (o !== NEUTRAL_HOLDER_ID && o !== CONFIG.ENV_HOLDER_ID) refs.push(i);
   }
-  const fresh = neutral.filter((i) => !usedSgg.has(s.meta[i].sggcd));
-  const pool = fresh.length > 0 ? fresh : neutral;
-  return pool[Math.floor(Math.random() * pool.length)];
+  if (refs.length === 0) return pool[Math.floor(Math.random() * pool.length)]; // 첫 배치 — 무작위 시드
+
+  let maxD = 0;
+  const scored = pool.map((c) => {
+    const d = nearestRefDistSq(s, c, refs);
+    if (d > maxD) maxD = d;
+    return [c, d] as [number, number];
+  });
+  const far = scored.filter(([, d]) => d >= maxD * START_FAR_FRACTION).map(([c]) => c);
+  return far[Math.floor(Math.random() * far.length)];
+}
+
+// 후보 c에서 가장 가까운 기존 플레이어 동까지의 제곱거리(경위도).
+function nearestRefDistSq(s: GameState, c: number, refs: number[]): number {
+  const cc = s.meta[c].centroid;
+  let min = Infinity;
+  for (const r of refs) {
+    const rc = s.meta[r].centroid;
+    const dx = cc[0] - rc[0];
+    const dy = cc[1] - rc[1];
+    const d = dx * dx + dy * dy;
+    if (d < min) min = d;
+  }
+  return min;
 }
 
 // 부족 인원을 AI 홀더로 채운다(server PlayerAi.fill 대응). 목은 라운드 개념이 없어 새 게임 시 1회 호출.

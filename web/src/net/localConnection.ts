@@ -60,8 +60,8 @@ export class LocalConnection implements Connection {
 
   constructor(prepared: PreparedMap) {
     this.prepared = prepared;
-    // core가 유일한 진실. 시작 동 배정 = 데이터 무게중심 근처(목업).
-    this.startIndex = core.pickStartIndex(prepared.meta);
+    // core가 유일한 진실. 사람도 전국 무작위 위치에서 시작 — AI는 여기서 멀리 고르게 흩어진다.
+    this.startIndex = this.pickRandomStartIndex();
     this.gs = core.createGameState(
       prepared.n,
       prepared.neighborIndex,
@@ -80,6 +80,17 @@ export class LocalConnection implements Connection {
     if (!this.restoreWorld()) {
       core.fillAiPlayers(this.gs, CONFIG.AI_FILL_TARGET, Date.now());
     }
+  }
+
+  // 사람 시작 동 — 인접 있는(고립 아닌) 동 중 무작위. 첫 배치라 기준점이 없어 완전 무작위이고,
+  // 이후 AI는 core.pickStartCell이 이 위치에서 멀리 고르게 배치한다.
+  private pickRandomStartIndex(): number {
+    const usable: number[] = [];
+    for (let i = 0; i < this.prepared.n; i++) {
+      if (this.prepared.neighborIndex[i].length > 0) usable.push(i);
+    }
+    if (usable.length === 0) return 0;
+    return usable[Math.floor(Math.random() * usable.length)];
   }
 
   private restoreWorld(): boolean {
