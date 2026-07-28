@@ -1274,43 +1274,48 @@ function allocateHolderId(s: GameState): number {
   throw new Error("holderId 254개가 모두 사용 중입니다.");
 }
 
-// 시작 동 배정 — 본토(최대 연결 컴포넌트)에서만, 랜덤하면서도 고르게(최원점 샘플링,
+// 시작 동 배정 — 본토(서울에서 인접 BFS로 도달)에서만, 랜덤하면서도 고르게(최원점 샘플링,
 // server StartCellAssigner.pick 대응). 첫 배치는 무작위, 이후엔 "가장 가까운 기존
 // 플레이어까지의 거리"가 충분히 먼 후보 중 무작위. 섬은 스폰 후보에서 제외한다.
 const START_FAR_FRACTION = 0.6; // 최원점(제곱거리) 대비 이 비율 이상 떨어진 후보 = "충분히 먼 곳"
+const SPAWN_ANCHOR_SIDOCD = "11"; // 서울 — BFS 시드(도달 가능한 곳이 곧 본토)
+const SPAWN_EXCLUDE_SIDOCD = "50"; // 제주 — 시작 지점에서 명시적으로 제외
 
-// 본토 판정 — 인접 그래프의 최대 연결 컴포넌트(=본토) 셀 집합. 섬(제주·울릉 등 본토와 인접이
-// 끊긴 별도 컴포넌트)은 여기 안 들어가므로 스폰 후보에서 자연히 빠진다. 인접은 정적이라
-// 소유와 무관하게 그래프 구조만으로 계산한다. server StartCellAssigner.mainlandCells 대응.
-export function largestComponentSet(
+// 스폰 가능한 본토 판정 — 서울(sidocd "11")에서 인접 그래프로 BFS해 도달하는 셀 집합.
+// 섬(서울과 인접이 끊긴 별도 컴포넌트)은 도달하지 못해 자연히 빠지고, 제주(sidocd "50")는
+// 혹시 데이터상 연결돼 있더라도 명시적으로 제외한다. 인접은 정적이라 소유와 무관하게
+// 그래프 구조만으로 계산한다. server StartCellAssigner.mainlandFromSeoul 대응.
+export function mainlandFromSeoul(
   neighborIndex: readonly (readonly number[])[],
+  meta: readonly { sidocd: string }[],
   n: number
 ): Set<number> {
   const seen = new Uint8Array(n);
-  let best: number[] = [];
-  for (let start = 0; start < n; start++) {
-    if (seen[start]) continue;
-    const comp: number[] = [];
-    const queue = [start];
-    seen[start] = 1;
-    for (let head = 0; head < queue.length; head++) {
-      const c = queue[head];
-      comp.push(c);
-      for (const nb of neighborIndex[c]) {
-        if (!seen[nb]) {
-          seen[nb] = 1;
-          queue.push(nb);
-        }
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (meta[i].sidocd === SPAWN_ANCHOR_SIDOCD) {
+      seen[i] = 1;
+      queue.push(i);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    for (const nb of neighborIndex[queue[head]]) {
+      if (!seen[nb]) {
+        seen[nb] = 1;
+        queue.push(nb);
       }
     }
-    if (comp.length > best.length) best = comp;
   }
-  return new Set(best);
+  const out = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    if (seen[i] && meta[i].sidocd !== SPAWN_EXCLUDE_SIDOCD) out.add(i);
+  }
+  return out;
 }
 
 export function pickStartCell(s: GameState): number | null {
-  // 무조건 본토에서만 스폰 — 섬(별도 컴포넌트)은 후보에서 제외한다.
-  const mainland = largestComponentSet(s.neighborIndex, s.n);
+  // 무조건 본토에서만 스폰 — 서울에서 BFS로 못 닿는 섬·제주는 후보에서 제외한다.
+  const mainland = mainlandFromSeoul(s.neighborIndex, s.meta, s.n);
   const pool: number[] = [];
   for (let i = 0; i < s.n; i++) {
     if (s.ownerId[i] === NEUTRAL_HOLDER_ID && mainland.has(i)) pool.push(i);
