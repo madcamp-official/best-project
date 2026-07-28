@@ -5,8 +5,8 @@ import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
 import com.madcamp.server.data.BoundaryCell
 import com.madcamp.server.data.BoundaryDataLoader
-import com.madcamp.server.domain.EnvAi
 import com.madcamp.server.domain.GameCore
+import com.madcamp.server.domain.PlayerAi
 import com.madcamp.server.domain.World
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
@@ -72,11 +72,10 @@ class GameLoop(
         }
     }
 
-    /** 프레시 월드 1개 생성(경계 데이터 + 환경세력 스폰). 방 라운드 시작·재생성에서 재사용. */
+    /** 프레시 월드 1개 생성(경계 데이터만). AI 플레이어 채우기는 라운드 시작(RoomController.startRound)에서
+     *  참가 인원을 안 뒤에 한다 — 여기(브리지 방 포함)선 빈 중립 월드만 만든다. */
     fun createFreshWorld(mapId: String): World {
-        val fresh = World.create(cellsOf(mapId), configService.current)
-        EnvAi.spawn(fresh, configService.current)
-        return fresh
+        return World.create(cellsOf(mapId), configService.current)
     }
 
     /** JOIN처럼 결과를 즉시 돌려줘야 할 때. 방/월드가 없으면 null. block은 executor에서 실행. */
@@ -152,7 +151,13 @@ class GameLoop(
         GameCore.tickProduction(world, config, dtSec)
         GameCore.tickOrders(world, config, wallNow)
         GameCore.tickAnnex(world, config, wallNow, wallNow)
-        EnvAi.maybeAct(world, config, wallNow)
+
+        // AI 플레이어 행동 (AI_ACT_INTERVAL_SEC 주기) — 부족한 인원을 채운 봇들이 확장·증원한다.
+        room.aiActAccumSec += dtSec
+        if (room.aiActAccumSec >= config.aiActIntervalSec) {
+            room.aiActAccumSec = 0.0
+            PlayerAi.actAll(world, config, wallNow)
+        }
 
         // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
         room.missileAccumSec += dtSec

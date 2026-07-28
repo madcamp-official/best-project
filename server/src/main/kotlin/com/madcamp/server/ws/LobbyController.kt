@@ -1,7 +1,10 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.config.HolderIds
 import com.madcamp.server.data.MapCatalog
+import com.madcamp.server.domain.PlayerAi
+import com.madcamp.server.domain.World
 import com.madcamp.server.game.Member
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
@@ -78,6 +81,10 @@ class LobbyController(
         }
     }
 
+    // 현재 실제 플레이어(사람+AI) 수 — 중립·(구)E 제외.
+    private fun playerCount(world: World): Int =
+        world.holders.values.count { it.id != HolderIds.NEUTRAL && it.id != HolderIds.ENV }
+
     // 영속 clientId(없으면 이번 연결 principal로 폴백 — clientId 미전송 클라·스모크테스트 호환).
     private fun clientIdOf(clientId: String?, principal: Principal): String =
         clientId?.takeUnless { it.isBlank() } ?: principal.name
@@ -107,6 +114,11 @@ class LobbyController(
             member.holderId = session.holderId
             member.token = tok
             connectionRegistry.bind(principal.name, room.id, session.holderId)
+            // 새 사람이 들어와 정원(AI_FILL_TARGET)을 넘겼으면 가장 약한 AI를 빼 자리를 내준다.
+            // (재접속으로 기존 holder를 복구한 경우엔 인원이 안 늘어 아무 것도 빠지지 않는다.)
+            while (playerCount(world) > config.aiFillTarget) {
+                if (!PlayerAi.removeWeakest(world, config, System.currentTimeMillis())) break
+            }
             messaging.convertAndSendToUser(
                 principal.name,
                 "/queue/welcome",

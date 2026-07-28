@@ -1,6 +1,7 @@
 package com.madcamp.server.ws
 
 import com.madcamp.server.config.ConfigService
+import com.madcamp.server.domain.PlayerAi
 import com.madcamp.server.game.Room
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
@@ -114,10 +115,13 @@ class RoomController(
             member.token = tok
             connectionRegistry.bind(member.principalName, room.id, session.holderId)
         }
+        // 사람 인원이 목표(AI_FILL_TARGET)에 못 미치면 부족분을 AI 플레이어로 채운다.
+        PlayerAi.fill(world, config, config.aiFillTarget)
         room.tickCount = 0
         room.missileAccumSec = 0.0
         room.supplyAccumSec = 0.0
         room.attackAccumSec = 0.0
+        room.aiActAccumSec = 0.0
         room.lastEnclosedKey = ""
         room.lastTickNanos = System.nanoTime()
         room.roundStartMs = System.currentTimeMillis()

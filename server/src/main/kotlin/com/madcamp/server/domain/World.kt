@@ -72,6 +72,20 @@ class World(
     var nextLogId: Int = 1
     var envLastActMs: Long = 0L
 
+    /** 1..254 순환 할당(0 중립·255 E 예약). 이미 쓰는 id는 건너뛴다. 254개 다 차면 예외.
+     *  사람 참가(SessionService)와 AI 채우기(PlayerAi)가 같은 할당기를 공유한다. */
+    fun allocateHolderId(): Int {
+        var candidate = nextHolderId
+        repeat(254) {
+            if (candidate !in holders) {
+                nextHolderId = if (candidate >= 254) 1 else candidate + 1
+                return candidate
+            }
+            candidate = if (candidate >= 254) 1 else candidate + 1
+        }
+        error("holderId 254개가 모두 사용 중입니다.")
+    }
+
     companion object {
         /** README §3.4 — pop 데이터 미보유 시 fallback: 전 동 troopCap = baseCap 균일. */
         fun create(cells: List<BoundaryCell>, config: GameConfig): World {
