@@ -78,7 +78,6 @@ export function Hud({ connection, isMock }: Props) {
         <div className="loading-box">
           <div className="loading-spinner" />
           <p className="loading-title">전국 지도를 준비하는 중…</p>
-          <p className="loading-sub">전국 250여 개 시/군/구의 경계·인접 그래프를 계산하고 있어요</p>
         </div>
       </div>
     );
@@ -126,7 +125,7 @@ export function Hud({ connection, isMock }: Props) {
                 display: "inline-block",
               }}
             >
-              🛡 방어막 {shieldSecLeft}초 — 미사일·전술핵·포위를 막아줍니다
+              🛡 방어막 {shieldSecLeft}초 — 미사일 방어
             </div>
           )}
         </div>

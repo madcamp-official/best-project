@@ -66,11 +66,7 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
           </div>
           <div className="lobby-rooms">
             {rooms.length === 0 && (
-              <div className="io-empty">
-                아직 열린 방이 없어요
-                <br />
-                오른쪽에서 첫 방을 만들어 보세요!
-              </div>
+              <div className="io-empty">아직 열린 방이 없어요</div>
             )}
             {rooms.map((r) => {
               const full = r.memberCount >= r.maxMembers;
@@ -130,11 +126,7 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
           <h1 className="io-logo">
             <span className="accent">시장</span> 시뮬레이터
           </h1>
-          <p className="io-tagline">
-            실제 전국 시/군/구 지도에서
-            <br />
-            벌이는 실시간 영토 전쟁
-          </p>
+          <p className="io-tagline">실시간 영토 전쟁</p>
 
           {profile && (
             <div
@@ -186,7 +178,7 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
             />
             <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 13, color: "#9fb0c8" }}>
               <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
-              비공개 방으로 만들기 (친구만 초대 코드로 입장)
+              비공개 방으로 만들기
             </label>
             <button
               className="io-btn io-btn-primary io-btn-lg io-btn-block"
@@ -197,8 +189,6 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
             >
               + 새 방 만들기
             </button>
-
-            {!nameOk && <p className="join-hint">닉네임을 입력하면 방을 만들거나 참가할 수 있어요</p>}
           </div>
         </div>
       </div>
