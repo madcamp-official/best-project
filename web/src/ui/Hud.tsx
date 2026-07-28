@@ -282,10 +282,6 @@ export function Hud({ connection, isMock }: Props) {
               {rallyName ?? "없음"}
             </strong>
           </div>
-          <div style={LEGEND_ROW}>
-            <span style={KEY_BADGE}>좌클릭</span>
-            <span style={{ flex: 1 }}>지역 선택 · 정보</span>
-          </div>
         </div>
       </div>
 
