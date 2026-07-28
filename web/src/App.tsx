@@ -9,6 +9,7 @@ import { RoomWaitScreen } from "./ui/RoomWaitScreen";
 import { ResultsOverlay } from "./ui/ResultsOverlay";
 import { ProfileBadge } from "./ui/ProfileBadge";
 import { MyPage } from "./ui/MyPage";
+import { FriendsPanel } from "./ui/FriendsPanel";
 import { loadMapData, DEFAULT_MAP_ID } from "./data/loadMapData";
 import type { PreparedMap } from "./data/loadMapData";
 import { LocalConnection } from "./net/localConnection";
@@ -50,6 +51,9 @@ function App() {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [showMyPage, setShowMyPage] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
+  // 게스트 배지 표시용 — 로그인 유저는 profile.nickname이 우선하고, 게스트는 이 값(로비 입력과 동기화).
+  const nickname = useUIStore((s) => s.nickname);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,7 +182,9 @@ function App() {
       localStorage.setItem("nickname", displayName.slice(0, 12));
     }
     try {
-      setProfile(await fetchMyProfile(tok));
+      const p = await fetchMyProfile(tok);
+      setProfile(p);
+      useUIStore.getState().setNickname(p.nickname); // 배지·로비 닉네임 입력을 계정 닉네임으로 맞춘다
     } catch (e) {
       console.error("[profile]", e); // 프로필 조회 실패해도 로그인 자체(idToken)는 유효하니 로비는 그대로 진행
     }
@@ -190,6 +196,12 @@ function App() {
     setIdToken(null);
     setProfile(null);
     setPhotoURL(null);
+    setShowMyPage(false);
+    setShowFriends(false);
+    setPhase("authChoice");
+  };
+  // 게스트가 마이페이지의 "구글로 로그인"을 눌렀을 때 — 로그인 관문으로 돌려보낸다.
+  const handleLoginPrompt = () => {
     setShowMyPage(false);
     setPhase("authChoice");
   };
@@ -219,17 +231,40 @@ function App() {
       {phase === "join" && <JoinScreen onJoin={handleJoin} />}
       {phase === "authChoice" && <AuthChoiceScreen onGuest={handleGuest} onLoggedIn={handleLoggedIn} />}
       {phase === "lobby" && connectionRef.current && (
-        <LobbyScreen connection={connectionRef.current} idToken={idToken} profile={profile} />
+        <LobbyScreen
+          connection={connectionRef.current}
+          idToken={idToken}
+          profile={profile}
+          onOpenFriends={() => setShowFriends(true)}
+        />
       )}
       {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
       {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
 
-      {/* 로그인 상태 표시 — 게임 화면(ready) 중엔 HUD 우상단 순위표와 겹치므로 숨긴다. */}
-      {profile && phase !== "ready" && (
-        <ProfileBadge nickname={profile.nickname} photoURL={photoURL} onClick={() => setShowMyPage(true)} />
+      {/* 계정 배지 — 로그인 여부와 무관하게(게스트는 기본 아이콘+닉네임) 로비/대기실/결과 화면
+          우상단에 띄운다. 게임 화면(ready) 중엔 HUD 우상단 순위표와 겹치므로 숨긴다. */}
+      {(phase === "lobby" || phase === "room" || phase === "results") && (
+        <ProfileBadge
+          nickname={profile?.nickname ?? (nickname || "게스트")}
+          photoURL={profile ? photoURL : null}
+          onClick={() => setShowMyPage(true)}
+        />
       )}
-      {showMyPage && profile && (
-        <MyPage profile={profile} onClose={() => setShowMyPage(false)} onLogout={handleLogout} />
+      {showMyPage && (
+        <MyPage
+          profile={profile}
+          guestNickname={nickname}
+          onClose={() => setShowMyPage(false)}
+          onLogout={handleLogout}
+          onOpenFriends={() => {
+            setShowMyPage(false);
+            setShowFriends(true);
+          }}
+          onLoginPrompt={handleLoginPrompt}
+        />
+      )}
+      {showFriends && idToken && (
+        <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} />
       )}
     </div>
   );
