@@ -725,22 +725,17 @@ object GameCore {
     fun computeRank(world: World, config: GameConfig, holderId: Int): Rank? {
         if (holderId == HolderIds.NEUTRAL || world.n == 0) return null
 
-        val sggTotal = HashMap<String, Int>()
-        val sggOwned = HashMap<String, Int>()
         val sidoTotal = HashMap<String, Int>()
         val sidoOwned = HashMap<String, Int>()
         var anyOwned = false
         var ownedCells = 0
 
         for (i in 0 until world.n) {
-            val sgg = world.meta[i].sggcd
             val sido = world.meta[i].sidocd
-            sggTotal[sgg] = (sggTotal[sgg] ?: 0) + 1
             sidoTotal[sido] = (sidoTotal[sido] ?: 0) + 1
             if (world.ownerId[i] == holderId) {
                 anyOwned = true
                 ownedCells++
-                sggOwned[sgg] = (sggOwned[sgg] ?: 0) + 1
                 sidoOwned[sido] = (sidoOwned[sido] ?: 0) + 1
             }
         }
@@ -754,10 +749,12 @@ object GameCore {
         val fullSido = sidoTotal.count { (sido, total) -> (sidoOwned[sido] ?: 0) == total }
         if (fullSido > 0) return Rank.DOJISA // 시도(예: 강원도) 하나를 통째로 장악
 
-        val fullSgg = sggTotal.count { (sgg, total) -> (sggOwned[sgg] ?: 0) == total }
-        if (fullSgg > 0) return Rank.SIJANG // 시군구 하나를 통째로 장악
+        // 법정동 시절엔 "시군구 하나 통째로 장악=시장"이었지만, 시/군/구 지도는 셀 하나가 이미
+        // 시군구 하나 전체라 그 판정이 땅을 조금이라도 가지면 항상 참이 된다 — 그래서 시장 계급은
+        // 보유 개수(mayorRankCells) 기준으로 대체하고, 그 아래는 구청장(시/군/구 진입 단계)이다.
+        if (ownedCells >= config.mayorRankCells) return Rank.SIJANG
 
-        return Rank.DONGJANG
+        return Rank.GUCHEONGJANG
     }
 
     // ── 포위 귀속 (Encirclement Capture, web/src/game/core.ts tickAnnex 1:1) ────────────

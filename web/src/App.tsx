@@ -186,7 +186,10 @@ function App() {
       setProfile(p);
       useUIStore.getState().setNickname(p.nickname); // 배지·로비 닉네임 입력을 계정 닉네임으로 맞춘다
     } catch (e) {
-      console.error("[profile]", e); // 프로필 조회 실패해도 로그인 자체(idToken)는 유효하니 로비는 그대로 진행
+      // 프로필이 없으면 친구·전적 UI가 전부 안 열리는데(profile null 조건부 렌더), 조용히 넘기면
+      // "로그인은 됐는데 아무 것도 안 생긴다"로 보인다 — 실패를 반드시 알린다.
+      console.error("[profile]", e);
+      useUIStore.getState().showToast("로그인은 됐지만 프로필을 불러오지 못했습니다 — 친구 기능이 제한됩니다");
     }
     enterLobby();
   };

@@ -1036,22 +1036,17 @@ export function dominationHolder(s: GameState): number {
 export function computeRank(s: GameState, holderId: number): Rank {
   if (holderId === NEUTRAL_HOLDER_ID || s.n === 0) return null;
 
-  const sggTotal = new Map<string, number>();
-  const sggOwned = new Map<string, number>();
   const sidoTotal = new Map<string, number>();
   const sidoOwned = new Map<string, number>();
   let anyOwned = false;
   let ownedCells = 0;
 
   for (let i = 0; i < s.n; i++) {
-    const sgg = s.meta[i].sggcd;
     const sido = s.meta[i].sidocd;
-    sggTotal.set(sgg, (sggTotal.get(sgg) ?? 0) + 1);
     sidoTotal.set(sido, (sidoTotal.get(sido) ?? 0) + 1);
     if (s.ownerId[i] === holderId) {
       anyOwned = true;
       ownedCells++;
-      sggOwned.set(sgg, (sggOwned.get(sgg) ?? 0) + 1);
       sidoOwned.set(sido, (sidoOwned.get(sido) ?? 0) + 1);
     }
   }
@@ -1068,13 +1063,12 @@ export function computeRank(s: GameState, holderId: number): Rank {
   }
   if (fullSido > 0) return "도지사"; // 시도(예: 강원도) 하나를 통째로 장악
 
-  let fullSgg = 0;
-  for (const [sgg, total] of sggTotal) {
-    if ((sggOwned.get(sgg) ?? 0) === total) fullSgg++;
-  }
-  if (fullSgg > 0) return "시장"; // 시군구 하나를 통째로 장악
+  // 법정동 시절엔 "시군구 하나 통째로 장악=시장"이었지만, 시/군/구 지도는 셀 하나가 이미
+  // 시군구 하나 전체라 그 판정이 땅을 조금이라도 가지면 항상 참이 된다 — 그래서 시장 계급은
+  // 보유 개수(MAYOR_RANK_CELLS) 기준으로 대체하고, 그 아래는 구청장(시/군/구 진입 단계)이다.
+  if (ownedCells >= CONFIG.MAYOR_RANK_CELLS) return "시장";
 
-  return "동장";
+  return "구청장";
 }
 
 // ── 환경 세력 (E) — README §4.6 ──────────────────────────────────────
