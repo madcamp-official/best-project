@@ -29,6 +29,7 @@ export function Hud({ connection, isMock }: Props) {
   const nukeCooldownLeft = useUIStore((s) => s.nukeCooldownLeft);
   const nukeCoolSec = Math.ceil(nukeCooldownLeft / 1000);
   const rallyIndex = useUIStore((s) => s.rallyIndex);
+  const attackQueueCount = useUIStore((s) => s.attackQueueCount);
   const isTransporting = useUIStore((s) => s.isTransporting);
   const setTransporting = useUIStore((s) => s.setTransporting);
   const airdropCooldownLeft = useUIStore((s) => s.airdropCooldownLeft);
@@ -257,6 +258,20 @@ export function Hud({ connection, isMock }: Props) {
             내 동을 <strong>더블클릭</strong>해 집결지 지정 (같은 동 더블클릭 = 해제).
             <br />
             후방 병력이 집결지로 매 초 한 칸씩 자동 전진합니다.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, borderTop: "1px solid #ffffff22", paddingTop: 8 }}>
+          <div className="hud-ratio-head">
+            <span className="hud-title">공격 큐 ⚔️</span>
+            <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
+              {attackQueueCount > 0 ? `${attackQueueCount}곳` : "없음"}
+            </strong>
+          </div>
+          <div className="hud-ratio-hint">
+            국경에 인접한 적·중립 지역을 <strong>우클릭</strong>해 공격 큐에 추가 (다시 우클릭 = 취소).
+            <br />
+            큐에 담긴 지역을 인접한 내 동들이 매 주기 자동으로 공격합니다.
           </div>
         </div>
 

@@ -60,6 +60,12 @@ data class GameConfig(
     @JsonProperty("SUPPLY_RATIO") var supplyRatio: Double = 0.34,
     @JsonProperty("SUPPLY_MIN_TROOPS") var supplyMinTroops: Int = 5,
 
+    // 공격 큐 — 국경에 인접한 적·중립 지역을 우클릭해 큐에 넣으면, 매 주기 인접 내 동들이 자동 공격.
+    // 대상이 내 소유가 되면 큐에서 자동 제거. 우클릭 드래그 공격을 대체. web/src/config.ts ATTACK_QUEUE_*와 동기.
+    @JsonProperty("ATTACK_QUEUE_INTERVAL_SEC") var attackQueueIntervalSec: Double = 1.5,
+    @JsonProperty("ATTACK_QUEUE_RATIO") var attackQueueRatio: Double = 0.5,
+    @JsonProperty("ATTACK_QUEUE_MIN_TROOPS") var attackQueueMinTroops: Int = 3,
+
     // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 목적지에 투하, 초과분은 인접 flood.
     @JsonProperty("AIRDROP_COOLDOWN_SEC") var airdropCooldownSec: Double = 30.0, // 플레이어당 재사용 대기(초, 클라 config.ts와 동기)
     @JsonProperty("AIRDROP_MAX_RANGE_DEG") var airdropMaxRangeDeg: Double = 0.55, // 사거리 상한(출발↔목적지 centroid 도 단위)

@@ -169,6 +169,13 @@ class GameLoop(
             GameCore.tickSupply(world, config, wallNow)
         }
 
+        // 공격 큐 (ATTACK_QUEUE_INTERVAL_SEC 주기) — 큐 대상마다 인접 내 동들이 자동 출정
+        room.attackAccumSec += dtSec
+        if (room.attackAccumSec >= config.attackQueueIntervalSec) {
+            room.attackAccumSec = 0.0
+            GameCore.tickAttackQueue(world, config, wallNow)
+        }
+
         broadcastDelta(room, wallNow)
         room.tickCount++
         if (room.tickCount % LEADERBOARD_EVERY_N_TICKS == 0L) broadcastLeaderboard(room)

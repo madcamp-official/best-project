@@ -43,6 +43,9 @@ export interface Connection {
   sendNuke(center: [number, number], radius: number, hits: number[]): void;
   // B2 집결지 지정/해제. index = 내 소유 admIndex, -1이면 해제. 이후 후방 병력이 이 동으로 자동 전진.
   sendRally(index: number): void;
+  // 공격 큐 토글. index = 국경에 인접한 적·중립 admIndex. 이미 큐에 있으면 해제, 없으면 추가.
+  // 이후 매 주기 그 대상에 인접한 내 동들이 자동 공격한다(우클릭 드래그 공격 대체).
+  sendAttackTarget(index: number): void;
   // B3 공수부대(병력 수송). sources = 원 안 내 소유 동 admIndex(클라 계산), dest = 투하 목적지(인접 불필요).
   sendAirdrop(sources: number[], dest: number): void;
   // 궤멸(소유 동 0개) 후 재시작 요청. 아직 소유 동이 있으면 서버가 무시한다.

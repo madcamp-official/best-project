@@ -49,6 +49,7 @@ export class LocalConnection implements Connection {
   private envTimerMs = 0; // 환경 세력 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
   private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
+  private attackTimerMs = 0; // 공격 큐 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
   private pendingMissileRemove: number[] = []; // 이번 DELTA 구간에 사라진 미사일 동(발사 소모)
   private pendingShields: ShieldInfo[] = []; // 이번 DELTA 구간에 새로 생기거나 갱신된 방어막(재시작)
@@ -283,6 +284,10 @@ export class LocalConnection implements Connection {
     core.setRally(this.gs, this.holderId, index); // 다음 보급 tick부터 이 동을 향해 후방 병력 전진
   }
 
+  sendAttackTarget(index: number): void {
+    core.toggleAttackTarget(this.gs, this.holderId, index); // 다음 공격 tick부터 인접 내 동들이 이 대상을 공격
+  }
+
   // 궤멸(소유 동 0개) 상태에서 유저가 "재시작"을 눌렀을 때만 새 시작 동을 배정한다.
   sendRestart(): void {
     const ok = core.respawnPlayer(this.gs, this.holderId, Date.now()); // 다음 tick의 flushDelta로 dirty 전파
@@ -356,6 +361,14 @@ export class LocalConnection implements Connection {
       this.supplyTimerMs = 0;
       const supplyOrders = core.tickSupply(this.gs, now);
       if (supplyOrders.length > 0) this.pendingOrders.push(...supplyOrders);
+    }
+
+    // 공격 큐 (ATTACK_QUEUE_INTERVAL_SEC 주기) — 큐 대상마다 인접 내 동들이 자동 출정
+    this.attackTimerMs += TICK_MS;
+    if (this.attackTimerMs >= CONFIG.ATTACK_QUEUE_INTERVAL_SEC * 1000) {
+      this.attackTimerMs = 0;
+      const attackOrders = core.tickAttackQueue(this.gs, now);
+      if (attackOrders.length > 0) this.pendingOrders.push(...attackOrders);
     }
 
     this.flushDelta(now);
@@ -454,6 +467,7 @@ export class LocalConnection implements Connection {
       orders: this.gs.orders.slice(),
       missiles: this.collectMissiles(),
       rally: this.gs.rally[this.holderId],
+      attackQueue: Array.from(this.gs.attackQueue[this.holderId]),
       shields: this.collectShields(),
       nukeReadyAtMs: Array.from(this.gs.nukeReadyAt), // serverTimeMs와 같은 performance.now() 시간축
     };

@@ -35,6 +35,7 @@ class Room(
     var tickCount: Long = 0L
     var missileAccumSec: Double = 0.0
     var supplyAccumSec: Double = 0.0 // 보급 흐름 주기 누산기
+    var attackAccumSec: Double = 0.0 // 공격 큐 주기 누산기
     var lastEnclosedKey: String = "" // 직전 브로드캐스트의 포위 동 집합 키 — 바뀔 때만 enclosed 전송
     val rng: java.util.Random = java.util.Random()
 }

@@ -624,6 +624,51 @@ object GameCore {
         }
     }
 
+    // ── 공격 큐 (web/src/game/core.ts toggleAttackTarget/tickAttackQueue 대응) ────
+    // 국경에 인접한 적·중립 지역을 큐에 넣으면, 매 주기 인접한 내 동들이 그 지역을 자동 공격한다.
+    // 대상이 내 소유가 되면(점령) 큐에서 자동 제거. 우클릭 드래그 공격을 대체한다.
+
+    // 공격 대상 토글. 이미 큐에 있으면 해제(항상 허용), 없으면 적·중립 + 내 영토 인접일 때만 추가.
+    fun toggleAttackTarget(world: World, holderId: Int, idx: Int) {
+        if (idx < 0 || idx >= world.n) return
+        val q = world.attackQueue[holderId]
+        if (q.contains(idx)) {
+            q.remove(idx)
+            return
+        }
+        if (world.ownerId[idx] == holderId) return // 내 동은 큐에 못 넣음
+        var adjacent = false
+        for (nb in world.neighborIndex[idx]) {
+            if (world.ownerId[nb] == holderId) { adjacent = true; break }
+        }
+        if (!adjacent) return // 내 영토에 인접해야 큐에 넣는다
+        q.add(idx)
+    }
+
+    // 큐를 가진 모든 holder에 대해, 각 대상에 인접한 내 동들이 병력 일부를 그 대상으로 출정시킨다.
+    // (GameLoop이 attackQueueIntervalSec 주기로 호출.) 새 order는 orders/pendingNewOrders에 추가돼 DELTA로 전파.
+    fun tickAttackQueue(world: World, config: GameConfig, nowMs: Long) {
+        for (h in world.attackQueue.indices) {
+            val q = world.attackQueue[h]
+            if (q.isEmpty()) continue
+            for (target in q.toList()) {
+                if (target < 0 || target >= world.n) { q.remove(target); continue }
+                if (world.ownerId[target] == h) { q.remove(target); continue } // 점령 완료 → 제거
+                for (nb in world.neighborIndex[target]) {
+                    if (world.ownerId[nb] != h) continue
+                    if (world.troops[nb] <= config.attackQueueMinTroops) continue
+                    val amt = floor(world.troops[nb] * config.attackQueueRatio).toInt()
+                    if (amt < 1) continue
+                    world.troops[nb] -= amt
+                    world.dirty.add(nb)
+                    val order = makeOrder(world, config, nb, target, amt, h, nowMs)
+                    world.orders.add(order)
+                    world.pendingNewOrders.add(order)
+                }
+            }
+        }
+    }
+
     fun pushLog(world: World, message: String, ts: Long) {
         val event = LogEvent(world.nextLogId++, ts, message)
         world.pendingEvents.add(event)

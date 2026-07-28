@@ -30,6 +30,10 @@ class World(
     // web/src/game/core.ts GameState.rally 대응.
     val rally: IntArray = IntArray(256) { -1 }
 
+    // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정.
+    // web/src/game/core.ts GameState.attackQueue 대응.
+    val attackQueue: Array<MutableSet<Int>> = Array(256) { HashSet() }
+
     // 공수부대(B3): holderId → 재사용 가능해지는 벽시계 시각(ms). 0=쿨타임 없음. 크기 256.
     // web/src/game/core.ts GameState.airdropReadyAt 대응.
     val airdropReadyAt: LongArray = LongArray(256)

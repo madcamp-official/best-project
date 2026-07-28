@@ -65,6 +65,12 @@ export interface SetRallyCommand {
   index: number;
 }
 
+// 공격 큐 토글(C→S). index = 국경에 인접한 적·중립 admIndex. 이미 큐에 있으면 해제, 없으면
+// (적·중립 + 내 영토 인접) 추가한다. 이후 매 주기 그 대상에 인접한 내 동들이 자동 공격한다.
+export interface ToggleAttackTargetCommand {
+  index: number;
+}
+
 // 공수부대(병력 수송, C→S). sources = 원 안에 든 내 소유 동 admIndex 목록(클라 계산),
 // dest = 투하 목적지 admIndex(인접 아니어도 됨). 서버가 소유·쿨타임을 검증하고 sources 병력
 // 전부를 dest에 투하, 상한 초과분은 인접 flood로 점령/증원한다.
@@ -101,6 +107,7 @@ export interface WelcomeMessage {
   orders: Order[]; // 진행 중 이동 유닛(재접속 시 이어서 보간)
   missiles: number[]; // 미사일이 얹힌 동 admIndex 목록
   rally: number; // B2 — 이 플레이어의 집결지 admIndex(-1=없음). 재접속 시 복구용.
+  attackQueue: number[]; // 이 플레이어의 공격 큐 admIndex 목록. 재접속 시 복구용.
   shields: ShieldInfo[]; // 지금 활성 상태인 방어막 전체 스냅샷(만료분 제외)
   // 전술핵 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순서, serverTimeMs와 같은 시간축).
   // 사일로 위치 자체는 정적 데이터에서 파생되므로 보내지 않는다(클라가 initNukeState로 계산).

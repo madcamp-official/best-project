@@ -25,6 +25,9 @@ export interface GameState {
   // 보급선(B2): holderId → 집결지 admIndex(-1=없음). 후방 병력이 이 동을 향해 자동 전진한다.
   // 크기 256 = holderId 예약 범위(0 중립 … 255 E). 시뮬레이터(목/서버)만 채우고 클라 사본은 -1.
   rally: Int32Array;
+  // 공격 큐: holderId → 공격 대상 admIndex 집합. 매 주기 각 대상에 인접한 내 동들이 자동 출정한다.
+  // 크기 256(holderId별). 시뮬레이터(목/서버)만 채운다(클라 사본은 world.myAttackQueue로 내 것만 추적).
+  attackQueue: Set<number>[];
   // 공수부대(B3): holderId → 재사용 가능해지는 단조 시각(ms). 0=쿨타임 없음. 크기 256.
   airdropReadyAt: Float64Array;
   // 스폰 방어막: holderId → 보호 종료 시각(ms, 호출자의 시간축 그대로 — 시뮬레이터는 wallNowMs).
@@ -89,6 +92,7 @@ export function createGameState(
     orders: [],
     missiles: new Uint8Array(n),
     rally: new Int32Array(256).fill(-1),
+    attackQueue: Array.from({ length: 256 }, () => new Set<number>()),
     airdropReadyAt: new Float64Array(256),
     shieldUntil: new Float64Array(256),
     borderMask: borderMask ?? new Uint8Array(n),
@@ -662,6 +666,68 @@ function supplyToward(
     s.orders.push(order);
     out.push(order);
   }
+}
+
+// ── 공격 큐 ────────────────────────────────────────────────────────────
+// 국경에 인접한 적·중립 지역을 큐에 넣으면, 매 주기 그 지역에 인접한 내 동들의 병력 일부가
+// 자동으로 그 지역을 공격한다(도착 시 전투는 일반 출정과 동일). 대상이 내 소유가 되면 자동 제거.
+
+export type AttackQueueResult =
+  | { ok: true; added: boolean } // added=true 추가, false 제거(해제)
+  | { ok: false; reason: string };
+
+// 공격 대상 토글. 이미 큐에 있으면 해제(항상 허용), 없으면 적·중립 + 내 영토 인접일 때만 추가.
+export function toggleAttackTarget(s: GameState, holderId: number, idx: number): AttackQueueResult {
+  if (idx < 0 || idx >= s.n) return { ok: false, reason: "잘못된 대상입니다." };
+  const q = s.attackQueue[holderId];
+  if (q.has(idx)) {
+    q.delete(idx);
+    return { ok: true, added: false };
+  }
+  if (s.ownerId[idx] === holderId) return { ok: false, reason: "적·중립 지역만 공격 대상으로 지정할 수 있습니다." };
+  let adjacent = false;
+  for (const nb of s.neighborIndex[idx]) {
+    if (s.ownerId[nb] === holderId) {
+      adjacent = true;
+      break;
+    }
+  }
+  if (!adjacent) return { ok: false, reason: "내 영토에 인접한 지역만 공격할 수 있습니다." };
+  q.add(idx);
+  return { ok: true, added: true };
+}
+
+// 큐를 가진 모든 holder에 대해, 각 대상에 인접한 내 동들이 병력 일부를 그 대상으로 출정시킨다.
+// (시뮬레이터가 ATTACK_QUEUE_INTERVAL_SEC 주기로 호출.) 반환 = 이번 주기에 새로 출발한 order.
+export function tickAttackQueue(s: GameState, nowMs: number): Order[] {
+  const out: Order[] = [];
+  for (let h = 0; h < s.attackQueue.length; h++) {
+    const q = s.attackQueue[h];
+    if (q.size === 0) continue;
+    for (const target of Array.from(q)) {
+      if (target < 0 || target >= s.n) {
+        q.delete(target);
+        continue;
+      }
+      if (s.ownerId[target] === h) {
+        q.delete(target); // 점령 완료 → 큐에서 제거
+        continue;
+      }
+      // 대상에 인접한 내 동마다 병력 일부를 출정(도착 시 resolveArrival가 전투 처리).
+      for (const nb of s.neighborIndex[target]) {
+        if (s.ownerId[nb] !== h) continue;
+        if (s.troops[nb] <= CONFIG.ATTACK_QUEUE_MIN_TROOPS) continue;
+        const amt = Math.floor(s.troops[nb] * CONFIG.ATTACK_QUEUE_RATIO);
+        if (amt < 1) continue;
+        s.troops[nb] -= amt;
+        s.dirty.add(nb);
+        const order = makeOrder(s, nb, target, amt, h, nowMs);
+        s.orders.push(order);
+        out.push(order);
+      }
+    }
+  }
+  return out;
 }
 
 // ── 공수부대 (B3) ──────────────────────────────────────────────────────
