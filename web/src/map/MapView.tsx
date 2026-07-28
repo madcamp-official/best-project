@@ -89,6 +89,13 @@ const AIRDROP_UNIT_LAYER = "airdrop-unit-icon";
 const AIRDROP_UNIT_LABEL = "airdrop-unit-label";
 const TRIANGLE_IMAGE_ID = "airdrop-triangle";
 
+// 셀 이름·병력 배지가 보이기 시작하는 줌 임계. 이 지도(kr-sgg 시군구)는 셀 하나가 옛 법정동보다
+// 훨씬 커서, 동 기준으로 튜닝됐던 값(10)을 그대로 쓰면 한참 확대해야만 이름·병력이 보였다.
+// 시군구 스케일에 맞춰 낮춰, 전국 개요에서 살짝만 확대하면 시/군/구 이름과 병력이 뜨게 한다.
+// NAME/BADGE는 이 줌 이상에서, 저줌 점(OWNED_DOT)·닉네임 라벨은 이 줌 미만에서 표시 —
+// 같은 값을 공유해 두 오버레이가 겹치지 않고 한 지점에서 깔끔히 교대한다.
+const LABEL_MIN_ZOOM = 7;
+
 // 키 없이 쓸 수 있는 CARTO 무료 래스터 베이스맵 (라벨 없는 다크 테마).
 // 스테인드글라스처럼 동 폴리곤을 반투명하게 얹기 위한 바탕 지도.
 const BASEMAP_TILES = ["a", "b", "c", "d"].map(
@@ -605,14 +612,14 @@ export function MapView({ prepared, connection }: Props) {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      // 동 이름 — 작은 흰 글자로 병력 숫자 위에 표시. (값과의 구분은 '크기'가 담당)
-      // 전국 스케일에선 저줌에서도 라벨이 필요하므로 minzoom을 낮추되(10), allow-overlap을
-      // 끄고 MapLibre 충돌 배치에 맡겨 밀집 지역(서울 등)에서 라벨이 뭉치지 않게 한다.
+      // 셀 이름 — 작은 흰 글자로 병력 숫자 위에 표시. (값과의 구분은 '크기'가 담당)
+      // 시군구 스케일에 맞춘 LABEL_MIN_ZOOM 이상에서 표시하고, allow-overlap을 끄고 MapLibre
+      // 충돌 배치에 맡겨 밀집 지역(수도권 등)에서 라벨이 뭉치지 않게 한다.
       map.addLayer({
         id: NAME_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 10,
+        minzoom: LABEL_MIN_ZOOM,
         layout: {
           "text-field": ["get", "name"],
           "text-size": 11,
@@ -625,12 +632,12 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
       // 병력 수 — 핵심 값. 이름보다 훨씬 크고 두꺼운 외곽선으로 크게 강조.
-      // 저줌에서 라벨이 겹치면 병력이 많은(=중요한) 동을 우선 배치한다.
+      // 저줌에서 라벨이 겹치면 병력이 많은(=중요한) 셀을 우선 배치한다.
       map.addLayer({
         id: BADGE_LAYER,
         type: "symbol",
         source: BADGE_SOURCE,
-        minzoom: 10, // 전국 스케일: 접속·이동 줌(10~11)에서도 병력 숫자가 보이도록
+        minzoom: LABEL_MIN_ZOOM, // 시군구 스케일: 전국 개요에서 살짝만 확대해도 병력 숫자가 보이도록
         layout: {
           "text-field": ["get", "troops"],
           "text-size": 18,
@@ -645,10 +652,10 @@ export function MapView({ prepared, connection }: Props) {
         },
       });
 
-      // 저줌 최소 시인성 점 — 동 폴리곤 하나는 전국 축소 시 화면상 안 보일 만큼 작아질 수 있다
-      // (막 시작한 상대가 동 1개만 가진 경우 특히). 소유 동마다 고정 크기 점을 찍어, 폴리곤
+      // 저줌 최소 시인성 점 — 셀 폴리곤 하나는 전국 축소 시 화면상 안 보일 만큼 작아질 수 있다
+      // (막 시작한 상대가 셀 1개만 가진 경우 특히). 소유 셀마다 고정 크기 점을 찍어, 폴리곤
       // 크기와 무관하게 항상 눈에 띄게 한다. 확대해서 실제 폴리곤·병력 배지가 보이는 시점
-      // (zoom 10, NAME/BADGE_LAYER의 minzoom과 맞춤)에는 점을 끄고 넘겨준다.
+      // (LABEL_MIN_ZOOM, NAME/BADGE_LAYER의 minzoom과 맞춤)에는 점을 끄고 넘겨준다.
       map.addSource(OWNED_DOT_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -657,7 +664,7 @@ export function MapView({ prepared, connection }: Props) {
         id: OWNED_DOT_LAYER,
         type: "circle",
         source: OWNED_DOT_SOURCE,
-        maxzoom: 10,
+        maxzoom: LABEL_MIN_ZOOM,
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2, 8, 3.5],
           "circle-color": buildPaletteMatchExpr(["get", "paletteIdx"], "stroke"),
@@ -881,9 +888,10 @@ export function MapView({ prepared, connection }: Props) {
         });
       }
 
-      // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 도 하나가 화면에
-      // 들어올 정도로 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 동 단위로
-      // 들어가면 동 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
+      // 플레이어 닉네임 라벨 — 각 플레이어 소유 영토의 무게중심 1곳에 표시. 전국 개요로
+      // 축소했을 때만 보이고(maxzoom), 그보다 확대하면 사라진다 — 시군구 단위로 들어가면
+      // 셀 이름·병력 배지가 그 역할을 대신하므로 라벨이 겹쳐 지저분해지는 걸 막는다.
+      // maxzoom을 NAME/BADGE의 minzoom(LABEL_MIN_ZOOM)과 맞춰 한 지점에서 깔끔히 교대시킨다.
       // 유닛 원(UNIT_CIRCLE_LAYER)·집결지 깃발(RALLY_LAYER)보다 나중에(=위에) 그려야 그것들에
       // 가려지지 않는다 — 이전엔 더 먼저 추가돼 있어서 마커 근처에서 라벨이 안 보이는 문제가 있었다.
       map.addSource(PLAYER_LABEL_SOURCE, {
@@ -894,7 +902,7 @@ export function MapView({ prepared, connection }: Props) {
         id: PLAYER_LABEL_LAYER,
         type: "symbol",
         source: PLAYER_LABEL_SOURCE,
-        maxzoom: 8.5,
+        maxzoom: LABEL_MIN_ZOOM,
         layout: {
           "text-field": ["get", "name"],
           "text-size": 15,
