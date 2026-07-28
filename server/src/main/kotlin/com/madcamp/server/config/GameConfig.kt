@@ -74,10 +74,11 @@ data class GameConfig(
 
     // 전술핵 사일로 — 울릉도(울릉읍)·제주도(오등동, 한라산 북사면)에 고정. 사일로 동을 소유한
     // 플레이어는 일반 미사일의 nukeRadiusMult배 반경 미사일을 쿨다운마다 발사할 수 있다.
+    // 일반 미사일이 단일 표적으로 바뀐 뒤로, 전술핵은 같은 반경(×1)이되 원에 걸친 여러 동을 한 번에 타격하는 광역 무기다.
     // 두 섬은 본토와 인접이 끊긴 컴포넌트라, 사일로 섬을 오가는 공수는 사거리 제한을 받지 않는다.
     // web/src/config.ts NUKE_*와 동기.
     @JsonProperty("NUKE_SILO_CODES") var nukeSiloCodes: List<String> = listOf("47940250", "50110134"),
-    @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 3.0,
+    @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 1.0,
     @JsonProperty("NUKE_COOLDOWN_SEC") var nukeCooldownSec: Double = 180.0,
 )
 
