@@ -6,7 +6,7 @@
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadMapData";
 import { DEFAULT_MAP_ID } from "../data/loadMapData";
-import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { CONFIG, MY_HOLDER_ID } from "../config";
 import { safeUuid } from "../util/uuid";
 import type { Order, ShieldInfo } from "../game/types";
 import type { Connection } from "./connection";
@@ -27,7 +27,7 @@ const SOLO_ROOM_ID = "solo";
 const TICK_MS = 200; // 서버 tick = DELTA 주기 (5Hz)
 const LEADERBOARD_EVERY = 5; // tick 5회마다 = 1Hz
 const SAVE_EVERY = 10; // tick 10회마다 = 2s 간격으로 월드 스냅샷 저장
-const WORLD_KEY = "world-snapshot"; // 재접속 복구용 (실서버라면 서버 메모리/파일에 있음)
+const WORLD_KEY = "world-snapshot-v2"; // 재접속 복구용. v2 = AI 플레이어 도입(구 E 기반 스냅샷 무효화)
 
 export class LocalConnection implements Connection {
   private gs: core.GameState;
@@ -46,7 +46,7 @@ export class LocalConnection implements Connection {
   private pendingOrders: Order[] = []; // 이번 DELTA 구간에 새로 발주된 이동 유닛
   private lastSentLogId = 0;
   private startIndex: number;
-  private envTimerMs = 0; // 환경 세력 행동 주기 누산기
+  private aiTimerMs = 0; // AI 플레이어 행동 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
   private supplyTimerMs = 0; // 보급선(B2) 흐름 주기 누산기
   private attackTimerMs = 0; // 공격 큐 주기 누산기
@@ -75,10 +75,10 @@ export class LocalConnection implements Connection {
       (globalThis as Record<string, unknown>).__mockGs = this.gs;
       (globalThis as Record<string, unknown>).__mockConn = this;
     }
-    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
+    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(부족 인원을 AI 플레이어로 채움).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
     if (!this.restoreWorld()) {
-      core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
+      core.fillAiPlayers(this.gs, CONFIG.AI_FILL_TARGET, Date.now());
     }
   }
 
@@ -90,7 +90,7 @@ export class LocalConnection implements Connection {
         n: number;
         ownerId: number[];
         troops: number[];
-        holders: { id: number; name: string; paletteIdx: number }[];
+        holders: { id: number; name: string; paletteIdx: number; isAi?: boolean }[];
         nextLogId: number;
       };
       if (!snap || snap.n !== this.gs.n || !Array.isArray(snap.ownerId)) return false;
@@ -119,84 +119,6 @@ export class LocalConnection implements Connection {
     } catch {
       // localStorage 용량 초과 등은 조용히 무시(다음 저장에서 재시도).
     }
-  }
-
-  // ENV_CLUSTER_COUNT개의 야만인 무리를 만든다. 각 무리 = 씨앗 1개 + 인접 중립 동
-  // (무리당 ENV_START_CELLS개). 첫 씨앗은 플레이어 근처(초반 조우), 나머지는 전국에 고루 흩뿌린다.
-  private pickEnvCells(): number[] {
-    const seeds = this.pickEnvSeeds(Math.max(1, CONFIG.ENV_CLUSTER_COUNT));
-    const cells = new Set<number>();
-    for (const seed of seeds) {
-      cells.add(seed);
-      let inCluster = 1;
-      for (const nb of this.prepared.neighborIndex[seed]) {
-        if (inCluster >= CONFIG.ENV_START_CELLS) break;
-        if (this.gs.ownerId[nb] === NEUTRAL_HOLDER_ID && !cells.has(nb)) {
-          cells.add(nb);
-          inCluster++;
-        }
-      }
-    }
-    return Array.from(cells);
-  }
-
-  // 무리 씨앗 선정: 1) 플레이어에서 ~4홉 떨어진 첫 씨앗, 2) 나머지는 최원점(farthest-point)
-  // 샘플링으로 이미 고른 씨앗들에서 가장 먼 중립 동을 반복 선택 → 캠프들이 서로·플레이어와 떨어진다.
-  private pickEnvSeeds(count: number): number[] {
-    const { neighborIndex, n } = this.prepared;
-    // 후보 = 인접 있는 중립 동(고립 섬 제외 — 거기 두면 자라지도 싸우지도 못한다).
-    const usable = (i: number) =>
-      this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0;
-
-    const seeds: number[] = [this.pickNearPlayerSeed()];
-    while (seeds.length < count) {
-      let best = -1;
-      let bestMinDist = -1;
-      for (let i = 0; i < n; i++) {
-        if (!usable(i) || seeds.includes(i)) continue;
-        let minDist = Infinity; // 이미 고른 씨앗들과의 최소 제곱거리
-        for (const s of seeds) {
-          const d = this.centroidDistSq(i, s);
-          if (d < minDist) minDist = d;
-        }
-        if (minDist > bestMinDist) {
-          bestMinDist = minDist;
-          best = i;
-        }
-      }
-      if (best < 0) break; // 더 둘 곳이 없음
-      seeds.push(best);
-    }
-    return seeds;
-  }
-
-  // 플레이어 시작 동에서 BFS로 ~4홉 떨어진 중립 씨앗 (중앙 시작이라 근처 링에 둬야 초반에 조우한다).
-  private pickNearPlayerSeed(): number {
-    const { neighborIndex, n } = this.prepared;
-    const dist = new Int32Array(n).fill(-1);
-    const q: number[] = [this.startIndex];
-    dist[this.startIndex] = 0;
-    let seed = -1;
-    for (let h = 0; h < q.length; h++) {
-      const cur = q[h];
-      if (seed < 0 && dist[cur] >= 4 && this.gs.ownerId[cur] === NEUTRAL_HOLDER_ID) seed = cur;
-      for (const nb of neighborIndex[cur]) {
-        if (dist[nb] === -1) {
-          dist[nb] = dist[cur] + 1;
-          q.push(nb);
-        }
-      }
-    }
-    return seed >= 0 ? seed : q.length > 1 ? q[q.length - 1] : this.startIndex;
-  }
-
-  // 두 동 라벨 지점 사이 제곱거리(비교 전용이라 sqrt 생략).
-  private centroidDistSq(a: number, b: number): number {
-    const ca = this.prepared.meta[a].centroid;
-    const cb = this.prepared.meta[b].centroid;
-    const dx = ca[0] - cb[0];
-    const dy = ca[1] - cb[1];
-    return dx * dx + dy * dy;
   }
 
   join(nickname: string, token?: string): void {
@@ -339,12 +261,12 @@ export class LocalConnection implements Connection {
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
-    // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
-    this.envTimerMs += TICK_MS;
-    if (this.envTimerMs >= CONFIG.ENV_ACT_INTERVAL_SEC * 1000) {
-      this.envTimerMs = 0;
-      const envOrder = core.tickEnv(this.gs, now);
-      if (envOrder) this.pendingOrders.push(envOrder);
+    // AI 플레이어 행동 (AI_ACT_INTERVAL_SEC 주기) — 부족 인원을 채운 봇들이 확장·증원한다.
+    this.aiTimerMs += TICK_MS;
+    if (this.aiTimerMs >= CONFIG.AI_ACT_INTERVAL_SEC * 1000) {
+      this.aiTimerMs = 0;
+      const aiOrders = core.tickPlayerAi(this.gs, now, wall);
+      if (aiOrders.length > 0) this.pendingOrders.push(...aiOrders);
     }
 
     // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)

@@ -1187,3 +1187,155 @@ export function tickEnv(s: GameState, nowMs: number): Order | null {
   if (res.ok && s.orders.length > before) return s.orders[s.orders.length - 1];
   return null;
 }
+
+// ── AI 플레이어 (server .../domain/PlayerAi.kt 1:1 대응) ─────────────────────
+// 야만인(E)을 대체한다. 한 세션을 target명까지 AI로 채우고(fillAiPlayers), 매 주기
+// 확장(약한 인접 적/중립 다전선 출정)과 증원(프런티어 BFS로 후방→전선 병력 공급)을 한다.
+// 미사일/전술핵/공수는 쓰지 않고, 생산량만 사람의 AI_PROD_MULT배(tickProduction에서 처리).
+
+// AI 닉네임 풀 — 서버 PlayerAi.NAMES와 동일 순서.
+const AI_NAMES = ["도전자", "맞수", "용병", "야망가", "정복자", "반란군", "책략가", "맹장"];
+
+// 현재 실제 플레이어(사람+AI) 수 — 중립·(구)E 제외.
+function playerCount(s: GameState): number {
+  let c = 0;
+  for (const h of s.holders.values()) {
+    if (h.id !== NEUTRAL_HOLDER_ID && h.id !== CONFIG.ENV_HOLDER_ID) c++;
+  }
+  return c;
+}
+
+// 1..254에서 가장 작은 미사용 holderId (server World.allocateHolderId 대응, 목은 최소값 방식).
+function allocateHolderId(s: GameState): number {
+  for (let id = 1; id <= 254; id++) if (!s.holders.has(id)) return id;
+  throw new Error("holderId 254개가 모두 사용 중입니다.");
+}
+
+// 시작 동 배정 — 이미 플레이어가 있는 시군구를 우선 피해 무작위(server StartCellAssigner.pick 대응).
+export function pickStartCell(s: GameState): number | null {
+  const neutral: number[] = [];
+  for (let i = 0; i < s.n; i++) if (s.ownerId[i] === NEUTRAL_HOLDER_ID) neutral.push(i);
+  if (neutral.length === 0) return null;
+  const usedSgg = new Set<string>();
+  for (let i = 0; i < s.n; i++) {
+    const o = s.ownerId[i];
+    if (o !== NEUTRAL_HOLDER_ID && o !== CONFIG.ENV_HOLDER_ID) usedSgg.add(s.meta[i].sggcd);
+  }
+  const fresh = neutral.filter((i) => !usedSgg.has(s.meta[i].sggcd));
+  const pool = fresh.length > 0 ? fresh : neutral;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// 부족 인원을 AI 홀더로 채운다(server PlayerAi.fill 대응). 목은 라운드 개념이 없어 새 게임 시 1회 호출.
+export function fillAiPlayers(s: GameState, target: number, wallNowMs: number) {
+  let seq = 0;
+  while (playerCount(s) < target) {
+    const start = pickStartCell(s);
+    if (start === null) break; // 맵이 가득 참
+    const holderId = allocateHolderId(s);
+    const name = AI_NAMES[seq % AI_NAMES.length];
+    seq++;
+    const paletteIdx = PLAYER_PALETTE_IDXS[(holderId - 1) % PLAYER_PALETTE_IDXS.length];
+    s.holders.set(holderId, { id: holderId, name, paletteIdx, isAi: true });
+    s.ownerId[start] = holderId;
+    s.troops[start] = s.troopCap[start];
+    s.dirty.add(start);
+    applyShield(s, holderId, wallNowMs);
+    pushLog(s, `${s.meta[start].name}에서 AI ${name}이(가) 참전했습니다.`, wallNowMs);
+  }
+}
+
+// 성공한 출정 order를 out에 모은다(호출자가 DELTA에 실어 보낸다).
+function aiSortieCapture(
+  s: GameState,
+  from: number,
+  to: number,
+  holderId: number,
+  nowMs: number,
+  out: Order[]
+) {
+  const before = s.orders.length;
+  const res = trySortie(s, from, to, holderId, nowMs);
+  if (res.ok && s.orders.length > before) out.push(s.orders[s.orders.length - 1]);
+}
+
+// 확장 — server PlayerAi.expand 대응.
+function aiExpand(s: GameState, holderId: number, nowMs: number, wallNowMs: number, out: Order[]) {
+  const moves: { from: number; to: number; score: number }[] = [];
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] !== holderId) continue;
+    const send = Math.floor(s.troops[i] * CONFIG.SORTIE_RATIO);
+    if (send <= 0) continue;
+    let best = -1;
+    let bestT = Infinity;
+    for (const nb of s.neighborIndex[i]) {
+      const o = s.ownerId[nb];
+      if (o === holderId) continue;
+      if (isShielded(s, o, wallNowMs)) continue; // 방어막 = 공격 낭비
+      if (s.troops[nb] < bestT) {
+        bestT = s.troops[nb];
+        best = nb;
+      }
+    }
+    if (best < 0) continue;
+    if (send > s.troops[best] * CONFIG.AI_ATTACK_MARGIN) {
+      moves.push({ from: i, to: best, score: send - s.troops[best] });
+    }
+  }
+  moves.sort((a, b) => b.score - a.score);
+  let done = 0;
+  const usedFrom = new Set<number>();
+  for (const m of moves) {
+    if (done >= CONFIG.AI_MAX_SORTIES_PER_TICK) break;
+    if (usedFrom.has(m.from)) continue;
+    usedFrom.add(m.from);
+    aiSortieCapture(s, m.from, m.to, holderId, nowMs, out);
+    done++;
+  }
+}
+
+// 증원 — server PlayerAi.reinforce 대응(프런티어 BFS 거리 → 후방 가득 찬 동이 전선 쪽으로 한 홉).
+function aiReinforce(s: GameState, holderId: number, nowMs: number, out: Order[]) {
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
+  for (let i = 0; i < s.n; i++) {
+    if (s.ownerId[i] !== holderId) continue;
+    if (s.neighborIndex[i].some((nb) => s.ownerId[nb] !== holderId)) {
+      dist.set(i, 0);
+      queue.push(i);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const c = queue[head];
+    const d = dist.get(c) as number;
+    for (const nb of s.neighborIndex[c]) {
+      if (s.ownerId[nb] === holderId && !dist.has(nb)) {
+        dist.set(nb, d + 1);
+        queue.push(nb);
+      }
+    }
+  }
+  const candidates = Array.from(dist.entries())
+    .filter(([i, d]) => d > 0 && s.troops[i] >= s.troopCap[i] * CONFIG.AI_REINFORCE_FILL_RATIO)
+    .sort((a, b) => s.troops[b[0]] - s.troops[a[0]]);
+  let done = 0;
+  for (const [i, d] of candidates) {
+    if (done >= CONFIG.AI_MAX_REINFORCE_PER_TICK) break;
+    const target = s.neighborIndex[i].find((nb) => (dist.get(nb) ?? Infinity) < d);
+    if (target === undefined) continue;
+    aiSortieCapture(s, i, target, holderId, nowMs, out);
+    done++;
+  }
+}
+
+// 모든 AI 홀더가 한 번씩 행동(server PlayerAi.actAll 대응). nowMs=단조 시각(출정 타이밍),
+// wallNowMs=벽시계(방어막 판정). 새로 발주된 order 전부를 반환한다.
+export function tickPlayerAi(s: GameState, nowMs: number, wallNowMs: number): Order[] {
+  const out: Order[] = [];
+  for (const h of s.holders.values()) {
+    if (!h.isAi) continue;
+    aiExpand(s, h.id, nowMs, wallNowMs, out);
+    aiReinforce(s, h.id, nowMs, out);
+  }
+  return out;
+}
