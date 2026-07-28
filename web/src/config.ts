@@ -1,6 +1,6 @@
 // docs/plan.md, README.md §5 튜닝 상수 — 모든 밸런스 값은 이 객체 한 곳에.
 export const CONFIG = {
-  FILL_TO_CAP_SEC: 180, // 빈 동 → 상한 충전 시간(초)
+  FILL_TO_CAP_SEC: 90, // 빈 동 → 상한 충전 시간(초). 초반 확장을 쉽게 하려 빠르게(180→90).
   BASE_CAP: 50, // 병력 상한 base (튜닝)
   CAP_K: 0.4, // 인구 정규화 압축 강도 (튜닝, 목업에서는 미사용)
   CAP_MIN_MULT: 0.7,
@@ -40,9 +40,18 @@ export const CONFIG = {
   MARCH_MAX_HOPS: 60, // 자동 경로 최대 홉(원거리 남용/BFS 비용 방지)
 
   // 공세 목표 — 적·중립 동을 더블클릭해 목표로 지정하면, 그 목표를 향한 최전선이 매 주기 전진한다.
-  OFFENSIVE_INTERVAL_SEC: 1.5, // 공세 전진 판정 주기(초)
+  OFFENSIVE_INTERVAL_SEC: 2.0, // 공세 전진 판정 주기(초)
   OFFENSIVE_RATIO: 0.7, // 공세 1회당 최전선 동에서 내보내는 병력 비율
   OFFENSIVE_MIN_TROOPS: 4, // 이 수 미만이면 공세 전진 안 함(수비 병력 확보 + 잔챙이 남발 방지)
+
+  // AI 국가 — 시작 시 맵 곳곳에 단일 동으로 흩뿌리는 서로 다른 AI 세력들. 각자 인접 중립을
+  // 이길 만할 때만 자동 점령하며 확장하다가, 블롭이 맞닿으면 서로 못 이겨 전선이 형성된다.
+  AI_NATION_COUNT: 30, // 시작 AI 국가 수(각각 단일 동에서 시작)
+  AI_HOLDER_BASE: 200, // AI 국가 holderId 시작값(플레이어 1~199, E 255와 겹치지 않게). +COUNT < 255
+  AI_ACT_INTERVAL_SEC: 1.0, // AI 확장 판정 주기(초)
+  AI_MIN_TROOPS: 6, // 이 수 미만이면 확장 안 함(수비 병력 확보)
+  AI_EXPAND_RATIO: 0.6, // 확장 1회당 최전선 동에서 내보내는 병력 비율
+  AI_MIN_SEED_DIST_DEG: 0.12, // 시작 동끼리 이 거리(도) 이상 떨어뜨려 고루 흩뿌린다
 
   // 공수부대(병력 수송, B3) — 원으로 고른 내 동들의 병력 전부를 삼각형 유닛으로 목적지에 투하.
   // 상한 초과분은 목적지에서 인접 BFS로 순차 flood(적/중립은 전투로 점령).
@@ -79,7 +88,8 @@ export const SCOPE_SIDOCD: string | null = null;
 // 플레이어 구분은 테두리(진하고 채도 높은 색)가 담당하고, 채움은 그 위에 얹는
 // 옅고 투명한 색유리 틴트로만 쓴다 — 그래서 fill은 밝은 파스텔, stroke는 같은
 // 색상의 짙은 톤으로 fill보다 항상 더 진하게 짝지었다.
-export const PALETTE: { fill: string; stroke: string }[] = [
+// 고정 슬롯 0~6(중립·플레이어 5색·E). 그 뒤(7~)는 AI 국가용으로 프로그램 생성한다.
+const BASE_PALETTE: { fill: string; stroke: string }[] = [
   { fill: "#333a46", stroke: "#7d8699" }, // 0: 중립 (무채색)
   { fill: "#f3a5a5", stroke: "#a30f1f" }, // 1: 플레이어 레드
   { fill: "#a9c8fb", stroke: "#1740b8" }, // 2: 블루
@@ -89,9 +99,26 @@ export const PALETTE: { fill: string; stroke: string }[] = [
   { fill: "#c3d152", stroke: "#5a6b0d" }, // 6: 환경 세력(E) — 독성 올리브그린 (플레이어와 혼동 없게)
 ];
 
+// AI 국가 색 — 황금각(137.5°)으로 색상환을 돌려 인접 인덱스끼리 색이 확 달라지게(구분 쉽게).
+// fill은 밝은 파스텔, stroke는 같은 색상의 짙은 톤(기존 규칙과 동일).
+const AI_PALETTE_SIZE = 48;
+const AI_PALETTE: { fill: string; stroke: string }[] = Array.from({ length: AI_PALETTE_SIZE }, (_, i) => {
+  const hue = (i * 137.508) % 360;
+  const light = 74 + (i % 3) * 4; // 74/78/82로 살짝 변주해 같은 색상도 구분되게
+  return {
+    fill: `hsl(${hue.toFixed(1)}, 68%, ${light}%)`,
+    stroke: `hsl(${hue.toFixed(1)}, 72%, 34%)`,
+  };
+});
+
+// holder의 paletteIdx → 채움/테두리 색. 0~6 고정 슬롯 + 7~(AI 국가 색).
+export const PALETTE: { fill: string; stroke: string }[] = [...BASE_PALETTE, ...AI_PALETTE];
+
 // 환경 세력(E) 전용 팔레트 슬롯. README §7.1 — 팔레트 밖 색을 E에 고정 배정.
 export const ENV_PALETTE_IDX = 6;
 // 플레이어에게 순환 배정할 색 슬롯(중립 0·E 6 제외). 6명 초과 시 색이 겹칠 수 있으나 데모 규모에선 충분.
 export const PLAYER_PALETTE_IDXS = [1, 2, 3, 4, 5];
+// AI 국가에 순환 배정할 색 슬롯(7~54). AI 국가 인덱스 k → 이 배열의 k번째.
+export const AI_PALETTE_IDXS = Array.from({ length: AI_PALETTE_SIZE }, (_, i) => BASE_PALETTE.length + i);
 
 export const SELECTED_OUTLINE_COLOR = "#ffffff";

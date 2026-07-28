@@ -5,7 +5,7 @@
 
 import * as core from "../game/core";
 import type { PreparedMap } from "../data/loadDong";
-import { CONFIG, ENV_PALETTE_IDX, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
+import { CONFIG, MY_HOLDER_ID, NEUTRAL_HOLDER_ID } from "../config";
 import { safeUuid } from "../util/uuid";
 import type { Order, ShieldInfo } from "../game/types";
 import type { Connection } from "./connection";
@@ -26,7 +26,7 @@ const SOLO_ROOM_ID = "solo";
 const TICK_MS = 200; // 서버 tick = DELTA 주기 (5Hz)
 const LEADERBOARD_EVERY = 5; // tick 5회마다 = 1Hz
 const SAVE_EVERY = 10; // tick 10회마다 = 2s 간격으로 월드 스냅샷 저장
-const WORLD_KEY = "world-snapshot"; // 재접속 복구용 (실서버라면 서버 메모리/파일에 있음)
+const WORLD_KEY = "world-snapshot-ai"; // 재접속 복구용. AI 국가 도입으로 키를 올려 옛 저장 무효화(새 게임 강제).
 
 export class LocalConnection implements Connection {
   private gs: core.GameState;
@@ -45,7 +45,7 @@ export class LocalConnection implements Connection {
   private pendingOrders: Order[] = []; // 이번 DELTA 구간에 새로 발주된 이동 유닛
   private lastSentLogId = 0;
   private startIndex: number;
-  private envTimerMs = 0; // 환경 세력 행동 주기 누산기
+  private aiTimerMs = 0; // AI 국가 확장 주기 누산기
   private missileTimerMs = 0; // 미사일 스폰 주기 누산기
   private offensiveTimerMs = 0; // 공세 전진 판정 주기 누산기
   private pendingMissileAdd: number[] = []; // 이번 DELTA 구간에 새로 스폰된 미사일 동
@@ -73,10 +73,10 @@ export class LocalConnection implements Connection {
       (globalThis as Record<string, unknown>).__mockGs = this.gs;
       (globalThis as Record<string, unknown>).__mockConn = this;
     }
-    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(E 스폰).
+    // 재접속: 저장된 월드가 있으면 복구, 없으면 새 게임(AI 국가들을 맵 곳곳에 단일 동으로 스폰).
     // (실서버는 서버 메모리의 월드를 유지 — 여기선 localStorage가 그 역할을 대신한다.)
     if (!this.restoreWorld()) {
-      core.envSpawn(this.gs, this.pickEnvCells(), ENV_PALETTE_IDX, Date.now());
+      core.spawnAiNations(this.gs, this.pickAiSeeds(CONFIG.AI_NATION_COUNT), Date.now());
     }
   }
 
@@ -117,6 +117,36 @@ export class LocalConnection implements Connection {
     } catch {
       // localStorage 용량 초과 등은 조용히 무시(다음 저장에서 재시도).
     }
+  }
+
+  // AI 국가 시작 동을 랜덤·분산 선정한다. 인접 있는 중립 동(플레이어 시작 동은 이미 소유라 제외)을
+  // 섞어 순회하며, 이미 고른 시드들과 최소 거리(AI_MIN_SEED_DIST_DEG) 이상 떨어진 것만 채택 →
+  // 전국에 고루 흩뿌려진 단일 동 시드 count개(다 못 채우면 가능한 만큼).
+  private pickAiSeeds(count: number): number[] {
+    const { n, neighborIndex } = this.prepared;
+    const minD2 = CONFIG.AI_MIN_SEED_DIST_DEG * CONFIG.AI_MIN_SEED_DIST_DEG;
+    const order: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (this.gs.ownerId[i] === NEUTRAL_HOLDER_ID && neighborIndex[i].length > 0) order.push(i);
+    }
+    // Fisher-Yates 셔플(랜덤 배치).
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const seeds: number[] = [];
+    for (const cand of order) {
+      if (seeds.length >= count) break;
+      let ok = true;
+      for (const s of seeds) {
+        if (this.centroidDistSq(cand, s) < minD2) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) seeds.push(cand);
+    }
+    return seeds;
   }
 
   // ENV_CLUSTER_COUNT개의 야만인 무리를 만든다. 각 무리 = 씨앗 1개 + 인접 중립 동
@@ -333,12 +363,12 @@ export class LocalConnection implements Connection {
     if (relayLegs.length > 0) this.pendingOrders.push(...relayLegs);
     core.tickAnnex(this.gs, now, wall); // 포위 귀속 판정(흡수 시 dirty·log 갱신 → DELTA로 전파)
 
-    // 환경 세력 행동 (ENV_ACT_INTERVAL_SEC 주기)
-    this.envTimerMs += TICK_MS;
-    if (this.envTimerMs >= CONFIG.ENV_ACT_INTERVAL_SEC * 1000) {
-      this.envTimerMs = 0;
-      const envOrder = core.tickEnv(this.gs, now);
-      if (envOrder) this.pendingOrders.push(envOrder);
+    // AI 국가 확장 (AI_ACT_INTERVAL_SEC 주기) — 각 AI 최전선이 이길 만한 인접 동을 자동 점령
+    this.aiTimerMs += TICK_MS;
+    if (this.aiTimerMs >= CONFIG.AI_ACT_INTERVAL_SEC * 1000) {
+      this.aiTimerMs = 0;
+      const aiOrders = core.tickAiNations(this.gs, now);
+      if (aiOrders.length > 0) this.pendingOrders.push(...aiOrders);
     }
 
     // 미사일 스폰 (MISSILE_SPAWN_SEC 주기)
