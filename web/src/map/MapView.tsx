@@ -114,6 +114,11 @@ export function MapView({ prepared, connection }: Props) {
       zoom: 6.4,
       attributionControl: false,
       doubleClickZoom: false, // 더블클릭 확대 비활성화 (동을 빠르게 두 번 클릭할 때 오확대 방지)
+      // 이 지도 실제 영역 밖으로는 못 나가게 고정 — renderWorldCopies 기본값(true)은 줌아웃 시
+      // 지도를 옆으로 무한 반복해서 그려 계속 스크롤할 수 있게 만드는데(세계지도에서 특히 눈에
+      // 띔), 이 둘을 같이 꺼야 "딱 이 지도 범위 안"으로 팬/줌이 제한된다.
+      maxBounds: computeMapBounds(prepared),
+      renderWorldCopies: false,
     });
     map.addControl(
       new AttributionControl({ compact: true, customAttribution: "© OpenStreetMap, © CARTO" })
@@ -1868,6 +1873,37 @@ function updateUnits(map: MaplibreMap, now: number) {
     type: "FeatureCollection",
     features: world.orders.filter((o) => o.airdrop).map(toFeature),
   });
+}
+
+// 지도 실제 폴리곤 전부를 감싸는 bbox + 여유(패딩) — MaplibreMap의 maxBounds로 써서 이 지도
+// 범위 밖으로는 팬/줌이 안 나가게 한다(무한 스크롤·좌우 반복 방지). 세계지도는 원래 전 지구를
+// 다루니 거의 -180~180이 되는 게 맞고(그래야 실제로 세계 전체가 보임), 법정동/시군구는 대한민국
+// 언저리로 자연히 좁혀진다 — 지도마다 하드코딩 없이 prepared 데이터에서 매번 계산.
+function computeMapBounds(prepared: PreparedMap): [[number, number], [number, number]] {
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const visit = (node: any): void => {
+    if (typeof node[0] === "number") {
+      const [lng, lat] = node as [number, number];
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    } else {
+      for (const child of node) visit(child);
+    }
+  };
+  for (const f of prepared.geojson.features) visit(f.geometry.coordinates);
+
+  const padLng = Math.max((maxLng - minLng) * 0.1, 2);
+  const padLat = Math.max((maxLat - minLat) * 0.1, 2);
+  return [
+    [Math.max(minLng - padLng, -179.9), Math.max(minLat - padLat, -85)],
+    [Math.min(maxLng + padLng, 179.9), Math.min(maxLat + padLat, 85)],
+  ];
 }
 
 function averageCenter(prepared: PreparedMap): [number, number] {

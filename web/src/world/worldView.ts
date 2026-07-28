@@ -12,6 +12,7 @@ import { CONFIG } from "../config";
 
 export interface WorldView extends GameState {
   myHolderId: number; // 이 클라이언트의 holderId (WELCOME에서 옴)
+  mapId: string; // 이 방이 쓰는 지도(data/loadMapData.ts MAP_ASSETS 키). Hud.tsx가 지도별 표시 분기에 쓴다.
   myOffensive: number; // 내 공세 목표 admIndex(-1=없음). 렌더러가 목표 마커를 그린다.
   // 전술핵 사일로별 재발사 가능 시각을 로컬 시계(Date.now)로 환산한 값 — Hud 쿨다운 표시용.
   // (서버 nukeReadyAtMs는 serverTimeMs 시간축이라 받은 시점에 로컬로 번역해 둔다.)
@@ -22,6 +23,7 @@ export interface WorldView extends GameState {
 // (MapView·uiStore가 이 참조를 들고 world.ownerId 처럼 직접 읽는다.)
 export const world: WorldView = Object.assign(core.createGameState(0, [], [], 0, 0), {
   myHolderId: 0,
+  mapId: "kr-dong",
   myOffensive: -1,
   nukeReadyLocal: [] as number[],
 });
@@ -33,6 +35,7 @@ let offensiveTouched = false;
 
 // WELCOME 적용 — 전체 스냅샷을 1회 반영. 이후 변경은 applyDelta로만.
 export function applyWelcome(msg: WelcomeMessage) {
+  world.mapId = msg.mapId;
   const n = msg.meta.length;
   world.n = n;
   world.ownerId = Uint8Array.from(msg.ownerId);
