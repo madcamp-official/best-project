@@ -90,6 +90,10 @@ const TRIANGLE_IMAGE_ID = "airdrop-triangle";
 const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표(HOI 스타일 블록 화살표)
 const ATTACK_ARROW_FILL = "attack-arrow-fill";
 const ATTACK_ARROW_LINE = "attack-arrow-line";
+// 공격 큐 화살표 — 큐에 담긴 대상마다, 그 대상에 인접한 '내 동'에서 대상으로 향하는 상시 표시 화살표.
+const ATTACK_QUEUE_ARROW_SOURCE = "attack-queue-arrow";
+const ATTACK_QUEUE_ARROW_FILL = "attack-queue-arrow-fill";
+const ATTACK_QUEUE_ARROW_LINE = "attack-queue-arrow-line";
 // 출정은 항상 전 병력(100%) — 비율 슬라이더는 제거됨. (드래그 이동/쓸기·행군이 공유)
 const SORTIE_SEND_RATIO = 1;
 
@@ -196,6 +200,26 @@ export function MapView({ prepared, connection }: Props) {
           properties: {},
           geometry: { type: "Point" as const, coordinates: world.meta[idx].centroid },
         }));
+      src.setData({ type: "FeatureCollection", features });
+    };
+
+    // 공격 큐 대상마다, 그 대상에 인접한 '내 동'에서 대상 중심으로 향하는 공세 화살표들을 그린다.
+    // (어느 내 영토가 이 목표로 자동 출정하는지 ⚔️ 마커와 함께 한눈에 보이도록.) 대상 소유/인접
+    // 이 바뀌면 다시 그려야 하므로 큐 변경뿐 아니라 소유권 변경 시에도 호출한다.
+    const updateAttackQueueArrows = (m: MaplibreMap) => {
+      const src = m.getSource(ATTACK_QUEUE_ARROW_SOURCE) as GeoJSONSource | undefined;
+      if (!src) return;
+      const me = world.myHolderId;
+      const features = Array.from(world.myAttackQueue)
+        .filter((target) => target >= 0 && target < world.n)
+        .flatMap((target) => {
+          const b = world.meta[target].centroid as [number, number];
+          return (world.neighborIndex[target] ?? []).flatMap((nb) =>
+            world.ownerId[nb] === me
+              ? arrowPolygon(world.meta[nb].centroid as [number, number], b)
+              : []
+          );
+        });
       src.setData({ type: "FeatureCollection", features });
     };
 
@@ -1058,6 +1082,26 @@ export function MapView({ prepared, connection }: Props) {
         paint: { "line-color": "#ffd9a8", "line-width": 1.5, "line-opacity": 0.95 },
       });
 
+      // 공격 큐 화살표 — 상시 표시라 드래그 화살표보다 살짝 차분하게(같은 주황 계열, 낮은 불투명도).
+      // ⚔️ 마커(심볼) 아래에 깔리도록 마커 소스보다 먼저 추가한다.
+      map.addSource(ATTACK_QUEUE_ARROW_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: ATTACK_QUEUE_ARROW_FILL,
+        type: "fill",
+        source: ATTACK_QUEUE_ARROW_SOURCE,
+        paint: { "fill-color": "#ff5a2b", "fill-opacity": 0.4 },
+      });
+      map.addLayer({
+        id: ATTACK_QUEUE_ARROW_LINE,
+        type: "line",
+        source: ATTACK_QUEUE_ARROW_SOURCE,
+        layout: { "line-join": "round" },
+        paint: { "line-color": "#ffd9a8", "line-width": 1.2, "line-opacity": 0.85 },
+      });
+
       // 공격 큐 ⚔️ 마커 — 내 큐 대상 centroid마다. (미사일 마커와 같은 이모지-아이콘 방식.)
       map.addSource(ATTACK_QUEUE_SOURCE, {
         type: "geojson",
@@ -1108,6 +1152,7 @@ export function MapView({ prepared, connection }: Props) {
       updateMissileMarkers(map);
       drainMissilesTouched();
       updateAttackQueueMarker(map);
+      updateAttackQueueArrows(map);
       drainAttackQueueTouched();
       drainDirty(); // applyWelcome이 표시한 all-dirty를 위 초기 페인트로 이미 소진했으므로 비운다.
 
@@ -1416,6 +1461,8 @@ export function MapView({ prepared, connection }: Props) {
         updateBadges(map, prepared);
         updateOwnedDots(map);
         updatePlayerLabels(map);
+        // 소유권이 바뀌면 큐 대상에 인접한 '내 동' 집합도 바뀔 수 있어 화살표를 다시 그린다.
+        if (world.myAttackQueue.size > 0) updateAttackQueueArrows(map);
       }
 
       // 함락 플래시 — 새 함락은 시작 시각 기록, 매 프레임 흰색을 페이드아웃.
@@ -1460,8 +1507,11 @@ export function MapView({ prepared, connection }: Props) {
       pruneCapturedAttackTargets();
       // 미사일 마커(스폰/소모 시 갱신)
       if (drainMissilesTouched()) updateMissileMarkers(map);
-      // 공격 큐 ⚔️ 마커(토글/점령 정리 시 갱신)
-      if (drainAttackQueueTouched()) updateAttackQueueMarker(map);
+      // 공격 큐 ⚔️ 마커 + 인접 내 영토발 화살표(토글/점령 정리 시 갱신)
+      if (drainAttackQueueTouched()) {
+        updateAttackQueueMarker(map);
+        updateAttackQueueArrows(map);
+      }
 
       // 재시작으로 새 시작 동을 배정받으면 그 동으로 카메라를 옮긴다(어디서 시작했는지 안 보이던 문제).
       const respawnCell = drainRespawnCell();
