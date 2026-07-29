@@ -142,6 +142,10 @@
 }
 
 .hud-bottom-left {
+  /* position·pointer-events는 예전엔 .hud-panel이 제공하던 것 — 나가기 아이콘만 남으면서 여기로 옮김.
+     pointer-events가 없으면 pointer-events:none인 .hud-overlay를 상속해 버튼이 클릭되지 않는다. */
+  position: absolute;
+  pointer-events: auto;
   bottom: 12px;
   left: 12px;
   max-width: 260px;
