@@ -472,6 +472,19 @@
   border-radius: 10px;
 }
 
+/* 인게임 좌하단 나가기 아이콘 — 예전 '최근 기록' 패널 자리. 작은 정사각 아이콘 버튼. */
+.hud-leave-btn {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.hud-leave-btn:not(:disabled):hover {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
 .io-row {
   display: flex;
   gap: 8px;

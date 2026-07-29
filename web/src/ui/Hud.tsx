@@ -33,7 +33,6 @@ export function Hud({ connection, isMock }: Props) {
   const leaderboard = useUIStore((s) => s.leaderboard);
   const myHolderId = useUIStore((s) => s.myHolderId);
   const myRank = useUIStore((s) => s.myRank);
-  const logEntries = useUIStore((s) => s.logEntries);
   const toast = useUIStore((s) => s.toast);
   const missileCount = useUIStore((s) => s.missileCount);
   const isAiming = useUIStore((s) => s.isAiming);
@@ -175,14 +174,40 @@ export function Hud({ connection, isMock }: Props) {
         </div>
       </div>
 
-      <div className="hud-panel hud-bottom-left">
-        <div className="hud-title">최근 기록</div>
-        <ul className="hud-log">
-          {logEntries.length === 0 && <li className="hud-log-empty">아직 기록이 없습니다.</li>}
-          {logEntries.map((entry) => (
-            <li key={entry.id}>{entry.message}</li>
-          ))}
-        </ul>
+      <div className="hud-bottom-left">
+        {/* 나가기 — 진행 중 라운드를 떠나 로비(목업은 접속 화면)로. 실수 클릭 방지로 한 번 확인한다. */}
+        <button
+          type="button"
+          className="io-btn io-btn-ghost hud-leave-btn"
+          title="나가기"
+          aria-label="나가기"
+          onClick={() => {
+            if (!window.confirm("게임에서 나가시겠어요?")) return;
+            if (isMock) {
+              setPhase("join");
+            } else {
+              connection?.leaveRoom();
+              connection?.listRooms();
+              setPhase("lobby");
+            }
+          }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M13 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h7" />
+            <path d="M21 12H9" />
+            <path d="M13 8l-4 4 4 4" />
+          </svg>
+        </button>
       </div>
 
       <div className="hud-panel hud-bottom-right">
