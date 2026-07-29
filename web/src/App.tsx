@@ -7,6 +7,7 @@ import { AuthChoiceScreen } from "./ui/AuthChoiceScreen";
 import { LobbyScreen } from "./ui/LobbyScreen";
 import { RoomWaitScreen } from "./ui/RoomWaitScreen";
 import { ResultsOverlay } from "./ui/ResultsOverlay";
+import { BgmPlayer } from "./ui/BgmPlayer";
 import { ProfileBadge } from "./ui/ProfileBadge";
 import { MyPage } from "./ui/MyPage";
 import { FriendsPanel } from "./ui/FriendsPanel";
@@ -379,6 +380,8 @@ function App() {
 
   return (
     <div className="app-root">
+      {/* 배경음악 — 화면 전환과 무관하게 상시 재생(하단 중앙 토글 버튼). */}
+      <BgmPlayer />
       {prepared && connectionRef.current && (
         <MapView prepared={prepared} connection={connectionRef.current} />
       )}

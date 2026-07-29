@@ -802,3 +802,35 @@
   height: 100%;
   border-radius: 2px;
 }
+
+/* 배경음악 토글 — 모든 화면에서 비어 있는 하단 중앙에 떠 있는 작은 원형 버튼.
+   게임 HUD(네 코너)·상단 타이머와 겹치지 않는 자리. */
+.bgm-toggle {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 20, 32, 0.8);
+  color: #e2e8f0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.bgm-toggle:hover {
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.bgm-toggle:active {
+  transform: translateX(-50%) scale(0.92);
+}
