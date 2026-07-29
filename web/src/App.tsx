@@ -285,17 +285,20 @@ function App() {
    */
   const handleInviteFriend = (friend: { appUserId: number; nickname: string }) => {
     if (!idToken) return;
-    setShowFriends(false);
     const st = useUIStore.getState();
     if (st.currentRoom) {
+      // 이미 방에 있으면 패널을 열어둔 채로 계속 부를 수 있게 한다(정원 8명까지 연속 초대).
       connectionRef.current?.sendFriendInvite(idToken, friend.appUserId);
       st.showToast(`${friend.nickname}님을 초대했습니다`);
       return;
     }
+    setShowFriends(false); // 방을 새로 만드는 경우엔 대기실로 넘어가므로 닫는다
     const nick = (profile?.nickname ?? st.nickname).trim() || "player";
     pendingInviteRef.current = friend.appUserId; // 방이 생기면 그때 초대 전송
     connectionRef.current?.createRoom(
-      `${nick} & ${friend.nickname}`,
+      // 처음 부른 친구 이름을 방 이름에 박으면 이후 다른 친구를 더 불렀을 때 이름이 어긋난다
+      // (정원 8명) — 로비의 기본 방 이름과 같은 "○○의 방" 관례를 따른다.
+      `${nick}의 방`,
       DEFAULT_MAP_ID,
       nick,
       localStorage.getItem("token") ?? undefined,
@@ -360,7 +363,13 @@ function App() {
           onlineFriendCount={friendPresence.length}
         />
       )}
-      {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
+      {phase === "room" && connectionRef.current && (
+        <RoomWaitScreen
+          connection={connectionRef.current}
+          onOpenFriends={idToken ? () => setShowFriends(true) : null}
+          onlineFriendCount={friendPresence.length}
+        />
+      )}
       {phase === "results" && connectionRef.current && <ResultsOverlay connection={connectionRef.current} />}
 
       {/* 계정 배지 — 로그인 여부와 무관하게(게스트는 기본 아이콘+닉네임) 로비/대기실/결과 화면

@@ -3,11 +3,15 @@ import type { Connection } from "../net/connection";
 
 interface Props {
   connection: Connection;
+  // 대기실에서도 친구를 더 부를 수 있어야 한다(정원 8명) — 없으면 첫 한 명만 초대하고 끝난다.
+  // 로그인 유저에게만 전달된다(게스트는 null → 버튼을 숨긴다).
+  onOpenFriends: (() => void) | null;
+  onlineFriendCount: number;
 }
 
 // 대기실(io 스타일) — 방장(👑)만 시작할 수 있고, 나머지는 준비 토글. 방장 제외 전원 준비 시 시작 가능.
 // 슬롯 점 색: 방장=금색, 준비 완료=초록, 대기=회색. 라운드가 시작되면 WELCOME이 와서 지도로 전환된다.
-export function RoomWaitScreen({ connection }: Props) {
+export function RoomWaitScreen({ connection, onOpenFriends, onlineFriendCount }: Props) {
   const currentRoom = useUIStore((s) => s.currentRoom);
   const members = useUIStore((s) => s.members);
   const rooms = useUIStore((s) => s.rooms);
@@ -69,6 +73,22 @@ export function RoomWaitScreen({ connection }: Props) {
               복사
             </button>
           </div>
+        )}
+
+        {/* 정원이 8명이라 여기서 친구를 계속 더 부를 수 있어야 한다 — 초대는 상대 화면에
+            알림으로 바로 뜨고, 접속 중인 친구가 없으면 위 초대 코드를 공유하면 된다. */}
+        {onOpenFriends && (
+          <button
+            className="io-btn io-btn-block"
+            type="button"
+            onClick={onOpenFriends}
+            style={{ marginBottom: 12 }}
+          >
+            👥 친구 초대
+            {onlineFriendCount > 0 && (
+              <span style={{ color: "#5fd68a", marginLeft: 6 }}>{onlineFriendCount}명 접속 중</span>
+            )}
+          </button>
         )}
 
         <div className="io-slots">
