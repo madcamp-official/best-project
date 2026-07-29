@@ -1,7 +1,6 @@
 package com.madcamp.server.session
 
 import com.madcamp.server.config.GameConfig
-import com.madcamp.server.config.Palette
 import com.madcamp.server.domain.GameCore
 import com.madcamp.server.domain.Holder
 import com.madcamp.server.domain.StartCellAssigner
@@ -47,9 +46,9 @@ class SessionService {
         val newToken = UUID.randomUUID().toString()
         val holderId = world.allocateHolderId()
         val name = nickname?.trim().takeUnless { it.isNullOrEmpty() }?.take(12) ?: "player$holderId"
-        // web/src/config.ts PLAYER_PALETTE_IDXS(현재 5슬롯)와 동일 규칙으로 순환 배정.
-        // 5명을 넘으면 색이 겹칠 수 있음 — 데모 규모에서는 허용(같은 comment가 클라 쪽에도 있음).
-        val paletteIdx = Palette.PLAYER_IDXS[(holderId - 1).mod(Palette.PLAYER_IDXS.size)]
+        // 세션마다 셔플된 world.playerPaletteBag에서 참가 순서(holderId)대로 슬롯을 받는다 —
+        // 8명까지 색이 안 겹치고 판마다 배정이 달라진다(같은 규칙이 클라 mock에도 있음).
+        val paletteIdx = world.playerPaletteBag[(holderId - 1).mod(world.playerPaletteBag.size)]
 
         val holder = Holder(holderId, name, paletteIdx)
         world.holders[holderId] = holder
