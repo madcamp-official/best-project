@@ -811,9 +811,10 @@
    게임 HUD(네 코너)·상단 타이머와 겹치지 않는 자리. */
 .bgm-toggle {
   position: fixed;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 인게임 좌하단 나가기 아이콘(42px, --hud-scale 1.3 → 약 55px) 바로 위에 얹는다. 로비/대기실
+     에서도 상시 보이도록 앱 루트에 마운트된 채로 위치만 좌하단으로. left는 나가기 위 중앙 정렬. */
+  bottom: 76px;
+  left: 20px;
   z-index: 200;
   width: 38px;
   height: 38px;
@@ -836,5 +837,5 @@
 }
 
 .bgm-toggle:active {
-  transform: translateX(-50%) scale(0.92);
+  transform: scale(0.92);
 }
