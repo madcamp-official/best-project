@@ -11,13 +11,22 @@ interface Props {
   // 화면 우상단 ProfileBadge(App.tsx)가 전역으로 담당한다.
   onOpenFriends: () => void; // 친구 패널 열기 — App.tsx가 상태를 들고 있어 여기서는 트리거만.
   onlineFriendCount: number; // 접속 중인 친구 수 — 0이면 굳이 패널을 열 이유가 없으니 눈에 띄게 표시한다.
+  // 닉네임 수정 확정(포커스 이탈·Enter). 로그인 유저는 계정에 저장돼 친구 목록에도 바로 반영된다.
+  onSaveNickname: (nickname: string) => void;
 }
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
 // 지도는 시/군/구 단일이라 선택 UI가 없다 — 방 생성 시 항상 DEFAULT_MAP_ID(kr-sgg)를 보낸다.
 // 로그인/게스트 선택은 AuthChoiceScreen이 먼저 처리하므로, 여기선 idToken을 그대로 실어 보내기만 한다.
-export function LobbyScreen({ connection, idToken, profile, onOpenFriends, onlineFriendCount }: Props) {
+export function LobbyScreen({
+  connection,
+  idToken,
+  profile,
+  onOpenFriends,
+  onlineFriendCount,
+  onSaveNickname,
+}: Props) {
   const rooms = useUIStore((s) => s.rooms);
   // 닉네임은 전역 store에 둔다 — 우상단 ProfileBadge(App.tsx)가 게스트일 때 같은 값을 실시간으로 보여줘야 하므로.
   const nickname = useUIStore((s) => s.nickname);
@@ -157,7 +166,14 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends, onlin
           )}
 
           <div className="lobby-form">
-            <label className="lobby-label">닉네임</label>
+            <label className="lobby-label">
+              닉네임
+              {idToken && (
+                <span style={{ fontSize: 11, color: "#8a97ab", marginLeft: 6, fontWeight: 400 }}>
+                  수정 후 Enter — 친구 목록에도 바로 반영됩니다
+                </span>
+              )}
+            </label>
             <input
               className="join-input"
               type="text"
@@ -166,6 +182,15 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends, onlin
               placeholder="닉네임 (1~12자)"
               autoFocus
               onChange={(e) => setNickname(e.target.value)}
+              // 수정을 끝낸 시점(Enter·포커스 이탈)에 계정에 저장한다. 타이핑마다 보내면
+              // 글자 하나 칠 때마다 서버 왕복이 생기므로 확정 시점에만 보낸다.
+              onBlur={(e) => onSaveNickname(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onSaveNickname((e.target as HTMLInputElement).value);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
             />
 
             <label className="lobby-label" style={{ marginTop: 16 }}>

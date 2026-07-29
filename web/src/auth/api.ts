@@ -46,6 +46,11 @@ export function fetchMyProfile(idToken: string): Promise<AccountProfile> {
   return post<AccountProfile>("/api/account/me", { idToken });
 }
 
+/** 닉네임을 계정에 저장한다 — 저장 즉시 친구 목록·검색·접속 현황이 새 이름을 쓴다. */
+export function updateNickname(idToken: string, nickname: string): Promise<AccountProfile> {
+  return post<AccountProfile>("/api/account/nickname", { idToken, nickname });
+}
+
 export interface FriendCandidate {
   appUserId: number;
   nickname: string;

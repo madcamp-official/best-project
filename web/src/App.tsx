@@ -16,7 +16,7 @@ import type { PreparedMap } from "./data/loadMapData";
 import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
-import { fetchMyProfile, type AccountProfile } from "./auth/api";
+import { fetchMyProfile, updateNickname, type AccountProfile } from "./auth/api";
 import type { FriendPresence, InviteMessage } from "./net/protocol";
 import { onIdTokenChanged, signOutGoogle } from "./auth/firebase";
 import {
@@ -61,6 +61,8 @@ function App() {
   // 콜백 안에서 최신 idToken을 읽어야 해서 ref로도 들고 있는다(구독은 최초 1회만 걸리므로).
   const idTokenRef = useRef<string | null>(null);
   idTokenRef.current = idToken;
+  // 계정 닉네임을 입력칸에 심었는지(로그인당 1회). 토큰 갱신 때마다 사용자가 고친 이름을 덮어쓰지 않기 위함.
+  const nicknameSeededRef = useRef(false);
   // 게스트 배지 표시용 — 로그인 유저는 profile.nickname이 우선하고, 게스트는 이 값(로비 입력과 동기화).
   const nickname = useUIStore((s) => s.nickname);
   // 로그인 여부의 기준은 idToken 하나다 — profile(별도 REST 호출)은 실패할 수 있고, 그걸 기준으로
@@ -252,7 +254,13 @@ function App() {
         const p = await fetchMyProfile(idToken);
         if (cancelled) return;
         setProfile(p);
-        useUIStore.getState().setNickname(p.nickname); // 배지·로비 닉네임 입력을 계정 닉네임으로 맞춘다
+        // 계정 닉네임은 "이번 로그인에서 처음 한 번만" 입력칸에 심는다. 매번 덮어쓰면 토큰이
+        // 갱신될 때마다(약 1시간 주기, onIdTokenChanged) 사용자가 고쳐 둔 이름이 옛 이름으로
+        // 되돌아간다 — "닉네임을 바꿔도 반영이 안 된다"의 원인이었다.
+        if (!nicknameSeededRef.current) {
+          nicknameSeededRef.current = true;
+          useUIStore.getState().setNickname(p.nickname);
+        }
       } catch (e) {
         if (cancelled) return;
         console.error("[profile]", e);
@@ -271,7 +279,30 @@ function App() {
     setPhotoURL(null);
     setShowMyPage(false);
     setShowFriends(false);
+    nicknameSeededRef.current = false; // 다음 로그인 때 그 계정 닉네임을 다시 심어야 한다
     setPhase("authChoice");
+  };
+
+  /**
+   * 닉네임을 계정에 저장한다(로비 입력칸에서 수정을 끝냈을 때). 저장하면 친구 목록·검색·접속
+   * 현황이 전부 새 이름을 쓴다 — 지금까진 방에 입장할 때만 반영돼 로비에서 고쳐도 남지 않았다.
+   * 게스트는 계정이 없으므로 localStorage에만 남는다(기존 동작 그대로).
+   */
+  const handleSaveNickname = async (nickname: string) => {
+    const name = nickname.trim().slice(0, 12);
+    if (!idToken || !name || name === profile?.nickname) return;
+    try {
+      const p = await updateNickname(idToken, name);
+      setProfile(p);
+      useUIStore.getState().setNickname(p.nickname);
+      localStorage.setItem("nickname", p.nickname);
+      useUIStore.getState().showToast(`닉네임을 "${p.nickname}"으로 변경했습니다`);
+      // 접속 현황(친구들이 보는 내 이름)도 바로 갱신되도록 즉시 한 번 알린다.
+      connectionRef.current?.sendFriendsHello(idToken);
+    } catch (e) {
+      console.error("[nickname]", e);
+      useUIStore.getState().showToast("닉네임 변경에 실패했습니다");
+    }
   };
   // 게스트가 마이페이지의 "구글로 로그인"을 눌렀을 때 — 로그인 관문으로 돌려보낸다.
   const handleLoginPrompt = () => {
@@ -361,6 +392,7 @@ function App() {
           profile={profile}
           onOpenFriends={() => setShowFriends(true)}
           onlineFriendCount={friendPresence.length}
+          onSaveNickname={handleSaveNickname}
         />
       )}
       {phase === "room" && connectionRef.current && (

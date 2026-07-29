@@ -62,4 +62,16 @@ class AccountService(
 
     /** idToken으로 프로필을 조회한다(REST 진입점). 실패 시 GoogleAuthException. */
     fun getProfile(idToken: String): AccountProfile = profileOf(findOrCreateAppUser(idToken))
+
+    /**
+     * 닉네임을 계정에 즉시 저장한다(REST 진입점). 여기 저장하면 친구 목록·검색·접속 현황이
+     * 전부 이 값을 읽으므로 화면마다 따로 갱신할 필요가 없다. 호출자가 트림·길이 제한을 마친
+     * 값을 넘긴다고 가정한다. 실패 시 GoogleAuthException.
+     */
+    fun changeNickname(idToken: String, nickname: String): AccountProfile {
+        val appUser = findOrCreateAppUser(idToken)
+        appUser.nickname = nickname
+        appUser.lastLoginAt = Instant.now()
+        return profileOf(appUserRepository.save(appUser))
+    }
 }
