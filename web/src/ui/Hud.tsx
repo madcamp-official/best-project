@@ -220,24 +220,33 @@ export function Hud({ connection, isMock }: Props) {
               {isTransporting ? "수송 중 (Esc)" : airdropCooldownLeft > 0 ? `대기 ${airdropCoolSec}초` : "수송 (Shift)"}
             </button>
           </div>
+          {/* 전술핵 — 항상 노출하되 제주 사일로 미보유면 잠금 상태로 획득 조건을 알려준다
+              (숨기면 기능의 존재 자체를 모른 채 게임이 끝난다). 레이아웃은 미사일·공수와 동일 패턴. */}
+          <div>
+            <div className="hud-ratio-head">
+              <span className="hud-title">전술핵 ☢️</span>
+              <strong className="hud-ratio-value" style={{ fontSize: 12 }}>
+                {!nukeOwned ? "제주 미점령" : nukeCooldownLeft > 0 ? `${nukeCoolSec}초` : "준비"}
+              </strong>
+            </div>
+            <button
+              type="button"
+              className={`io-btn io-btn-sm io-btn-block ${isNukeAiming ? "io-btn-amber" : "io-btn-primary"}`}
+              style={{ marginTop: 6 }}
+              disabled={!nukeOwned || (nukeCooldownLeft > 0 && !isNukeAiming)}
+              onClick={() => setNukeAiming(!isNukeAiming)}
+              title={nukeOwned ? undefined : "제주도의 사일로 지역을 점령하면 전술핵을 발사할 수 있습니다."}
+            >
+              {!nukeOwned
+                ? "🔒 제주 점령 필요"
+                : isNukeAiming
+                  ? "핵 조준 중 (Esc)"
+                  : nukeCooldownLeft > 0
+                    ? `재장전 ${nukeCoolSec}초`
+                    : "발사"}
+            </button>
+          </div>
         </div>
-
-        {/* 전술핵 — 제주 사일로 보유 시에만 별도 액션 */}
-        {nukeOwned && (
-          <button
-            type="button"
-            className={`io-btn io-btn-sm io-btn-block ${isNukeAiming ? "io-btn-amber" : "io-btn-primary"}`}
-            style={{ marginTop: 8 }}
-            disabled={nukeCooldownLeft > 0 && !isNukeAiming}
-            onClick={() => setNukeAiming(!isNukeAiming)}
-          >
-            {isNukeAiming
-              ? "☢ 핵 조준 중 (Esc)"
-              : nukeCooldownLeft > 0
-                ? `☢ 재장전 ${nukeCoolSec}초`
-                : "☢ 전술핵 발사"}
-          </button>
-        )}
 
         {/* 조작 안내 — 입력 → 동작 (버튼 없이 지도 클릭으로 쓰는 것들). 오른쪽에 현재 상태. */}
         <div
