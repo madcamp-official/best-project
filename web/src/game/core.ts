@@ -19,6 +19,10 @@ export interface GameState {
   meta: DongStaticMeta[];
   // README §3.2 — holderId 간접 계층
   holders: Map<number, Holder>;
+  // 이 게임(세션) 한정 색 슬롯 배정표 — PLAYER_PALETTE_IDXS를 생성 시 한 번 셔플한다.
+  // holder는 (holderId-1) 위치의 슬롯을 받아 8명까지 안 겹치고 판마다 배정이 달라진다.
+  // server World.playerPaletteBag 대응.
+  playerPaletteBag: number[];
   dirty: Set<number>; // feature-state 리페인트 대상 admIndex
   orders: Order[]; // 이동 중인 유닛(원) 목록
   missiles: Uint8Array; // 동별 미사일 보유 여부(0/1). 동에 종속 — 그 동 소유자가 발사 가능.
@@ -74,9 +78,17 @@ export function createGameState(
   // pop 데이터 미보유 → README §3.4 fallback: 전 동 균일 상한
   const troopCap = new Uint16Array(n).fill(CONFIG.BASE_CAP);
 
+  // 이 게임 한정으로 색 슬롯을 셔플 → 나·AI 모두 여기서 (holderId-1) 위치의 슬롯을 받는다.
+  const playerPaletteBag = [...PLAYER_PALETTE_IDXS];
+  shuffleInPlace(playerPaletteBag);
+
   const holders = new Map<number, Holder>();
   holders.set(NEUTRAL_HOLDER_ID, { id: NEUTRAL_HOLDER_ID, name: "중립", paletteIdx: 0 });
-  holders.set(MY_HOLDER_ID, { id: MY_HOLDER_ID, name: "나", paletteIdx: 1 });
+  holders.set(MY_HOLDER_ID, {
+    id: MY_HOLDER_ID,
+    name: "나",
+    paletteIdx: playerPaletteBag[(MY_HOLDER_ID - 1) % playerPaletteBag.length],
+  });
 
   const s: GameState = {
     n,
@@ -87,6 +99,7 @@ export function createGameState(
     neighborIndex,
     meta,
     holders,
+    playerPaletteBag,
     dirty: new Set<number>(),
     orders: [],
     missiles: new Uint8Array(n),
@@ -1371,7 +1384,7 @@ export function fillAiPlayers(s: GameState, target: number, wallNowMs: number) {
     const holderId = allocateHolderId(s);
     const name = AI_NAMES[seq % AI_NAMES.length];
     seq++;
-    const paletteIdx = PLAYER_PALETTE_IDXS[(holderId - 1) % PLAYER_PALETTE_IDXS.length];
+    const paletteIdx = s.playerPaletteBag[(holderId - 1) % s.playerPaletteBag.length];
     s.holders.set(holderId, { id: holderId, name, paletteIdx, isAi: true });
     s.ownerId[start] = holderId;
     s.troops[start] = s.troopCap[start];

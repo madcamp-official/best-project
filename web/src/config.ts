@@ -94,7 +94,7 @@ export const CONFIG = {
   // 일반 미사일이 단일 표적으로 바뀐 뒤로, 전술핵은 원에 걸친 여러 셀을 한 번에 타격하는 광역 무기다.
   // 제주는 본토와 인접이 끊긴 컴포넌트라, 사일로 섬(제주)을 오가는 공수는 사거리 제한을 받지 않는다.
   NUKE_SILO_CODES: ["50110"], // [제주시] — 시군구(sggcd) 코드. 클라·서버 공유
-  NUKE_RADIUS_MULT: 1, // 전술핵 반경 = MISSILE_RADIUS_DEG × 1. 광역(원 안 여러 셀) 타격.
+  NUKE_RADIUS_MULT: 0.7, // 전술핵 반경 = MISSILE_RADIUS_DEG × 1. 광역(원 안 여러 셀) 타격.
   NUKE_COOLDOWN_SEC: 180, // 사일로별 재발사 대기(초) = 3분
 } as const;
 
@@ -111,22 +111,26 @@ export const SCOPE_SIDOCD: string | null = null;
 // 플레이어 구분은 테두리(진하고 채도 높은 색)가 담당하고, 채움은 그 위에 얹는
 // 옅고 투명한 색유리 틴트로만 쓴다 — 그래서 fill은 밝은 파스텔, stroke는 같은
 // 색상의 짙은 톤으로 fill보다 항상 더 진하게 짝지었다.
+// 플레이어 슬롯(1·2·3·4·5·7·8·9)은 색상환을 8등분해 고르게 벌린 8색이다 —
+// 레드·오렌지·옐로·그린·시안·블루·퍼플·마젠타. 예전엔 앰버와 브라운이 서로 너무
+// 비슷해 혼동됐어서, 브라운을 옐로로 바꾸고 전체 간격을 균등화했다.
 export const PALETTE: { fill: string; stroke: string }[] = [
   { fill: "#333a46", stroke: "#7d8699" }, // 0: 중립 (무채색)
-  { fill: "#f3a5a5", stroke: "#a30f1f" }, // 1: 플레이어 레드
-  { fill: "#a9c8fb", stroke: "#1740b8" }, // 2: 블루
-  { fill: "#a7ecc0", stroke: "#0f7a3d" }, // 3: 그린
-  { fill: "#fbdf9c", stroke: "#a3540a" }, // 4: 앰버
-  { fill: "#dcbafc", stroke: "#6b1fac" }, // 5: 퍼플
+  { fill: "#f5a3a3", stroke: "#d4202e" }, // 1: 레드
+  { fill: "#a6c3fb", stroke: "#2358d8" }, // 2: 블루
+  { fill: "#a5e6ae", stroke: "#1f9d3d" }, // 3: 그린
+  { fill: "#ffc48a", stroke: "#e2700a" }, // 4: 오렌지
+  { fill: "#cdb0f7", stroke: "#7c2ee0" }, // 5: 퍼플
   { fill: "#c3d152", stroke: "#5a6b0d" }, // 6: (구)환경 세력(E) — 독성 올리브그린. E 미스폰이라 미사용 슬롯.
-  { fill: "#7fd8cf", stroke: "#0e6f66" }, // 7: 틸
-  { fill: "#f5a9d0", stroke: "#9c1466" }, // 8: 핑크
-  { fill: "#e0b98a", stroke: "#7a4a12" }, // 9: 브라운
+  { fill: "#8fe3e3", stroke: "#0aa0a0" }, // 7: 시안
+  { fill: "#f6a6d6", stroke: "#d21f8f" }, // 8: 마젠타
+  { fill: "#f0de84", stroke: "#b58900" }, // 9: 옐로 (구 브라운 대체 — 앰버와 혼동돼 교체)
 ];
 
 // 환경 세력(E) 전용 팔레트 슬롯(현재 미사용 — E 미스폰). README §7.1 참고.
 export const ENV_PALETTE_IDX = 6;
-// 플레이어(사람+AI)에게 순환 배정할 색 슬롯 — 8명 세션을 위해 8개(중립 0·구 E 6 제외).
+// 플레이어(사람+AI) 색 슬롯 — 8명 세션을 위해 8개(중립 0·구 E 6 제외). 세션(월드)마다
+// 이 배열을 셔플해 참가 순서대로 나눠 준다 → 8명까지 색이 겹치지 않으면서 판마다 배정이 달라진다.
 export const PLAYER_PALETTE_IDXS = [1, 2, 3, 4, 5, 7, 8, 9];
 
 export const SELECTED_OUTLINE_COLOR = "#ffffff";

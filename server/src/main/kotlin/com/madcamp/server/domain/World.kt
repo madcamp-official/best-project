@@ -2,6 +2,7 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
+import com.madcamp.server.config.Palette
 import com.madcamp.server.data.BoundaryCell
 
 /**
@@ -22,6 +23,10 @@ class World(
     val radiusDeg: DoubleArray,
 ) {
     val holders: LinkedHashMap<Int, Holder> = LinkedHashMap()
+    // 이 월드(=세션/라운드) 한정 색 슬롯 배정표 — Palette.PLAYER_IDXS를 월드 생성 시 한 번 셔플한다.
+    // holder는 (holderId-1) 위치의 슬롯을 받으므로, 8명까지 색이 겹치지 않으면서 판마다 배정이 달라진다.
+    // web/src/game/core.ts GameState.playerPaletteBag 대응.
+    val playerPaletteBag: List<Int> = Palette.PLAYER_IDXS.toList().shuffled()
     val orders: MutableList<Order> = mutableListOf() // 이동 중인 유닛(원)
     val dirty: MutableSet<Int> = HashSet()
     val missile: BooleanArray = BooleanArray(n) // 동별 미사일 보유 여부(동에 종속 — 그 동 소유자가 발사)

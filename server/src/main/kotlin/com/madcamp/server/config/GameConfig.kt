@@ -12,7 +12,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
  * localConnection에서 쓰던 CONFIG 그대로다(api-spec.md §2.2, plan.md §4 "CONFIG는 서버가 원본").
  */
 data class GameConfig(
-    @JsonProperty("FILL_TO_CAP_SEC") var fillToCapSec: Double = 180.0,
+    @JsonProperty("FILL_TO_CAP_SEC") var fillToCapSec: Double = 200.0,
     @JsonProperty("BASE_CAP") var baseCap: Int = 50,
     @JsonProperty("CAP_K") var capK: Double = 0.4,
     @JsonProperty("CAP_MIN_MULT") var capMinMult: Double = 0.7,
@@ -34,7 +34,7 @@ data class GameConfig(
     // AI는 미사일/전술핵/공수를 쓰지 않고(연결이 없어 발사 불가), 인접 지역 출정 확장·전선 증원만 한다.
     // web/src/config.ts AI_*와 동기.
     @JsonProperty("AI_FILL_TARGET") var aiFillTarget: Int = 8, // 세션 목표 플레이어 수(사람+AI)
-    @JsonProperty("AI_PROD_MULT") var aiProdMult: Double = 0.8, // AI 생산 배율(사람의 80%)
+    @JsonProperty("AI_PROD_MULT") var aiProdMult: Double = 0.7, // AI 생산 배율(사람의 70%)
     @JsonProperty("AI_ACT_INTERVAL_SEC") var aiActIntervalSec: Double = 1.0, // AI 행동 주기(초)
     @JsonProperty("AI_ATTACK_MARGIN") var aiAttackMargin: Double = 1.1, // 자살 방지 계수
     @JsonProperty("AI_MAX_SORTIES_PER_TICK") var aiMaxSortiesPerTick: Int = 4, // 주기당 최대 확장 출정
@@ -42,8 +42,8 @@ data class GameConfig(
     @JsonProperty("AI_MAX_REINFORCE_PER_TICK") var aiMaxReinforcePerTick: Int = 6, // 주기당 최대 증원 출정
     // 실력 하향용 랜덤 계수(사람스러운 실수·머뭇거림). web/src/config.ts AI_* 랜덤 계수와 동기.
     @JsonProperty("AI_HESITATE_CHANCE") var aiHesitateChance: Double = 0.3, // 매 주기 아무 행동도 안 할 확률(타이밍 흐리기)
-    @JsonProperty("AI_RANDOM_TARGET_CHANCE") var aiRandomTargetChance: Double = 0.45, // 최약체 대신 아무 대상이나 고를 확률(비최적 공격)
-    @JsonProperty("AI_ATTACK_MARGIN_JITTER") var aiAttackMarginJitter: Double = 0.3, // 판단마다 공격 마진을 ±이 비율로 흔든다
+    @JsonProperty("AI_RANDOM_TARGET_CHANCE") var aiRandomTargetChance: Double = 0.85, // 최약체 대신 아무 대상이나 고를 확률(비최적 공격)
+    @JsonProperty("AI_ATTACK_MARGIN_JITTER") var aiAttackMarginJitter: Double = 0.6, // 판단마다 공격 마진을 ±이 비율로 흔든다
 
     // 환경 세력(E, README §4.6) — 초반 긴장용 조연(문명 야만인 모델).
     // (현재 미사용: E는 AI 플레이어로 대체되어 스폰되지 않는다. 상수는 하위 호환 위해 유지.)
@@ -64,7 +64,7 @@ data class GameConfig(
 
     // 미사일 — 동에 종속 스폰 → 소유 시 발사(즉발), 원 범위의 동을 중립화(병력 0).
     @JsonProperty("MISSILE_SPAWN_SEC") var missileSpawnSec: Double = 5.0, // 체감상 적어서 2배로 상향
-    @JsonProperty("MISSILE_MAX_TOTAL") var missileMaxTotal: Int = 60, // 맵 전체 동시 존재 상한(2배 상향, 개인 한도 없음)
+    @JsonProperty("MISSILE_MAX_TOTAL") var missileMaxTotal: Int = 20, // 맵 전체 동시 존재 상한(개인 한도 없음). 클라 config.ts와 동기
     @JsonProperty("MISSILE_RADIUS_DEG") var missileRadiusDeg: Double = 0.25, // 시군구 셀 규모(1~2셀). 클라 config.ts와 동기
     @JsonProperty("MISSILE_MAX_RADIUS_DEG") var missileMaxRadiusDeg: Double = 0.4, // 발사 반경 검증 상한(핵 포함)
     @JsonProperty("MISSILE_HIT_MARGIN_DEG") var missileHitMarginDeg: Double = 0.05, // 타격 centroid 근접 여유
@@ -102,7 +102,7 @@ data class GameConfig(
     // 두 섬은 본토와 인접이 끊긴 컴포넌트라, 사일로 섬을 오가는 공수는 사거리 제한을 받지 않는다.
     // web/src/config.ts NUKE_*와 동기.
     @JsonProperty("NUKE_SILO_CODES") var nukeSiloCodes: List<String> = listOf("50110"), // [제주시] 시군구 코드
-    @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 1.0,
+    @JsonProperty("NUKE_RADIUS_MULT") var nukeRadiusMult: Double = 0.7,
     @JsonProperty("NUKE_COOLDOWN_SEC") var nukeCooldownSec: Double = 180.0,
 )
 

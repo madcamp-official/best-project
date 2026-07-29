@@ -2,7 +2,6 @@ package com.madcamp.server.domain
 
 import com.madcamp.server.config.GameConfig
 import com.madcamp.server.config.HolderIds
-import com.madcamp.server.config.Palette
 import kotlin.math.floor
 import kotlin.random.Random
 
@@ -27,7 +26,7 @@ object PlayerAi {
             val holderId = world.allocateHolderId()
             val name = NAMES[seq % NAMES.size]
             seq++
-            val paletteIdx = Palette.PLAYER_IDXS[(holderId - 1).mod(Palette.PLAYER_IDXS.size)]
+            val paletteIdx = world.playerPaletteBag[(holderId - 1).mod(world.playerPaletteBag.size)]
             val holder = Holder(holderId, name, paletteIdx, isAi = true)
             world.holders[holderId] = holder
             world.pendingNewHolders.add(holder) // 이미 접속 중인 클라도 색을 알도록 DELTA에 실린다
