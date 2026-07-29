@@ -8,6 +8,7 @@ import {
   type FriendCandidate,
   type FriendsList,
 } from "../auth/api";
+import type { FriendPresence } from "../net/protocol";
 
 // 실패를 "실패했습니다" 한 줄로 뭉개면 원인(로그인 만료·서버 미설정·네트워크)을 알 수 없어
 // 디버깅이 막힌다 — 상태 코드별로 다음에 뭘 해야 하는지가 드러나는 문구로 바꾼다.
@@ -24,14 +25,18 @@ function reasonOf(e: unknown, fallback: string): string {
 interface Props {
   idToken: string;
   onClose: () => void;
-  // 친구를 비공개 방으로 부르기 — App이 방을 만들고 초대 코드를 복사해준다(게임 내 쪽지 기능이
-  // 없으므로 "코드를 건네주는" 데까지가 초대의 실체다).
-  onInvite: (nickname: string) => void;
+  // 친구를 내 방으로 부르기 — 상대가 접속 중이면 그 화면에 초대 알림이 바로 뜬다.
+  onInvite: (friend: FriendCandidate) => void;
+  // 친구가 있는 방으로 따라 들어가기(그 친구가 방에 있을 때만 활성).
+  onFollow: (roomId: string) => void;
+  // 접속 중인 친구들 — App이 서버 푸시(onFriendPresence)로 받아 내려준다.
+  presence: FriendPresence[];
 }
 
 // 로그인 유저 전용 친구 패널 — 검색해서 요청 보내기, 받은 요청 수락/거절, 친구 목록 보기.
 // 게임(WS)과 무관한 계정 기능이라 REST(auth/api.ts)로만 통신한다.
-export function FriendsPanel({ idToken, onClose, onInvite }: Props) {
+export function FriendsPanel({ idToken, onClose, onInvite, onFollow, presence }: Props) {
+  const presenceOf = (appUserId: number) => presence.find((p) => p.appUserId === appUserId);
   const [list, setList] = useState<FriendsList | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FriendCandidate[]>([]);
@@ -207,29 +212,63 @@ export function FriendsPanel({ idToken, onClose, onInvite }: Props) {
 
         <h3 style={{ fontSize: 13, color: "#9fb0c8", marginTop: 16, marginBottom: 6 }}>
           친구 {list ? `(${list.friends.length})` : ""}
+          {presence.length > 0 && (
+            <span style={{ color: "#5fd68a", marginLeft: 6 }}>· {presence.length}명 접속 중</span>
+          )}
         </h3>
         {list && list.friends.length === 0 && <p className="io-empty">아직 친구가 없어요 — 위에서 검색해보세요!</p>}
         {list && list.friends.length > 0 && (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {list.friends.map((f) => (
-              <li
-                key={f.appUserId}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}
-              >
-                <span style={{ color: "#cdd6e4" }}>
-                  {f.nickname} <span style={{ opacity: 0.6 }}>Lv.{f.level}</span>
-                </span>
-                <button
-                  className="io-btn io-btn-sm io-btn-primary"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onInvite(f.nickname)}
-                  title="비공개 방을 만들고 초대 코드를 복사합니다"
+            {list.friends.map((f) => {
+              const p = presenceOf(f.appUserId);
+              return (
+                <li
+                  key={f.appUserId}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "5px 0" }}
                 >
-                  초대
-                </button>
-              </li>
-            ))}
+                  <span style={{ minWidth: 0, color: "#cdd6e4" }}>
+                    {/* 접속 여부를 점 하나로 — 초록이면 지금 붙어 있어 초대가 즉시 뜬다. */}
+                    <span style={{ color: p ? "#5fd68a" : "#4a5568", marginRight: 6 }}>●</span>
+                    {f.nickname} <span style={{ opacity: 0.6 }}>Lv.{f.level}</span>
+                    {p?.roomName && (
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 11,
+                          color: "#8a97ab",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        🎮 {p.roomName}
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {p?.roomId && (
+                      <button
+                        className="io-btn io-btn-sm io-btn-green"
+                        type="button"
+                        onClick={() => onFollow(p.roomId!)}
+                        title={`${f.nickname}님이 있는 방으로 들어갑니다`}
+                      >
+                        따라가기
+                      </button>
+                    )}
+                    <button
+                      className="io-btn io-btn-sm io-btn-primary"
+                      type="button"
+                      disabled={busy || !p}
+                      onClick={() => onInvite(f)}
+                      title={p ? "내 방으로 부릅니다 — 상대 화면에 알림이 뜹니다" : "접속 중일 때만 초대할 수 있어요"}
+                    >
+                      초대
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

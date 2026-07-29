@@ -5,6 +5,8 @@
 import type {
   DeltaMessage,
   ErrorMessage,
+  FriendPresenceMessage,
+  InviteMessage,
   LeaderboardMessage,
   RoomJoinedMessage,
   RoomListMessage,
@@ -35,6 +37,13 @@ export interface Connection {
   // 현재 방에서 나가 로비로.
   leaveRoom(): void;
 
+  // ── 친구 접속 현황 · 초대(로그인 유저 전용) ──
+  // "나 접속했어, 친구들 어디 있어?" — 로비 진입·친구 패널 열 때. 응답은 onFriendPresence.
+  // 이 호출이 곧 접속 등록이라, 로비에 가만히 있어도 친구 초대를 받을 수 있게 된다.
+  sendFriendsHello(idToken: string): void;
+  // 친구를 지금 내가 있는 방으로 부른다. 상대 화면에 onInvite로 알림이 뜬다.
+  sendFriendInvite(idToken: string, targetAppUserId: number): void;
+
   // 출정/이동 명령 전송. ratio = 이번 출정에 보낼 병력 비율(0~1, UI 슬라이더). amount는 서버가 계산.
   sendSortie(from: number, to: number, ratio: number): void;
   // B1 경로 자동 출정. to는 인접이 아니어도 됨 — 서버가 내 영토를 따라 최단 경로로 연쇄 출정한다.
@@ -63,6 +72,10 @@ export interface Connection {
   onRoomJoined(cb: (msg: RoomJoinedMessage) => void): void;
   onRoomState(cb: (msg: RoomStateMessage) => void): void;
   onRoundEnd(cb: (msg: RoundEndMessage) => void): void;
+  // 접속 중인 친구 목록 갱신(sendFriendsHello/초대 후 서버가 돌려줌).
+  onFriendPresence(cb: (msg: FriendPresenceMessage) => void): void;
+  // 친구가 나를 방으로 초대함 — 배너를 띄우고 수락하면 그 방으로 들어간다.
+  onInvite(cb: (msg: InviteMessage) => void): void;
   // 연결 상태 변화(true=연결/재연결됨, false=끊김). 실서버(STOMP)만 실제로 끊김을 알린다.
   // 목 서버는 항상 연결 상태라 join 시 true만 통지한다.
   onConnectionChange(cb: (connected: boolean) => void): void;

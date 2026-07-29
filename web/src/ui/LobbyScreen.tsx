@@ -10,13 +10,14 @@ interface Props {
   profile: AccountProfile | null; // 로그인 유저의 레벨/전적. 게스트면 null. 마이페이지/로그아웃/친구는
   // 화면 우상단 ProfileBadge(App.tsx)가 전역으로 담당한다.
   onOpenFriends: () => void; // 친구 패널 열기 — App.tsx가 상태를 들고 있어 여기서는 트리거만.
+  onlineFriendCount: number; // 접속 중인 친구 수 — 0이면 굳이 패널을 열 이유가 없으니 눈에 띄게 표시한다.
 }
 
 // 로비(2단) — 왼쪽: 공개 방 리스트, 오른쪽: 브랜딩 + 닉네임 + 방 만들기.
 // 방 목록은 서버가 /topic/rooms로 계속 밀어줘 자동 갱신된다(생성/참가/이탈/시작 시).
 // 지도는 시/군/구 단일이라 선택 UI가 없다 — 방 생성 시 항상 DEFAULT_MAP_ID(kr-sgg)를 보낸다.
 // 로그인/게스트 선택은 AuthChoiceScreen이 먼저 처리하므로, 여기선 idToken을 그대로 실어 보내기만 한다.
-export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Props) {
+export function LobbyScreen({ connection, idToken, profile, onOpenFriends, onlineFriendCount }: Props) {
   const rooms = useUIStore((s) => s.rooms);
   // 닉네임은 전역 store에 둔다 — 우상단 ProfileBadge(App.tsx)가 게스트일 때 같은 값을 실시간으로 보여줘야 하므로.
   const nickname = useUIStore((s) => s.nickname);
@@ -148,6 +149,9 @@ export function LobbyScreen({ connection, idToken, profile, onOpenFriends }: Pro
               </span>
               <button className="io-btn io-btn-sm" type="button" onClick={onOpenFriends}>
                 👥 친구
+                {onlineFriendCount > 0 && (
+                  <span style={{ color: "#5fd68a", marginLeft: 4 }}>{onlineFriendCount}</span>
+                )}
               </button>
             </div>
           )}

@@ -12,6 +12,8 @@ import type { Connection } from "./connection";
 import type {
   DeltaMessage,
   ErrorMessage,
+  FriendPresenceMessage,
+  InviteMessage,
   LeaderboardMessage,
   RoomJoinedMessage,
   RoomListMessage,
@@ -76,6 +78,8 @@ export class StompConnection implements Connection {
   private roomJoinedCb: ((m: RoomJoinedMessage) => void) | null = null;
   private roomStateCb: ((m: RoomStateMessage) => void) | null = null;
   private roundEndCb: ((m: RoundEndMessage) => void) | null = null;
+  private friendPresenceCb: ((m: FriendPresenceMessage) => void) | null = null;
+  private inviteCb: ((m: InviteMessage) => void) | null = null;
   private connectionCb: ((connected: boolean) => void) | null = null;
 
   constructor(wsUrl: string = SERVER_WS_URL) {
@@ -109,6 +113,12 @@ export class StompConnection implements Connection {
     );
     this.client.subscribe("/user/queue/roomJoined", (m: IMessage) =>
       this.handleRoomJoined(JSON.parse(m.body) as RoomJoinedMessage),
+    );
+    this.client.subscribe("/user/queue/friendPresence", (m: IMessage) =>
+      this.friendPresenceCb?.(JSON.parse(m.body) as FriendPresenceMessage),
+    );
+    this.client.subscribe("/user/queue/invite", (m: IMessage) =>
+      this.inviteCb?.(JSON.parse(m.body) as InviteMessage),
     );
     this.client.subscribe("/topic/rooms", (m: IMessage) =>
       this.roomListCb?.(JSON.parse(m.body) as RoomListMessage),
@@ -209,6 +219,14 @@ export class StompConnection implements Connection {
       "/app/lobby/create",
       JSON.stringify({ name, mapId, nickname, token, idToken, clientId: this.clientId, private: isPrivate ?? false }),
     );
+  }
+
+  sendFriendsHello(idToken: string): void {
+    this.send("/app/friends/hello", JSON.stringify({ idToken }));
+  }
+
+  sendFriendInvite(idToken: string, targetAppUserId: number): void {
+    this.send("/app/friends/invite", JSON.stringify({ idToken, targetAppUserId }));
   }
 
   joinRoom(roomId: string, nickname: string, token?: string, idToken?: string): void {
@@ -333,6 +351,12 @@ export class StompConnection implements Connection {
   }
   onRoomState(cb: (m: RoomStateMessage) => void): void {
     this.roomStateCb = cb;
+  }
+  onFriendPresence(cb: (m: FriendPresenceMessage) => void): void {
+    this.friendPresenceCb = cb;
+  }
+  onInvite(cb: (m: InviteMessage) => void): void {
+    this.inviteCb = cb;
   }
   onRoundEnd(cb: (m: RoundEndMessage) => void): void {
     this.roundEndCb = cb;

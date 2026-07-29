@@ -2,6 +2,7 @@ package com.madcamp.server.ws
 
 import com.madcamp.server.auth.AccountService
 import com.madcamp.server.auth.GoogleAuthException
+import com.madcamp.server.auth.PresenceRegistry
 import com.madcamp.server.auth.ResolvedAccount
 import com.madcamp.server.config.ConfigService
 import com.madcamp.server.config.HolderIds
@@ -39,6 +40,7 @@ class LobbyController(
     private val welcomeAssembler: WelcomeAssembler,
     private val broadcaster: RoomBroadcaster,
     private val accountService: AccountService,
+    private val presenceRegistry: PresenceRegistry,
     private val messaging: SimpMessagingTemplate,
 ) {
     @MessageMapping("/lobby/list")
@@ -146,6 +148,11 @@ class LobbyController(
         member.clientId = cid
         member.nickname = name
         member.appUserId = resolved.appUserId
+        // 로그인 유저면 "지금 이 방에 있음"을 접속 현황에 반영 — 친구 목록의 따라가기·초대가 이걸 본다.
+        resolved.appUserId?.let {
+            presenceRegistry.online(principal.name, it, name)
+            presenceRegistry.setRoom(principal.name, room.id, room.name)
+        }
 
         val world = room.world
         if (room.state == RoomState.PLAYING && world != null) {

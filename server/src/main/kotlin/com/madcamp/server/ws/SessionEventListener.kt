@@ -1,5 +1,6 @@
 package com.madcamp.server.ws
 
+import com.madcamp.server.auth.PresenceRegistry
 import com.madcamp.server.game.RoomManager
 import com.madcamp.server.game.RoomState
 import com.madcamp.server.loop.GameLoop
@@ -17,11 +18,14 @@ class SessionEventListener(
     private val gameLoop: GameLoop,
     private val roomManager: RoomManager,
     private val connectionRegistry: ConnectionRegistry,
+    private val presenceRegistry: PresenceRegistry,
     private val broadcaster: RoomBroadcaster,
 ) {
     @EventListener
     fun onDisconnect(event: SessionDisconnectEvent) {
         val principalName = event.user?.name ?: return
+        // 방에 안 들어간 로비 대기자도 접속 목록에서는 빼야 하므로 binding 유무보다 먼저 처리한다.
+        presenceRegistry.offline(principalName)
         val binding = connectionRegistry.bindingOf(principalName) ?: return
         connectionRegistry.unbind(principalName)
         if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 멤버 목록을 안 쓴다

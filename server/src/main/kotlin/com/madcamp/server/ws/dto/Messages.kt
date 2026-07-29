@@ -204,3 +204,36 @@ data class JoinByCodeCommand(
 
 /** 대기실 준비 토글(C→S, /app/room/ready). 방장이 아닌 멤버가 사용. */
 data class SetReadyCommand(val ready: Boolean = false)
+
+// ── 친구 접속 현황 · 초대(로그인 유저 전용) ─────────────────────────────
+
+/** "나 접속했어"(C→S, /app/friends/hello). 로비 진입·친구 패널 열 때. 응답은 FriendPresenceMessage. */
+data class HelloCommand(val idToken: String? = null)
+
+/** 친구를 지금 내 방으로 초대(C→S, /app/friends/invite). 상대에게 /user/queue/invite로 푸시된다. */
+data class InviteCommand(val idToken: String? = null, val targetAppUserId: Long = 0)
+
+/** 접속 중인 친구 하나. roomId가 null이면 로비에 있는 것(따라갈 방이 없음). */
+data class FriendPresence(
+    val appUserId: Long,
+    val nickname: String,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val roomId: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val roomName: String? = null,
+)
+
+/** 접속 중인 내 친구 목록(S→C, /user/queue/friendPresence). */
+data class FriendPresenceMessage(val friends: List<FriendPresence>)
+
+/**
+ * 친구가 나를 방으로 부름(S→C, /user/queue/invite). 클라는 배너를 띄우고, 수락하면
+ * joinCode가 있으면 그걸로(비공개 방), 없으면 roomId로 입장한다.
+ */
+data class InviteMessage(
+    val fromNickname: String,
+    val roomId: String,
+    val roomName: String,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val joinCode: String? = null,
+)

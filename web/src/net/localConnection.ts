@@ -13,6 +13,8 @@ import type { Connection } from "./connection";
 import type {
   DeltaMessage,
   ErrorMessage,
+  FriendPresenceMessage,
+  InviteMessage,
   LeaderboardMessage,
   RoomJoinedMessage,
   RoomListMessage,
@@ -459,6 +461,8 @@ export class LocalConnection implements Connection {
   // ── 로비/방(다중 세션) ── 목업은 로비 없이 join()으로 솔로 진행한다. App이 목업이면 join()을
   // 직접 부르고 로비 화면을 건너뛰므로(Phase 7), 아래 메서드는 계약을 만족시키는 no-op이다.
   listRooms(): void {}
+  sendFriendsHello(_idToken: string): void {}
+  sendFriendInvite(_idToken: string, _targetAppUserId: number): void {}
   createRoom(_name: string, _mapId: string, _nickname: string, _token?: string, _idToken?: string, _isPrivate?: boolean): void {}
   joinRoom(_roomId: string, _nickname: string, _token?: string, _idToken?: string): void {}
   joinByCode(_code: string, _nickname: string, _token?: string, _idToken?: string): void {}
@@ -469,6 +473,8 @@ export class LocalConnection implements Connection {
   onRoomJoined(_cb: (m: RoomJoinedMessage) => void): void {}
   onRoomState(_cb: (m: RoomStateMessage) => void): void {}
   onRoundEnd(_cb: (m: RoundEndMessage) => void): void {}
+  onFriendPresence(_cb: (m: FriendPresenceMessage) => void): void {}
+  onInvite(_cb: (m: InviteMessage) => void): void {}
 
   // 개발용: 끊김/재연결 UI를 목 모드에서 테스트하기 위한 수동 트리거(프로덕션 경로 아님).
   simulateConnection(connected: boolean): void {

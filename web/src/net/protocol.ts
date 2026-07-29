@@ -250,3 +250,38 @@ export interface JoinByCodeCommand {
   idToken?: string;
   clientId?: string;
 }
+
+// ── 친구 접속 현황 · 초대(로그인 유저 전용) ─────────────────────────────
+
+// "나 접속했어"(C→S, /app/friends/hello). 로비 진입·친구 패널 열 때. 응답은 FriendPresenceMessage.
+export interface HelloCommand {
+  idToken?: string;
+}
+
+// 친구를 지금 내 방으로 초대(C→S, /app/friends/invite). 상대에게 InviteMessage가 푸시된다.
+export interface InviteCommand {
+  idToken?: string;
+  targetAppUserId: number;
+}
+
+// 접속 중인 친구 하나. roomId가 없으면 로비에 있는 것(따라갈 방이 없음).
+export interface FriendPresence {
+  appUserId: number;
+  nickname: string;
+  roomId?: string;
+  roomName?: string;
+}
+
+// 접속 중인 내 친구 목록(S→C, /user/queue/friendPresence).
+export interface FriendPresenceMessage {
+  friends: FriendPresence[];
+}
+
+// 친구가 나를 방으로 부름(S→C, /user/queue/invite). 수락 시 joinCode가 있으면 그걸로(비공개),
+// 없으면 roomId로 입장한다.
+export interface InviteMessage {
+  fromNickname: string;
+  roomId: string;
+  roomName: string;
+  joinCode?: string;
+}

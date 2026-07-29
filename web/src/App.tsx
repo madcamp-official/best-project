@@ -10,12 +10,14 @@ import { ResultsOverlay } from "./ui/ResultsOverlay";
 import { ProfileBadge } from "./ui/ProfileBadge";
 import { MyPage } from "./ui/MyPage";
 import { FriendsPanel } from "./ui/FriendsPanel";
+import { InviteBanner } from "./ui/InviteBanner";
 import { loadMapData, DEFAULT_MAP_ID } from "./data/loadMapData";
 import type { PreparedMap } from "./data/loadMapData";
 import { LocalConnection } from "./net/localConnection";
 import { StompConnection } from "./net/stompConnection";
 import type { Connection } from "./net/connection";
 import { fetchMyProfile, type AccountProfile } from "./auth/api";
+import type { FriendPresence, InviteMessage } from "./net/protocol";
 import { onIdTokenChanged, signOutGoogle } from "./auth/firebase";
 import {
   applyWelcome,
@@ -52,9 +54,13 @@ function App() {
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [showMyPage, setShowMyPage] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
-  // 친구 초대로 방을 만드는 중이면 그 친구 닉네임이 담긴다 — roomJoined에서 초대 코드가 오면
-  // 자동 복사해 "붙여넣기만 하면 되는" 상태로 만들어준다(다 쓰면 비운다).
-  const pendingInviteRef = useRef<string | null>(null);
+  // 초대를 눌렀는데 아직 방이 없으면, 방을 만든 뒤(roomJoined) 그 친구에게 초대를 쏜다.
+  const pendingInviteRef = useRef<number | null>(null);
+  const [friendPresence, setFriendPresence] = useState<FriendPresence[]>([]);
+  const [incomingInvite, setIncomingInvite] = useState<InviteMessage | null>(null);
+  // 콜백 안에서 최신 idToken을 읽어야 해서 ref로도 들고 있는다(구독은 최초 1회만 걸리므로).
+  const idTokenRef = useRef<string | null>(null);
+  idTokenRef.current = idToken;
   // 게스트 배지 표시용 — 로그인 유저는 profile.nickname이 우선하고, 게스트는 이 값(로비 입력과 동기화).
   const nickname = useUIStore((s) => s.nickname);
   // 로그인 여부의 기준은 idToken 하나다 — profile(별도 REST 호출)은 실패할 수 있고, 그걸 기준으로
@@ -146,15 +152,12 @@ function App() {
           st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state, joinCode: msg.joinCode });
           st.setMembers(msg.members);
           st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
-          // 친구 초대로 만든 방이면 초대 코드를 바로 클립보드에 넣어준다 — 게임 내에 쪽지가 없어
-          // "코드를 복사해 친구에게 전달"까지가 초대의 실체이고, 그 한 단계를 줄여준다.
-          const invitee = pendingInviteRef.current;
-          if (invitee && msg.joinCode) {
+          // 초대하려고 만든 방이면, 방이 생긴 지금 그 친구에게 초대를 쏜다(상대 화면에 배너가 뜬다).
+          const target = pendingInviteRef.current;
+          const tok = idTokenRef.current;
+          if (target && tok) {
             pendingInviteRef.current = null;
-            navigator.clipboard?.writeText(msg.joinCode).then(
-              () => st.showToast(`초대 코드 ${msg.joinCode}가 복사되었습니다 — ${invitee}님에게 보내세요`),
-              () => st.showToast(`초대 코드: ${msg.joinCode} — ${invitee}님에게 보내세요`),
-            );
+            connection.sendFriendInvite(tok, target);
           }
           if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
           // 진행 중 방 난입은 곧 WELCOME이 ready로 바꾸고, 결과/게임 화면 중 승계 통지로 화면을 끌어내리지 않는다.
@@ -166,6 +169,17 @@ function App() {
           if (st.currentRoom && st.currentRoom.roomId === msg.roomId) {
             st.setCurrentRoom({ ...st.currentRoom, state: msg.state });
           }
+        });
+        // 친구 접속 현황(초대·따라가기 버튼이 이 값으로 켜지고 꺼진다).
+        connection.onFriendPresence((msg) => setFriendPresence(msg.friends));
+        // 친구가 나를 불렀다 — 게임 중(ready)에는 화면을 가리지 않도록 토스트로만 알린다.
+        connection.onInvite((msg) => {
+          const st = useUIStore.getState();
+          if (st.phase === "ready") {
+            st.showToast(`${msg.fromNickname}님이 "${msg.roomName}"으로 초대했습니다`);
+            return;
+          }
+          setIncomingInvite(msg);
         });
         connection.onRoundEnd((msg) => {
           const st = useUIStore.getState();
@@ -218,6 +232,16 @@ function App() {
     enterLobby();
   };
 
+  // 로그인 상태면 서버에 접속을 알린다 — 이게 있어야 로비에 가만히 있어도 친구 초대를 받는다.
+  // 주기적으로 다시 보내 친구들의 위치(어느 방인지)도 최신으로 유지한다.
+  useEffect(() => {
+    if (!idToken || isMock) return;
+    const ping = () => connectionRef.current?.sendFriendsHello(idToken);
+    ping();
+    const timer = setInterval(ping, 15000);
+    return () => clearInterval(timer);
+  }, [idToken, isMock, phase]);
+
   // 로그인 토큰이 생기거나 갱신될 때마다 프로필(레벨/전적)을 받아온다. 실패해도 로그인 상태
   // (idToken)는 유지되므로 친구·로그아웃은 그대로 쓸 수 있고, 다음 토큰 갱신 때 자동 재시도된다.
   useEffect(() => {
@@ -255,19 +279,52 @@ function App() {
     setPhase("authChoice");
   };
 
-  // 친구 초대 — 그 친구와 둘이 쓸 비공개 방을 만들고, 코드가 오면 위 onRoomJoined가 복사해준다.
-  const handleInviteFriend = (friendNickname: string) => {
-    const nick = (profile?.nickname ?? useUIStore.getState().nickname).trim() || "player";
-    pendingInviteRef.current = friendNickname;
+  /**
+   * 친구 초대. 이미 방에 있으면 그 방으로 바로 부르고, 로비에 있으면 비공개 방을 먼저 만든 뒤
+   * (onRoomJoined에서) 초대를 쏜다. 어느 쪽이든 상대 화면에는 알림 배너가 뜬다.
+   */
+  const handleInviteFriend = (friend: { appUserId: number; nickname: string }) => {
+    if (!idToken) return;
     setShowFriends(false);
+    const st = useUIStore.getState();
+    if (st.currentRoom) {
+      connectionRef.current?.sendFriendInvite(idToken, friend.appUserId);
+      st.showToast(`${friend.nickname}님을 초대했습니다`);
+      return;
+    }
+    const nick = (profile?.nickname ?? st.nickname).trim() || "player";
+    pendingInviteRef.current = friend.appUserId; // 방이 생기면 그때 초대 전송
     connectionRef.current?.createRoom(
-      `${nick} & ${friendNickname}`,
+      `${nick} & ${friend.nickname}`,
       DEFAULT_MAP_ID,
       nick,
       localStorage.getItem("token") ?? undefined,
-      idToken ?? undefined,
-      true, // 비공개 — 초대 코드를 아는 사람만 들어온다
+      idToken,
+      true, // 비공개 — 초대받은 친구만 들어온다
     );
+  };
+
+  // 친구가 있는 방으로 따라 들어가기.
+  const handleFollowFriend = (roomId: string) => {
+    const st = useUIStore.getState();
+    const nick = (profile?.nickname ?? st.nickname).trim() || "player";
+    setShowFriends(false);
+    connectionRef.current?.joinRoom(roomId, nick, localStorage.getItem("token") ?? undefined, idToken ?? undefined);
+  };
+
+  // 받은 초대 수락 — 비공개 방이면 코드로, 아니면 방 id로 입장한다.
+  const handleAcceptInvite = () => {
+    const inv = incomingInvite;
+    if (!inv) return;
+    setIncomingInvite(null);
+    const st = useUIStore.getState();
+    const nick = (profile?.nickname ?? st.nickname).trim() || "player";
+    const token = localStorage.getItem("token") ?? undefined;
+    if (inv.joinCode) {
+      connectionRef.current?.joinByCode(inv.joinCode, nick, token, idToken ?? undefined);
+    } else {
+      connectionRef.current?.joinRoom(inv.roomId, nick, token, idToken ?? undefined);
+    }
   };
 
   const handleJoin = (nickname: string) => {
@@ -300,6 +357,7 @@ function App() {
           idToken={idToken}
           profile={profile}
           onOpenFriends={() => setShowFriends(true)}
+          onlineFriendCount={friendPresence.length}
         />
       )}
       {phase === "room" && connectionRef.current && <RoomWaitScreen connection={connectionRef.current} />}
@@ -329,7 +387,20 @@ function App() {
         />
       )}
       {showFriends && idToken && (
-        <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} onInvite={handleInviteFriend} />
+        <FriendsPanel
+          idToken={idToken}
+          onClose={() => setShowFriends(false)}
+          onInvite={handleInviteFriend}
+          onFollow={handleFollowFriend}
+          presence={friendPresence}
+        />
+      )}
+      {incomingInvite && phase !== "ready" && (
+        <InviteBanner
+          invite={incomingInvite}
+          onAccept={handleAcceptInvite}
+          onDismiss={() => setIncomingInvite(null)}
+        />
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 package com.madcamp.server.ws
 
+import com.madcamp.server.auth.PresenceRegistry
 import com.madcamp.server.config.ConfigService
 import com.madcamp.server.domain.PlayerAi
 import com.madcamp.server.game.Room
@@ -25,6 +26,7 @@ class RoomController(
     private val gameLoop: GameLoop,
     private val roomManager: RoomManager,
     private val connectionRegistry: ConnectionRegistry,
+    private val presenceRegistry: PresenceRegistry,
     private val sessionService: SessionService,
     private val configService: ConfigService,
     private val welcomeAssembler: WelcomeAssembler,
@@ -79,6 +81,7 @@ class RoomController(
     fun leave(principal: Principal) {
         val binding = connectionRegistry.bindingOf(principal.name) ?: return
         if (binding.roomId == RoomManager.DEFAULT_ROOM_ID) return // 브리지 방은 로비 대상 아님
+        presenceRegistry.setRoom(principal.name, null, null) // 로비로 돌아옴 — 친구 목록에 그렇게 보인다
         gameLoop.submitRoomTask {
             val room = roomManager.get(binding.roomId) ?: return@submitRoomTask
             val leaving = room.members.remove(principal.name)
