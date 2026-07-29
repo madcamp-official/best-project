@@ -20,7 +20,7 @@ import {
   drainRespawnCell,
   toggleMyAttackTarget,
   drainAttackQueueTouched,
-  pruneCapturedAttackTargets,
+  pruneStaleAttackTargets,
   enclosedSet,
   drainEnclosedTouched,
 } from "../world/worldView";
@@ -1503,8 +1503,8 @@ export function MapView({ prepared, connection }: Props) {
         hadUnits = false;
       }
 
-      // 점령 완료된 공격 큐 대상은 마커에서 정리한다(서버 tick도 큐에서 제거).
-      pruneCapturedAttackTargets();
+      // 더는 공격 못 하는 큐 대상 정리 — 점령 완료됐거나 인접 내 영토를 다 잃은 대상(서버 tick도 제거).
+      pruneStaleAttackTargets();
       // 미사일 마커(스폰/소모 시 갱신)
       if (drainMissilesTouched()) updateMissileMarkers(map);
       // 공격 큐 ⚔️ 마커 + 인접 내 영토발 화살표(토글/점령 정리 시 갱신)

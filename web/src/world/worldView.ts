@@ -260,12 +260,17 @@ export function toggleMyAttackTarget(idx: number) {
   attackQueueTouched = true;
 }
 
-// 이미 내 소유가 된(점령 완료) 큐 대상을 정리한다 — 서버 tick도 제거하지만 마커를 즉시 지우기 위함.
-// 바뀐 게 있으면 true 반환(렌더러가 마커를 다시 그리게).
-export function pruneCapturedAttackTargets(): boolean {
+// 더는 공격할 수 없게 된 큐 대상을 정리한다 — (1) 이미 내 소유가 됨(점령 완료), 또는 (2) 대상에
+// 인접한 내 동이 하나도 안 남음(공격 발판 상실). 서버 tickAttackQueue도 같은 두 조건으로 독립 제거하므로
+// (점령 정리와 동일 패턴) 별도 통신 없이 양쪽이 수렴한다. 마커를 즉시 지우려고 클라에서도 매 프레임 돈다.
+// 바뀐 게 있으면 true 반환(렌더러가 마커·화살표를 다시 그리게).
+export function pruneStaleAttackTargets(): boolean {
   let changed = false;
+  const me = world.myHolderId;
   for (const t of Array.from(world.myAttackQueue)) {
-    if (world.ownerId[t] === world.myHolderId) {
+    const mine = world.ownerId[t] === me;
+    const hasFront = (world.neighborIndex[t] ?? []).some((nb) => world.ownerId[nb] === me);
+    if (mine || !hasFront) {
       world.myAttackQueue.delete(t);
       changed = true;
     }

@@ -803,8 +803,10 @@ export function tickAttackQueue(s: GameState, nowMs: number): Order[] {
         continue;
       }
       // 대상에 인접한 내 동마다 병력 일부를 출정(도착 시 resolveArrival가 전투 처리).
+      let hasFront = false; // 대상에 인접한 내 동(공격 발판)이 하나라도 있는가
       for (const nb of s.neighborIndex[target]) {
         if (s.ownerId[nb] !== h) continue;
+        hasFront = true;
         if (s.troops[nb] <= CONFIG.ATTACK_QUEUE_MIN_TROOPS) continue;
         const amt = Math.floor(s.troops[nb] * CONFIG.ATTACK_QUEUE_RATIO);
         if (amt < 1) continue;
@@ -814,6 +816,7 @@ export function tickAttackQueue(s: GameState, nowMs: number): Order[] {
         s.orders.push(order);
         out.push(order);
       }
+      if (!hasFront) q.delete(target); // 인접 내 영토를 다 잃음(공격 발판 상실) → 큐에서 제거
     }
   }
   return out;

@@ -739,8 +739,10 @@ object GameCore {
             for (target in q.toList()) {
                 if (target < 0 || target >= world.n) { q.remove(target); continue }
                 if (world.ownerId[target] == h) { q.remove(target); continue } // 점령 완료 → 제거
+                var hasFront = false // 대상에 인접한 내 동(공격 발판)이 하나라도 있는가
                 for (nb in world.neighborIndex[target]) {
                     if (world.ownerId[nb] != h) continue
+                    hasFront = true
                     if (world.troops[nb] <= config.attackQueueMinTroops) continue
                     val amt = floor(world.troops[nb] * config.attackQueueRatio).toInt()
                     if (amt < 1) continue
@@ -750,6 +752,7 @@ object GameCore {
                     world.orders.add(order)
                     world.pendingNewOrders.add(order)
                 }
+                if (!hasFront) q.remove(target) // 인접 내 영토를 다 잃음(공격 발판 상실) → 큐에서 제거
             }
         }
     }
