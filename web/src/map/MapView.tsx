@@ -90,7 +90,7 @@ const TRIANGLE_IMAGE_ID = "airdrop-triangle";
 const ATTACK_ARROW_SOURCE = "attack-arrow"; // 우클릭 드래그 공격 화살표(HOI 스타일 블록 화살표)
 const ATTACK_ARROW_FILL = "attack-arrow-fill";
 const ATTACK_ARROW_LINE = "attack-arrow-line";
-// 공격 큐 화살표 — 큐에 담긴 대상마다, 그 대상에 인접한 '내 동'에서 대상으로 향하는 상시 표시 화살표.
+// 공격 큐 화살표 — 큐에 담긴 대상마다, 그 대상에 인접한 '내 동' 한 곳에서 대상으로 향하는 상시 화살표.
 const ATTACK_QUEUE_ARROW_SOURCE = "attack-queue-arrow";
 const ATTACK_QUEUE_ARROW_FILL = "attack-queue-arrow-fill";
 const ATTACK_QUEUE_ARROW_LINE = "attack-queue-arrow-line";
@@ -203,9 +203,9 @@ export function MapView({ prepared, connection }: Props) {
       src.setData({ type: "FeatureCollection", features });
     };
 
-    // 공격 큐 대상마다, 그 대상에 인접한 '내 동'에서 대상 중심으로 향하는 공세 화살표들을 그린다.
-    // (어느 내 영토가 이 목표로 자동 출정하는지 ⚔️ 마커와 함께 한눈에 보이도록.) 대상 소유/인접
-    // 이 바뀌면 다시 그려야 하므로 큐 변경뿐 아니라 소유권 변경 시에도 호출한다.
+    // 공격 큐 대상마다, 그 대상에 인접한 '내 동' 중 대표 한 곳에서 대상 중심으로 향하는 공세
+    // 화살표를 그린다(대상당 1개). 대상 소유/인접이 바뀌면 다시 그려야 하므로 큐 변경뿐 아니라
+    // 소유권 변경 시에도 호출한다 — 대표 출발지가 점령당해도 남은 인접 내 동으로 자동 교체된다.
     const updateAttackQueueArrows = (m: MaplibreMap) => {
       const src = m.getSource(ATTACK_QUEUE_ARROW_SOURCE) as GeoJSONSource | undefined;
       if (!src) return;
@@ -213,11 +213,11 @@ export function MapView({ prepared, connection }: Props) {
       const features = Array.from(world.myAttackQueue)
         .filter((target) => target >= 0 && target < world.n)
         .flatMap((target) => {
-          const b = world.meta[target].centroid as [number, number];
-          return (world.neighborIndex[target] ?? []).flatMap((nb) =>
-            world.ownerId[nb] === me
-              ? arrowPolygon(world.meta[nb].centroid as [number, number], b)
-              : []
+          const from = nearestOwnedNeighbor(target, me);
+          if (from < 0) return []; // 인접한 내 동이 하나도 안 남았으면(다 뺏김) 화살표 없음
+          return arrowPolygon(
+            world.meta[from].centroid as [number, number],
+            world.meta[target].centroid as [number, number]
           );
         });
       src.setData({ type: "FeatureCollection", features });
@@ -1764,6 +1764,29 @@ function reachableTargets(source: number): number[] {
     }
   }
   return out;
+}
+
+// 공격 큐 화살표용 대표 출발지 — 대상(target)에 인접한 내 동 중 대상 중심에 가장 가까운 하나의
+// admIndex(없으면 -1). 대상당 화살표 하나만 그리기 위한 선택이다. centroid 거리는 정적이라
+// 소유권이 유지되는 한 선택이 흔들리지 않고, 그 동이 점령당하면(소유권 변경으로 재호출) 남은
+// 인접 내 동 중 다음으로 가까운 곳이 자연스럽게 대표가 된다. 완전 동거리는 낮은 admIndex로 확정.
+function nearestOwnedNeighbor(target: number, me: number): number {
+  const [tx, ty] = world.meta[target].centroid;
+  const cosLat = Math.cos((ty * Math.PI) / 180) || 1;
+  let best = -1;
+  let bestD = Infinity;
+  for (const nb of world.neighborIndex[target] ?? []) {
+    if (world.ownerId[nb] !== me) continue;
+    const c = world.meta[nb].centroid;
+    const dx = (c[0] - tx) * cosLat;
+    const dy = c[1] - ty;
+    const d = dx * dx + dy * dy;
+    if (d < bestD || (d === bestD && (best < 0 || nb < best))) {
+      bestD = d;
+      best = nb;
+    }
+  }
+  return best;
 }
 
 // 우클릭 드래그 공격 화살표 지오메트리 — HOI(하츠오브아이언) 스타일 블록 화살표 폴리곤 하나.
