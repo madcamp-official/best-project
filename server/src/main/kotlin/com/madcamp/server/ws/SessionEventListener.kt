@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component
 import org.springframework.web.socket.messaging.SessionDisconnectEvent
 
 /**
- * WebSocket 연결 해제 정리. 방 멤버에서 제거하고 바인딩을 해제한다. PLAYING 방의 holder/영토는
- * 유지해(토큰 재접속 복구), 빈 LOBBY/ENDED 방만 닫는다. 브리지 기본 방은 대상 아님.
- * 멤버십 조작은 executor 스레드에서(월드 무락 불변식).
+ * WebSocket 연결 해제 정리. 방 멤버에서 제거하고 바인딩을 해제한다. 남은 멤버가 있으면 PLAYING
+ * 방의 holder/영토는 유지하고(토큰 재접속 복구), 아무도 안 남은 방은 상태 불문 즉시 닫는다.
+ * 브리지 기본 방은 대상 아님. 멤버십 조작은 executor 스레드에서(월드 무락 불변식).
  */
 @Component
 class SessionEventListener(
@@ -34,7 +34,9 @@ class SessionEventListener(
             // 이 principal의 멤버만 제거한다. 재접속으로 같은 clientId 멤버의 principal이 이미 새 값으로
             // 갱신됐다면 여기서 지워지지 않아(키 불일치) 방장 자리가 유지된다.
             val leaving = room.members.remove(principalName)
-            if (room.members.isEmpty() && room.state != RoomState.PLAYING) {
+            // 빈 방은 상태 불문 즉시 정리한다(RoomController.leave와 동일) — PLAYING이어도 아무도
+            // 없으면 아무도 못 보는 방을 계속 tick할 이유가 없다. 스윕 안전망을 기다리지 않는다.
+            if (room.members.isEmpty()) {
                 roomManager.remove(room.id)
             } else {
                 // 방장이 끊겼으면 남은 멤버 중 가장 오래된 사람에게 승계하고 개인 통지한다(clientId 기준).
