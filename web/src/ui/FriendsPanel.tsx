@@ -24,11 +24,14 @@ function reasonOf(e: unknown, fallback: string): string {
 interface Props {
   idToken: string;
   onClose: () => void;
+  // 친구를 비공개 방으로 부르기 — App이 방을 만들고 초대 코드를 복사해준다(게임 내 쪽지 기능이
+  // 없으므로 "코드를 건네주는" 데까지가 초대의 실체다).
+  onInvite: (nickname: string) => void;
 }
 
 // 로그인 유저 전용 친구 패널 — 검색해서 요청 보내기, 받은 요청 수락/거절, 친구 목록 보기.
 // 게임(WS)과 무관한 계정 기능이라 REST(auth/api.ts)로만 통신한다.
-export function FriendsPanel({ idToken, onClose }: Props) {
+export function FriendsPanel({ idToken, onClose, onInvite }: Props) {
   const [list, setList] = useState<FriendsList | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FriendCandidate[]>([]);
@@ -209,8 +212,22 @@ export function FriendsPanel({ idToken, onClose }: Props) {
         {list && list.friends.length > 0 && (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {list.friends.map((f) => (
-              <li key={f.appUserId} style={{ color: "#cdd6e4", padding: "4px 0" }}>
-                {f.nickname} <span style={{ opacity: 0.6 }}>Lv.{f.level}</span>
+              <li
+                key={f.appUserId}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}
+              >
+                <span style={{ color: "#cdd6e4" }}>
+                  {f.nickname} <span style={{ opacity: 0.6 }}>Lv.{f.level}</span>
+                </span>
+                <button
+                  className="io-btn io-btn-sm io-btn-primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onInvite(f.nickname)}
+                  title="비공개 방을 만들고 초대 코드를 복사합니다"
+                >
+                  초대
+                </button>
               </li>
             ))}
           </ul>

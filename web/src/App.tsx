@@ -52,6 +52,9 @@ function App() {
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [showMyPage, setShowMyPage] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
+  // 친구 초대로 방을 만드는 중이면 그 친구 닉네임이 담긴다 — roomJoined에서 초대 코드가 오면
+  // 자동 복사해 "붙여넣기만 하면 되는" 상태로 만들어준다(다 쓰면 비운다).
+  const pendingInviteRef = useRef<string | null>(null);
   // 게스트 배지 표시용 — 로그인 유저는 profile.nickname이 우선하고, 게스트는 이 값(로비 입력과 동기화).
   const nickname = useUIStore((s) => s.nickname);
   // 로그인 여부의 기준은 idToken 하나다 — profile(별도 REST 호출)은 실패할 수 있고, 그걸 기준으로
@@ -143,6 +146,16 @@ function App() {
           st.setCurrentRoom({ roomId: msg.roomId, name: msg.name, state: msg.state, joinCode: msg.joinCode });
           st.setMembers(msg.members);
           st.setIsRoomHost(msg.youAreHost); // 입장 응답이자 방장 승계 통지(방장이 나가면 재전송됨)
+          // 친구 초대로 만든 방이면 초대 코드를 바로 클립보드에 넣어준다 — 게임 내에 쪽지가 없어
+          // "코드를 복사해 친구에게 전달"까지가 초대의 실체이고, 그 한 단계를 줄여준다.
+          const invitee = pendingInviteRef.current;
+          if (invitee && msg.joinCode) {
+            pendingInviteRef.current = null;
+            navigator.clipboard?.writeText(msg.joinCode).then(
+              () => st.showToast(`초대 코드 ${msg.joinCode}가 복사되었습니다 — ${invitee}님에게 보내세요`),
+              () => st.showToast(`초대 코드: ${msg.joinCode} — ${invitee}님에게 보내세요`),
+            );
+          }
           if (st.phase === "lobby") st.setMyReady(false); // 새 입장 — 준비 초기화(승계 통지 땐 유지)
           // 진행 중 방 난입은 곧 WELCOME이 ready로 바꾸고, 결과/게임 화면 중 승계 통지로 화면을 끌어내리지 않는다.
           if (msg.state !== "PLAYING" && (st.phase === "lobby" || st.phase === "room")) setPhase("room");
@@ -242,6 +255,21 @@ function App() {
     setPhase("authChoice");
   };
 
+  // 친구 초대 — 그 친구와 둘이 쓸 비공개 방을 만들고, 코드가 오면 위 onRoomJoined가 복사해준다.
+  const handleInviteFriend = (friendNickname: string) => {
+    const nick = (profile?.nickname ?? useUIStore.getState().nickname).trim() || "player";
+    pendingInviteRef.current = friendNickname;
+    setShowFriends(false);
+    connectionRef.current?.createRoom(
+      `${nick} & ${friendNickname}`,
+      DEFAULT_MAP_ID,
+      nick,
+      localStorage.getItem("token") ?? undefined,
+      idToken ?? undefined,
+      true, // 비공개 — 초대 코드를 아는 사람만 들어온다
+    );
+  };
+
   const handleJoin = (nickname: string) => {
     const token = localStorage.getItem("token") ?? undefined;
     connectionRef.current?.join(nickname, token);
@@ -301,7 +329,7 @@ function App() {
         />
       )}
       {showFriends && idToken && (
-        <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} />
+        <FriendsPanel idToken={idToken} onClose={() => setShowFriends(false)} onInvite={handleInviteFriend} />
       )}
     </div>
   );
