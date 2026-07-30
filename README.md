@@ -36,7 +36,6 @@
 | 서버 | Spring Boot 4 (Kotlin 2.3) + STOMP WebSocket | `server/` — 게임 로직 권위. 룸 스코프 토픽 |
 | 도메인 코어 | `web/src/game/core.ts` ↔ `server/.../domain/GameCore.kt` | **1:1 미러**. 순수 함수 + 주입 시계 |
 | 계정 DB | H2 (파일) + JPA | 계정·친구만(게임 월드와 분리) |
-| 랭킹 | Redis(ZSET) | 명예의 전당(`/ranking/top`). 없으면 랭킹만 비활성, 게임은 정상 |
 | 로그인 | Firebase(구글) | 선택 — 없으면 게스트로 전부 플레이 가능 |
 | 경계 데이터 | `web/public/kr-sgg.geojson` / `server/.../resources/data/kr-sgg-cells.json` | 클라·서버가 같은 순서로 읽어 `admIndex` 정렬을 구조적으로 보장 |
 
@@ -68,7 +67,7 @@ neighborIndex: number[][]  // 인접 그래프 (정적)
 ### 3.2 holderId 간접 계층
 셀은 소유자를 `holderId`로 저장하고, 별도 테이블(`holders: Map<holderId, {name, paletteIdx, isAi}>`)이 이름·색·AI 여부를 든다.
 - `0` = 중립 · `1~254` = **플레이어와 AI 공용**(사람 참가·AI 채우기가 같은 `allocateHolderId` 할당기를 공유) · `255` = 예약(구 환경 세력 E, 현재 미사용).
-- **AI도 그냥 holder 하나** — 셀 배열·전투·이동·렌더 로직에 특수 분기가 없다. 차이는 "행동을 AI가 결정"과 `isAi` 플래그(생산 배율·명예의 전당 제외)뿐.
+- **AI도 그냥 holder 하나** — 셀 배열·전투·이동·렌더 로직에 특수 분기가 없다. 차이는 "행동을 AI가 결정"과 `isAi` 플래그(생산 배율)뿐.
 - 색: 8슬롯 최대 대비 팔레트를 **세션마다 셔플**해 배정(§4.12). `holder.paletteIdx`가 슬롯을 가리킨다.
 
 ### 3.3 Order (이동 유닛)
@@ -141,7 +140,7 @@ neighborIndex: number[][]  // 인접 그래프 (정적)
   - `AI_RANDOM_TARGET_CHANCE` — 가장 약한 대상 대신 이길 만한 인접 대상을 **아무거나** 고를 확률(비최적 공격).
   - `AI_ATTACK_MARGIN_JITTER` — 공격 마진(`AI_ATTACK_MARGIN`)을 판단마다 ±비율로 흔들어 과신중/무모를 섞음.
   - 후보 이동을 정렬하지 않고 **셔플**해 한정된 출정 횟수(`AI_MAX_SORTIES_PER_TICK`)를 늘 최선에만 쓰지 않게 함.
-- 정원 초과로 사람이 난입하면 가장 약한 AI를 밀어내 자리를 만든다(`removeWeakest`). AI는 명예의 전당에 기록되지 않는다.
+- 정원 초과로 사람이 난입하면 가장 약한 AI를 밀어내 자리를 만든다(`removeWeakest`).
 
 ### 4.13 색상 (8색 · 세션 셔플)
 - 플레이어 색은 최대 대비 8색(레드·블루·그린·오렌지·퍼플·시안·핫핑크·옐로) — `PLAYER_PALETTE_IDXS = [1,2,3,4,5,7,8,9]`.
@@ -157,7 +156,7 @@ neighborIndex: number[][]  // 인접 그래프 (정적)
 ### 라운드
 - **즉시 승리(도미네이션)**: 한 명이 전국 `ROUND_WIN_RATIO`(51%) 이상 점유(1Hz 판정).
 - **시간 종료**: `ROUND_DURATION_SEC`(30분) 도달 시 그 시점 1위 승리. HUD 상단에 라운드 타이머(마지막 1분 빨간 깜빡임).
-- 종료 시 전원 결과 화면(우승자·최종 순위) → 대기실로. 로그인 유저의 전적(`gamesPlayed`/`wins`)이 갱신되고, 사람 우승자는 Redis 명예의 전당에 기록.
+- 종료 시 전원 결과 화면(우승자·최종 순위) → 대기실로. 로그인 유저의 전적(`gamesPlayed`/`wins`)이 갱신된다.
 
 ### 계급 (소유권에서 파생 — 저장하지 않고 매 프레임 계산, `computeRank`)
 ```
@@ -220,19 +219,18 @@ neighborIndex: number[][]  // 인접 그래프 (정적)
 cd web && VITE_USE_LOCAL_MOCK=1 npm run dev      # http://localhost:5173
 
 # 풀스택 (멀티플레이)
-cd server && ./gradlew bootRun     # :8080 (STOMP /ws, REST /api·/ranking·/admin)
+cd server && ./gradlew bootRun     # :8080 (STOMP /ws, REST /api·/admin)
 cd web && npm run dev              # :5173 → localhost:8080에 자동 연결
 ```
 - 다른 서버 주소로 붙일 땐 `VITE_WS_URL=ws://<host>:8080/ws/websocket npm run dev`, REST는 `VITE_API_URL`.
 - **구글 로그인(선택)**: `web/.env.local`에 `VITE_FIREBASE_*` 4종, `server/secrets/firebase-service-account.json` 배치. 없으면 게스트로 동작.
-- **랭킹(선택)**: 로컬 Redis(:6379) 실행 시 명예의 전당 활성. 없으면 랭킹만 비활성.
 - **단일 jar 배포**: `cd server && ./gradlew deployJar` → `java -jar build/libs/server-*-deploy.jar` (웹 정적 빌드까지 한 jar가 :8080에서 서빙, 단일 오리진). 자세한 배포(Docker/GHCR/watchtower)는 [docs/architecture.md](docs/architecture.md) §7.
 
 ---
 
 ## 부록 A. 확정 상태
 
-**확정**: 시/군/구 250셀 단일 지도(`kr-sgg`) · 방/라운드제(51% 도미네이션·30분) · 출정 비율 슬라이더 · 드래그 쓸기 · 자동 행군 · 공격 큐 + 보급선 · 미사일(단일 표적) · **전술핵 사일로 = 제주 1기**(광역) · 공수(섬 통로·사일로 섬 사거리 예외) · 포위 귀속 · 스폰 방어막 · **AI 세션 8명 채움**(랜덤성으로 실력 하향) · 8색 세션 셔플 배정 · 계급 구청장→시장→도지사→대통령 · 서버 권위 + 목 서버 개발 경로 · holderId 간접층 · admIndex 클라·서버 공유 · 구글 로그인/친구/Redis 명예의 전당 · 단일 오리진 jar + Docker/GHCR 배포.
+**확정**: 시/군/구 250셀 단일 지도(`kr-sgg`) · 방/라운드제(51% 도미네이션·30분) · 출정 비율 슬라이더 · 드래그 쓸기 · 자동 행군 · 공격 큐 + 보급선 · 미사일(단일 표적) · **전술핵 사일로 = 제주 1기**(광역) · 공수(섬 통로·사일로 섬 사거리 예외) · 포위 귀속 · 스폰 방어막 · **AI 세션 8명 채움**(랜덤성으로 실력 하향) · 8색 세션 셔플 배정 · 계급 구청장→시장→도지사→대통령 · 서버 권위 + 목 서버 개발 경로 · holderId 간접층 · admIndex 클라·서버 공유 · 구글 로그인/친구 · 단일 오리진 jar + Docker/GHCR 배포.
 
 **미정(튜닝 중)**: CONFIG 절대값 전반 · AI 공격성/랜덤성 최종값 · 미사일/전술핵 반경·쿨다운 최종값 · 모바일 입력.
 
