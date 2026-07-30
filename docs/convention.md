@@ -40,17 +40,17 @@
 - 시간이 필요하면 호출자가 `nowMs`(단조 시각)를 인자로 주입한다. 로그 타임스탬프처럼 벽시계가 필요하면 `wallNowMs`로 별도 주입 — 두 종류를 섞지 않는다(`resolveArrival`의 `wallNowMs` 예시 참조)
 - 모든 상태는 `GameState` 하나로 묶어 인자로 받는다. 전역 변수·모듈 스코프 mutable state 금지
 - 변경 함수는 함수명에 `try`(검증 후 실패 가능, 예: `trySortie`) / `tick`(주기 실행, 예: `tickProduction`) 접두를 맞춘다
-- 3,500개 동을 매 프레임 순회하는 코드는 피하고 `dirty: Set<number>` + lazy 계산 패턴을 따른다(`tickProduction`의 `troopAccum` 누산기가 예시)
+- 250개 시/군/구 셀을 매 프레임 순회하는 코드는 피하고 `dirty: Set<number>` + lazy 계산 패턴을 따른다(`tickProduction`의 `troopAccum` 누산기가 예시)
 - 규칙 변경 시 관련 README 절 번호를 주석으로 남긴다 (`// README §4.2, §4.4 — 출정...` 형식) — 이 파일이 서버 이식 시 1:1 대조 사양서 역할을 하기 때문(plan.md §4)
 
 **타입 네이밍 (`src/game/types.ts`):**
 
-- 동 인덱스는 항상 `admIndex`(조밀 정수)로 부른다. 원본 행정구역코드는 `code`/`adm_cd`로 구분해 혼용하지 않는다
-- `holderId`는 `number`. 예약값(`0` 중립, `255` 환경 세력)은 `config.ts`의 상수로만 참조하고 매직 넘버로 하드코딩하지 않는다
+- 셀 인덱스는 항상 `admIndex`(조밀 정수)로 부른다. 원본 행정구역코드는 `code`/`sggcd`(시군구 5자리)로 구분해 혼용하지 않는다
+- `holderId`는 `number`. 예약값(`0` 중립, `255` 예약=구 환경 세력 E·현재 미사용)은 `config.ts`의 상수로만 참조하고 매직 넘버로 하드코딩하지 않는다
 
 ### 2.4 상태 계층 분리
 
-- **게임/월드 상태**(3,500동 배열, `GameState`)는 React/Zustand에 절대 넣지 않는다 — React 밖(`world/worldView.ts`의 `world`)에 유지하고 `dirty` 변경분만 rAF로 MapLibre에 반영(README §1, §7.3)
+- **게임/월드 상태**(250 시/군/구 셀 배열, `GameState`)는 React/Zustand에 절대 넣지 않는다 — React 밖(`world/worldView.ts`의 `world`)에 유지하고 `dirty` 변경분만 rAF로 MapLibre에 반영(README §7)
 - **UI 상태**(선택한 동, 패널 열림 등 소량)만 `store/uiStore.ts`(Zustand)에 둔다
 - `map/MapView.tsx`의 MapLibre 인스턴스는 `useRef`로 감싸 `useEffect` 1회만 생성 — 이후 React 렌더가 지도를 직접 건드리지 않는다
 - **클라는 게임 로직을 돌리지 않는다**: 입력은 `net/connection.ts`의 `Connection.sendSortie`로 서버에 보내고, 결과는 WELCOME/DELTA로 받아 `worldView`에 반영만 한다(plan.md §3). 기본 연결은 실서버(`stompConnection`)이고, `VITE_USE_LOCAL_MOCK=1`이면 브라우저 내 목 서버(`localConnection`)로 전환된다
@@ -88,11 +88,11 @@ ui/     HUD 등 프레젠테이션 컴포넌트
 ## 4. 튜닝 값 (`CONFIG`)
 
 - 밸런스 상수는 반드시 `src/config.ts`의 `CONFIG` 객체 한 곳에 모은다 — 로직 코드에 매직 넘버로 흩뿌리지 않는다(README §5)
-- 온라인 전환 후에는 서버가 원본이 되고 WELCOME으로 클라에 전달된다(plan.md §4, api-spec.md §2.2) — 클라 쪽 `config.ts`는 fallback/개발용으로만 남을 수 있음. 전환 시점에 이 절 갱신.
+- **서버가 원본**이다: 서버 `GameConfig.kt`의 값이 입장 시 `WELCOME.config`로 클라에 전달된다(README §8, [api-spec.md](./api-spec.md) §3.2). 클라 `config.ts`는 목 서버(`localConnection`)·개발용 fallback으로 쓰이며, 두 파일의 키·기본값은 항상 1:1로 맞춘다.
 
 ---
 
 ## 5. 문서 갱신 원칙
 
 - 코드와 문서가 어긋나면 **코드가 기준**이다. README/api-spec.md/architecture.md를 코드에 맞춰 갱신한다(api-spec.md §5 참조).
-- `docs/plan.md`는 일정·역할표라 매일 상태가 바뀐다 — 완료된 Day 항목은 그때그때 체크(§7 체크리스트)하고, 리스크 대응이 실제로 발동하면 §6에 결과를 덧붙인다.
+- `docs/plan.md`는 초기 6일 계획의 **기록(historical)**이다 — 현재 사양과 다를 수 있으니 갱신하지 않고 그대로 둔다. 현재 사양은 README·architecture·api-spec가 원본.

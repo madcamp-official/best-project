@@ -1,250 +1,212 @@
 # API 명세서
 
-> 통신 계층 사양. 게임 규칙 자체는 [README.md](../README.md) §3~§6, 일정/역할은 [plan.md](./plan.md) 참조.
-> 프로토콜은 **Day 1 오전에 동결**하고(plan.md §5), 이후 변경은 필드 append만 허용한다(plan.md §6).
+> 통신 계층 사양. 게임 규칙 자체는 [README.md](../README.md), 아키텍처는 [architecture.md](./architecture.md) 참조.
+> 최종 진실은 코드: 클라 `web/src/net/protocol.ts` ↔ 서버 `server/.../ws/dto/Messages.kt`가 원본이며 필드는 두 파일이 항상 동기.
+> 필드명·타입이 이 문서와 어긋나면 코드가 기준이다.
 
 ---
 
 ## 1. 개요
 
-- 전송: **WebSocket + STOMP**, 단일 엔드포인트 `/ws` (SockJS 폴백 열어둘지는 Day 1 결정 사항)
-- 월드: 단일 월드 1개 (방 개념 없음) — 모든 클라이언트가 같은 `/topic/*` 을 구독
-- 인증: 게스트 세션 기본 — `token`(UUID, localStorage 보관)으로 재접속 시 기존 holder 복구.
-  구글 로그인(feat/google-login)은 선택 사항 — `idToken`(Firebase ID 토큰)을 함께 보내면 서버가
-  검증 후 그 계정의 닉네임을 우선한다. 계정 자체는 별도 H2 DB(AppUser)에 저장되며, 게임 월드
-  상태와는 무관하다(라운드마다 holderId는 새로 배정됨 — 계정에 영속되는 건 닉네임뿐)
-- 진실의 원천은 서버뿐이다. 클라이언트는 예측하지 않고 입력만 보낸 뒤 서버 브로드캐스트를 반영한다(README §9~§10)
-- 인덱스 체계: 모든 메시지의 동 참조는 **`admIndex`**(0..N-1 조밀 정수 인덱스, README §2.1) 사용. `adm_cd` 원본 코드는 WELCOME의 정적 메타에만 실린다
-- holderId: `0` = 중립, `1..254` = 플레이어, `255` = 환경 세력(`ENV_HOLDER_ID`, README §3.2/§4.6)
+- **전송**: STOMP over WebSocket(SockJS 폴백). 엔드포인트 `ws(s)://<host>/ws`. 서버 하트비트 10s/10s.
+- **접두**: 클라→서버 `/app/...`, 브로드캐스트 `/topic/...`, 개인 응답 `/user/queue/...`.
+- **다중 방(룸 스코프)**: 게임 토픽은 방마다 다르다 — `/topic/room/{roomId}/...`. 로비 목록만 전역 `/topic/rooms`. 한 연결은 로비 채널(공통) + 현재 들어간 방 채널(동적 구독)을 함께 듣는다.
+- **인증**: WS 핸드셰이크는 익명(연결마다 랜덤 principal). 로그인은 명령 payload의 `idToken`(Firebase)으로 처리하고, 서버가 요청 시 검증한다. 게스트는 `idToken` 없이 전부 사용 가능.
+- **동기화 모델**: 입장 시 `WELCOME`(전체 스냅샷 1회) → 이후 `DELTA`(변경분, 5Hz) + `LEADERBOARD`(1Hz). 인덱스는 `admIndex`(0..n-1) 기준 — 클라·서버가 같은 셀 순서를 공유하므로 인덱스만 주고받는다.
+- **REST**: 계정·친구·랭킹·운영은 별도 HTTP(§4). 배포는 단일 오리진(웹 정적·WS·REST 동일 `:8080`)이라 CORS는 `/api/**`에만 열려 있다.
 
-### STOMP destination 요약
+### 목적지 요약
 
-| 방향 | destination | 메시지 | 주기 |
-|---|---|---|---|
-| C→S | `/app/join` | JOIN | 접속 시 1회 |
-| S→C | `/user/queue/welcome` | WELCOME | JOIN 응답 1회 |
-| C→S | `/app/sortie` | SORTIE | 사용자 입력마다 |
-| C→S | `/app/missile` | LAUNCH_MISSILE | 발사 버튼 클릭 시 |
-| S→C | `/user/queue/error` | ERROR | SORTIE/LAUNCH_MISSILE 거부 시 |
-| S→C | `/topic/world` | DELTA | 5Hz |
-| S→C | `/topic/leaderboard` | LEADERBOARD | 1Hz |
-
-`/user/queue/*` 는 STOMP user destination(요청자 전용 응답). `/topic/*` 는 전체 브로드캐스트.
-
----
-
-## 2. 메시지 카탈로그
-
-### 2.1 JOIN (C→S)
-
-최초 접속, 또는 새로고침 후 재접속 시 전송.
-
-```ts
-interface JoinMessage {
-  nickname: string;      // 신규 참가자만. 1~12자, 서버가 trim/길이 검증
-  token?: string;        // 재접속 시 localStorage에 저장된 UUID. 없으면 신규 참가자로 처리
-  idToken?: string;      // 구글 로그인(feat/google-login). 있으면 서버가 검증 후 그 계정 닉네임을 우선(nickname보다 낮은 우선순위 — 이번 요청에 nickname을 명시했으면 그게 이김)
-}
-```
-
-- 신규 참가자: 서버가 `token`(UUID) 발급 + 시작 동 배정(기존 영토와 안 겹치는 중립 동, 전국에 분산 — plan.md Day 3)
-- 재접속(`token` 유효): 기존 holderId·영토·병력 그대로 복구. `nickname`은 무시
-- `token`이 유효하지 않으면(만료/오탈자) 신규 참가자로 폴백
-- `idToken`이 있는데 검증에 실패하면(서버에 구글 로그인 미설정 포함) `ERROR`(`GOOGLE_LOGIN_FAILED`)를 보내고 JOIN 자체를 거부한다 — 게스트로 조용히 폴백하지 않는다(로그인 시도가 실패했는데 성공한 것처럼 보이면 혼란스러우므로)
-- `/app/lobby/create`·`/app/lobby/join`(로비/방, §2.6 이하)도 같은 `idToken` 필드를 지원한다
-
-### 2.2 WELCOME (S→C, `/user/queue/welcome`)
-
-JOIN에 대한 응답. **전체 스냅샷** 1회 — 이후 변경분은 DELTA로만 온다.
-
-```ts
-interface WelcomeMessage {
-  holderId: number;          // 이 커넥션의 holderId (재접속 시 기존 값)
-  token: string;             // 재접속용 토큰. 클라는 localStorage에 저장
-  paletteIdx: number;        // web/src/config.ts PALETTE 인덱스 (fill+stroke 한 쌍, README §7.1)
-
-  config: typeof CONFIG;     // 서버가 원본. plan.md §4 "CONFIG 값은 서버가 원본". ENV_HOLDER_ID 포함(web/src/config.ts)
-  serverTimeMs: number;      // 시간 동기화용 서버 시각(§3 참조)
-
-  // 정적 메타 — 게임 중 불변, 1회만 전송
-  meta: DongStaticMeta[];    // admIndex 순서 배열. README §3.3
-  neighborIndex: number[][]; // admIndex → 인접 admIndex 목록
-
-  // 가변 상태 — 이후 DELTA로만 갱신
-  ownerId: Uint8Array | number[];   // admIndex별 holderId
-  troops: Uint16Array | number[];   // admIndex별 현재 병력
-  troopCap: Uint16Array | number[]; // admIndex별 병력 상한
-  holders: Holder[];                // 현재 존재하는 모든 holder(중립·환경세력 포함)
-  orders: Order[];                  // 진행 중인 이동 유닛(재접속 시 화면에 이어서 보간)
-  missiles: number[];               // 미사일이 얹혀 있는 동 admIndex 목록 (§2.3b 참조)
-}
-```
-
-```ts
-interface Holder { id: number; name: string; paletteIdx: number; } // web/src/game/types.ts와 동일
-
-interface DongStaticMeta {
-  admIndex: number;
-  code: string;   // adm_cd 8자리
-  name: string;
-  sggcd: string; sggnm: string;
-  sidocd: string; sidonm: string;
-  centroid: [number, number];
-}
-```
-
-- 전국 ~3,500동 기준 스냅샷은 접속 시 1회이므로 JSON 그대로 전송(plan.md §3 — 바이너리 최적화 불필요)
-- `troops`/`ownerId`/`troopCap`은 TypedArray를 JSON 직렬화하면 일반 배열이 된다. 클라는 수신 후 다시 TypedArray로 감싼다
-
-### 2.3 SORTIE (C→S, `/app/sortie`)
-
-```ts
-interface SortieCommand {
-  from: number;   // 내 소유 admIndex
-  to: number;     // from에 인접한 admIndex (전선 제한, README §4.2)
-  ratio?: number; // 이번 출정에 보낼 병력 비율(0~1). UI 슬라이더 값. 생략 시 서버 기본값
-}
-```
-
-- `amount`는 클라가 정하지 않는다. 서버가 `floor(troops[from] * ratio)`로 계산한다
-- `ratio`는 신뢰하지 않는다 — 서버가 `[0.05, 1]`로 클램프하고, 비정상값(누락·NaN 등)이면 `CONFIG.SORTIE_RATIO`로 대체한다(README §4.2, §5 `SORTIE_RATIO`)
-- 쿨다운 없음 — 병력 > 0이면 언제든 재전송 가능
-
-### 2.3b LAUNCH_MISSILE (C→S, `/app/missile`)
-
-동에 종속된 미사일 — 무작위 동에 스폰되고(`MISSILE_SPAWN_SEC` 주기), 그 동을 소유한 플레이어가 즉발로 발사한다. 발사하면 지정 원(중심+반경)에 조금이라도 겹치는 동이 모두 **중립화**(`ownerId=0`, `troops=0`)된다.
-
-```ts
-interface LaunchMissileCommand {
-  center: [number, number]; // 조준 원 중심 [lng, lat]
-  radius: number;           // 조준 원 반경(경위도 도 단위) — 폴리곤을 가진 클라가 계산
-  hits: number[];           // center/radius 원에 겹치는 동 admIndex 목록 — 클라가 미리 계산해 보낸다
-}
-```
-
-- `hits`는 클라가 폴리곤 기하로 계산해 보내지만 **신뢰하지 않는다**. 서버는 `radius`를 `MISSILE_MAX_RADIUS_DEG`로 클램프하고, 각 `hits[i]`의 centroid가 `center`에서 `radius + MISSILE_HIT_MARGIN_DEG` 이내인지 근사 검증한 것만 실제로 적용한다(서버엔 폴리곤이 없어 centroid 근접으로 근사)
-- 발사에는 발사자가 소유한 동 중 미사일이 얹힌 동이 최소 1개 필요 — 어느 동의 미사일이 소모되는지는 클라가 지정하지 않는다(서버가 발사자 소유 미사일 동 중 아무거나 1개 선택)
-- 개인 보유 상한 없음 — 맵 전체 총량 `MISSILE_MAX_TOTAL`(기본 60)만으로 제한. 도달 시 새 미사일이 스폰되지 않는다(스폰 자체가 회피, 발사 시점 검증 아님). 스폰 동은 시도(sido) 단위로 먼저 균등 추첨한 뒤 그 안에서 고르므로 수도권 등 동 밀도가 높은 지역에 쏠리지 않는다
-
-### 2.3c RESTART (C→S, `/app/restart`)
-
-궤멸(소유 동 0개) 후 GAME OVER 오버레이의 "재시작" 버튼이 보낸다. 페이로드 없음 — 요청자 holderId만으로 처리한다.
-
-```ts
-type RestartCommand = Record<string, never>; // 빈 객체
-```
-
-- 서버가 요청자의 소유 동 수를 다시 검증한다 — 0개가 아니면(아직 살아있으면) **조용히 무시**한다(에러 응답 없음)
-- 0개면 신규 참가자와 같은 `StartCellAssigner`로 새 시작 동을 배정하고, 그 동이 DELTA `cells`에 실려 나간다(별도 응답 메시지 없음)
-- 예전엔 소유 동 0개가 된 순간 서버가 매 tick 자동으로 재배정했지만, 그러면 GAME OVER 순간 자체가 클라에 보이지 않아(다음 tick에 이미 부활) 유저가 명시적으로 선택하는 이 방식으로 바꿨다(§2.5 DELTA 궤멸 판정 참고)
-
-### 2.4 ERROR (S→C, `/user/queue/error`)
-
-SORTIE/LAUNCH_MISSILE이 검증 실패로 거부됐을 때만 요청자에게 전송. 월드 상태는 변하지 않으므로 DELTA는 오지 않는다.
-
-```ts
-interface ErrorMessage {
-  code: "NOT_OWNER" | "NOT_ADJACENT" | "NO_TROOPS" | "ALREADY_FULL" | "NO_MISSILE";
-  message: string; // 사용자 표시용 (아래 표의 한국어 문구)
-  from: number;
-  to: number;
-}
-```
-
-| code | 발생 조건 | message (README/core.ts 기준) |
+| 방향 | 목적지 | 메시지 |
 |---|---|---|
-| `NOT_OWNER` | `ownerId[from] !== 요청자 holderId` | 본인 소유 동이 아닙니다. |
-| `NOT_ADJACENT` | `to`가 `neighborIndex[from]`에 없음 | 인접한 동이 아닙니다. |
-| `NO_TROOPS` | `floor(troops[from] * ratio) <= 0` | 출정 가능한 병력이 없습니다. |
-| `ALREADY_FULL` | `to`가 내 동이고 `troopCap[to] - troops[to] <= 0`(이미 상한) | 이미 병력이 가득 찬 동입니다. |
-| `NO_MISSILE` | 발사자 소유 동 중 미사일이 얹힌 동이 없음 | 발사할 미사일이 없습니다. |
-| `NO_MISSILE` | 목표(hits)에 스폰 방어막 보호 동이 포함됨 — 발사 거부, 미사일 소모 없음 | 스폰 방어막이 보호 중인 영토라 발사할 수 없습니다. |
+| C→S | `/app/join` | `JoinMessage` — 레거시/스모크 브리지(기본 방 입장), `/user/queue/welcome` 응답 |
+| C→S | `/app/lobby/list` | (없음) — 방 목록 요청 |
+| C→S | `/app/lobby/create` | `CreateRoomCommand` |
+| C→S | `/app/lobby/join` | `JoinRoomCommand` |
+| C→S | `/app/lobby/joinByCode` | `JoinByCodeCommand` — 비공개 방 코드 입장 |
+| C→S | `/app/room/start` | (없음) — 방장만, LOBBY→PLAYING |
+| C→S | `/app/room/ready` | `SetReadyCommand` |
+| C→S | `/app/room/leave` | (없음) |
+| C→S | `/app/sortie` | `SortieCommand` |
+| C→S | `/app/march` | `MarchCommand` |
+| C→S | `/app/sortie-multi` | `MultiSortieCommand` |
+| C→S | `/app/attack-queue` | `ToggleAttackTargetCommand` |
+| C→S | `/app/missile` | `LaunchMissileCommand` |
+| C→S | `/app/nuke` | `LaunchNukeCommand` |
+| C→S | `/app/airdrop` | `AirdropCommand` |
+| C→S | `/app/restart` | (없음) — 궤멸 후 재시작 |
+| C→S | `/app/friends/hello` | `HelloCommand` — 접속 현황 등록 |
+| C→S | `/app/friends/invite` | `InviteCommand` |
+| S→C | `/topic/rooms` | `RoomListMessage` — 공개 방 목록(비공개·기본 방 제외) |
+| S→C | `/topic/room/{id}/world` | `DeltaMessage`(5Hz) |
+| S→C | `/topic/room/{id}/leaderboard` | `LeaderboardMessage`(1Hz) |
+| S→C | `/topic/room/{id}/state` | `RoomStateMessage` 또는 `RoundEndMessage` |
+| S→C | `/user/queue/welcome` | `WelcomeMessage` |
+| S→C | `/user/queue/error` | `ErrorMessage` |
+| S→C | `/user/queue/roomJoined` | `RoomJoinedMessage` |
+| S→C | `/user/queue/friendPresence` | `FriendPresenceMessage` |
+| S→C | `/user/queue/invite` | `InviteMessage` |
+| S→C | `/topic/world`, `/topic/leaderboard` | (레거시) 기본 브리지 방 전용 미러 |
 
-- `to`가 내 동(증원)인데 상한 여유가 있지만 `amount`보다 적으면 거부하지 않는다 — 서버가 `amount`를 여유분(`troopCap[to] - troops[to]`)으로 **클램프해서 보낸다**(넘치는 병력이 출발조차 안 함, 초과분 소멸 방지).
-- `NO_MISSILE`는 `from`/`to`가 의미 없어 둘 다 `-1`로 온다.
-
-### 2.5 DELTA (S→C, `/topic/world`, 5Hz)
-
-변경분만 브로드캐스트. 매 tick마다 dirty admIndex가 없으면 전송 생략(또는 빈 `cells`).
-
-```ts
-interface DeltaMessage {
-  serverTimeMs: number;
-  cells: [admIndex: number, ownerId: number, troops: number][]; // 변경된 동만
-  newOrders: Order[];    // 이번 델타 구간에 새로 발주된 이동 유닛
-  events: LogEvent[];    // 함락/침공/토벌 등 로그. **최신순**(newest-first) — 클라는 그대로 로그 앞에 붙인다
-  missileAdd: number[];  // 이번 구간에 새로 스폰된 미사일 동
-  missileRemove: number[]; // 이번 구간에 사라진 미사일 동(발사로 소모)
-  newHolders: Holder[];  // 이번 구간에 새로 생긴 holder(신규 참가자) — 아래 참고
-}
-
-interface Order {
-  from: number; to: number; amount: number;
-  holderId: number;      // 파견 소유주 (도착 시 전투 판정 주체)
-  departTick: number;    // 서버 tick(ms) — 유닛 이동 시작 시각
-  arriveTick: number;    // 도착 예정 시각. 클라는 depart~arrive를 보간해 원을 그린다(README §4.4)
-}
-
-interface LogEvent {
-  id: number;
-  ts: number;      // 서버 벽시계(ms)
-  message: string; // 예: "OO동 함락 — 중립 → 홍길동"
-}
-```
-
-- 도착(arrive) 처리 결과 자체는 `cells`(도착 시점의 ownerId/troops 변화)로 반영되며, `newOrders`는 "출발"만 알린다 — 클라는 도착 시각(arriveTick)에 자체적으로 유닛을 소멸시키고 `cells` 갱신을 반영
-- 환경 세력(E)의 행동도 동일한 `newOrders`/`cells` 경로로 온다. holder 목록에 없는 새 holderId는 오지 않음(E는 WELCOME에 이미 포함)
-- **`newHolders`**: 이미 접속 중인 다른 클라의 `world.holders`엔 없는 신규 참가자 정보(id/name/paletteIdx)다. 그 holder가 **처음 동을 갖게 되는 것과 같은 DELTA**에 실려 온다 — 그래서 클라는 `cells`를 반영하기 전에 먼저 `newHolders`를 `world.holders`에 채워 넣어야, 그 holder의 땅을 `paletteIdx` 모른 채(fallback 회색으로) 칠하는 순간이 생기지 않는다. `WelcomeMessage.holders`는 접속 시점의 스냅샷 1회뿐이라, 이후 합류하는 다른 플레이어 정보는 반드시 이 필드로만 전파된다.
-
-### 2.6 LEADERBOARD (S→C, `/topic/leaderboard`, 1Hz)
-
-```ts
-interface LeaderboardMessage {
-  rows: { holderId: number; name: string; count: number }[]; // count 내림차순, 중립/E 제외
-  envCells: number;   // 환경 세력 보유 동 수 (README §4.6 상한 게이지용)
-  totalCells: number; // 전체 동 수 (점유율 계산용 분모)
-}
-```
-
-- E는 순위표에 끼지 않는다(README §4.6, §8). `envCells`는 "전멸 위험도" 게이지가 아니라 단순 잔존 표시용
+`/topic/room/{id}/state`는 `RoomStateMessage`와 `RoundEndMessage`를 함께 싣고, 클라는 `reason` 필드 유무로 구분한다.
 
 ---
 
-## 3. 시간 동기화
+## 2. 로비 · 방 생명주기
 
-- 서버 타임스탬프가 기준. 클라는 WELCOME의 `serverTimeMs`와 수신 시각(로컬 `performance.now()` 또는 `Date.now()`)의 차이를 **1회 추정**해 `offset`으로 보관
-- 이후 `Order.departTick`/`arriveTick`은 서버 시각 기준값이므로, 클라는 `로컬시각 + offset`으로 변환해 보간 진행률을 계산
-- 재계산(재추정) 없음 — 목업/데모 규모(수십 명, 세션 30분 내)에서는 드리프트가 무시할 수준(plan.md §3)
+방 상태기계: `LOBBY → PLAYING → ENDED → LOBBY`.
+
+1. **입장(실서버)**: `authChoice`(로그인/게스트) → `enterLobby` → `/app/lobby/list` → `/topic/rooms` 구독.
+2. **방 생성**: `/app/lobby/create`(`CreateRoomCommand`) → `/user/queue/roomJoined`(`RoomJoinedMessage`, `youAreHost=true`). 비공개면 4자리 `joinCode` 발급.
+3. **방 입장**: `/app/lobby/join`(공개) 또는 `/app/lobby/joinByCode`(비공개) → `roomJoined` + 그 방의 `/topic/room/{id}/*` 구독. PLAYING 방엔 라이브 난입(곧 WELCOME).
+4. **준비/시작**: 멤버는 `/app/room/ready`(`SetReadyCommand`). 방장이 `/app/room/start` → 서버가 새 월드 생성 + 멤버마다 시작 셀 배정 + AI 채우기 → 각자 `/user/queue/welcome` 전송, `state=PLAYING`.
+5. **진행**: 각 방 `/topic/room/{id}/world` DELTA(5Hz), `/leaderboard`(1Hz).
+6. **종료**: 51% 도미네이션 또는 30분 → `/topic/room/{id}/state`에 `RoundEndMessage` → 결과 화면 → `state=LOBBY`(멤버 유지, 다시 시작 가능).
+7. **이탈/해제**: `/app/room/leave` 또는 연결 끊김 → 멤버 제거·방장 승계·빈 방 폐기(`SessionEventListener`). `RoomStateMessage`로 갱신.
 
 ---
 
-## 4. HTTP 보조 엔드포인트 (WebSocket 외)
+## 3. 메시지 카탈로그
 
-| 메서드/경로 | 용도 | 비고 |
+> 표기: `?` = 선택(nullable/기본값 있음). 배열 인덱스는 `admIndex`. 좌표는 `[lng, lat]`.
+
+### 3.1 C→S 명령
+
+```ts
+JoinMessage                { nickname?, token?, idToken? }
+CreateRoomCommand          { name?, mapId?, nickname?, token?, idToken?, clientId?, private=false }
+JoinRoomCommand            { roomId, nickname?, token?, idToken?, clientId? }
+JoinByCodeCommand          { code, nickname?, token?, idToken?, clientId? }
+SetReadyCommand            { ready }
+SortieCommand              { from, to, ratio? }        // ratio 서버에서 0.05~1.0 클램프
+MarchCommand               { from, to, ratio? }        // 내 영토 BFS 릴레이
+MultiSortieCommand         { from=-1, targets: number[], ratio? }  // 드래그 쓸기 균등 분할
+ToggleAttackTargetCommand  { index=-1 }                // 공격 큐 등록/해제
+LaunchMissileCommand       { center: [lng,lat], radius, hits: number[] }  // 서버가 반경·근접 재검증
+LaunchNukeCommand          { center: [lng,lat], radius, hits: number[] }  // 서버가 반경 재계산
+AirdropCommand             { sources: number[], dest=-1 }
+// /app/restart, /app/room/start, /app/room/leave, /app/lobby/list = payload 없음
+HelloCommand               { idToken? }                // 친구 접속 현황 등록(주기 ping)
+InviteCommand              { idToken?, targetAppUserId }
+```
+
+### 3.2 S→C: WELCOME (입장 시 1회, 전체 스냅샷)
+
+```ts
+WelcomeMessage {
+  roomId, mapId, roundEndsAtMs,     // roundEndsAtMs=0 → 제한 없음(브리지 기본 방)
+  holderId, token, paletteIdx,      // 내 신원·색 슬롯. token은 재접속 복구용
+  config: GameConfig,               // 서버 튜닝 상수 전체(클라가 이 값을 원본으로 사용)
+  serverTimeMs,                     // 시간 동기화 기준(§5)
+  meta: DongStaticMeta[],           // 셀 정적 메타(admIndex 순)
+  neighborIndex: number[][],        // 인접 그래프
+  ownerId: number[], troops: number[], troopCap: number[],
+  holders: Holder[],                // {id, name, paletteIdx, isAi}
+  orders: Order[],                  // 이동 중 유닛
+  missiles: number[],               // 미사일 얹힌 셀
+  attackQueue: number[],            // 내 공격 큐 대상
+  shields: ShieldInfo[],            // 활성 방어막 {holderId, until}
+  nukeReadyAtMs: number[]           // 사일로별 재발사 가능 시각(NUKE_SILO_CODES 순)
+}
+```
+
+### 3.3 S→C: DELTA (변경분, 5Hz, `/topic/room/{id}/world`)
+
+```ts
+DeltaMessage {
+  serverTimeMs,
+  cells: number[][],          // [admIndex, ownerId, troops] 변경 셀만
+  newOrders: Order[],         // 새로 출발한 유닛
+  removedOrders?: number[],   // 사라진 유닛 id(정면충돌·미사일 등)  ─┐ @JsonInclude(NON_NULL)
+  updatedOrders?: {id,amount}[], // 병력 변한 유닛                   │
+  events,                     // 로그 이벤트
+  missileAdd: number[], missileRemove: number[], missileImpacts: number[],
+  newHolders: Holder[],       // 이번 구간 새로 생긴 holder(색 동기화 — 셀보다 먼저 적용)
+  shieldUpdates: ShieldInfo[],
+  enclosed?: number[],        // 현재 포위 대기 셀 전체(바뀐 tick에만)   │
+  nukeReadyAtMs?: number[]    // 전술핵 쿨다운(바뀐 tick에만)          ─┘
+}
+```
+- `newHolders`를 셀보다 **먼저** 적용해야 신규 참가자의 땅이 회색(fallback)으로 잠깐 칠해지는 일이 없다.
+- 변경이 하나도 없으면 DELTA를 아예 보내지 않는다.
+
+### 3.4 S→C: LEADERBOARD (1Hz, `/topic/room/{id}/leaderboard`)
+
+```ts
+LeaderboardMessage {
+  rows: { holderId, name, count }[],   // 셀 수 내림차순(중립·E 제외)
+  envCells,                            // (레거시) 환경 세력 셀 수 — 현재 항상 0
+  totalCells                           // 전체 셀 수(비율 계산용)
+}
+```
+
+### 3.5 S→C: 방 메시지
+
+```ts
+RoomInfo         { roomId, name, mapId, state, memberCount, maxMembers }
+RoomListMessage  { rooms: RoomInfo[] }
+MemberInfo       { nickname, holderId, ready, host }
+RoomJoinedMessage{ roomId, name, mapId, state, members: MemberInfo[], youAreHost, joinCode? }
+RoomStateMessage { roomId, state, members: MemberInfo[] }
+RoundEndMessage  { roomId, reason, winnerHolderId, winnerName?, leaderboard: LeaderboardRow[] }
+                 // reason = "DOMINATION" | "TIMEOUT"  ← RoomStateMessage와 구분하는 키
+```
+
+### 3.6 S→C: 친구·초대·에러
+
+```ts
+FriendPresence        { appUserId, nickname, roomId?, roomName? }
+FriendPresenceMessage { friends: FriendPresence[] }
+InviteMessage         { fromNickname, roomId, roomName, joinCode? }
+ErrorMessage          { code, message, from, to }
+```
+`ErrorMessage.code`(대표): 좌석/방 관련 `ROOM_FULL`·`ROOM_NOT_FOUND`·`ROOM_LIMIT`, 액션 검증 `NOT_OWNER`·`NOT_ADJACENT`·`NO_TROOPS`·`ALREADY_FULL`·`NO_PATH`·`AIRDROP_COOLDOWN`·`AIRDROP_RANGE`·미사일/전술핵 반경·방어막 거부 등. 클라는 토스트로 표시하고, `ROOM_NOT_FOUND`면 로비로 돌아간다.
+
+### 3.7 참조 타입
+
+```ts
+Holder         { id, name, paletteIdx, isAi }
+Order          { id, from, to, amount, holderId, departTick, arriveTick, path?, airdrop? }
+ShieldInfo     { holderId, until }        // until = 보호 종료 시각(서버 epoch ms)
+LeaderboardRow { holderId, name, count }
+DongStaticMeta { admIndex, code, name, sggcd, sggnm, sidocd, sidonm, centroid: [lng,lat] }
+```
+- **holderId 규약**: `0` = 중립 · `1~254` = 플레이어·AI 공용(사람/AI 같은 할당기) · `255` = 예약(구 환경 세력 E, 현재 미사용). 색은 `holder.paletteIdx`(슬롯)로 정하며 holderId와 무관.
+- `DongStaticMeta`의 `code`는 시/군/구 `sggcd`(5자리). 필드명이 `Dong`으로 남아 있지만 셀은 시/군/구다.
+
+---
+
+## 4. HTTP (REST) 엔드포인트
+
+동일 오리진 `:8080`. `/api/**`만 CORS 허용(GET/POST).
+
+| 메서드·경로 | 용도 | 요청/응답 |
 |---|---|---|
-| `GET /` 및 정적 자원 | 클라 빌드 서빙 | Spring이 단일 origin으로 서빙(CORS 회피), plan.md Day 5 |
-| `GET /healthz` | 배포/헬스체크 | 200 고정 응답 |
-| `POST /admin/config` | CONFIG 런타임 리로드 | plan.md §6 리스크 대응 — 서버 재시작 없이 밸런스 튜닝. 데모 전용, 인증 없음(내부용) |
+| `POST /api/account/me` | 내 프로필 조회 | `{ idToken }` → `AccountProfile{ appUserId, nickname, level, wins, gamesPlayed }` |
+| `POST /api/account/nickname` | 닉네임 변경 | `{ idToken, nickname }` → `AccountProfile` |
+| `POST /api/friends/search` | 닉네임 검색 | `{ idToken, query }` → 후보 목록 |
+| `POST /api/friends/request` | 친구 요청 | `{ idToken, targetAppUserId }` |
+| `POST /api/friends/respond` | 요청 수락/거절 | `{ idToken, requesterId, accept }` |
+| `POST /api/friends/list` | 친구·대기 목록 | `{ idToken }` → `{ friends, incoming, outgoing }` |
+| `GET /ranking/top?limit=` | 명예의 전당 | `limit`(1~50) → 누적 우승 상위(닉네임·점수) |
+| `GET /healthz` | 헬스체크 | `"ok"` |
+| `GET /admin/metrics` | 운영 지표 | tick 통계·방·인원·힙 |
+| `GET /admin/config` | 현재 튜닝 | `GameConfig` |
+| `POST /admin/config` | 튜닝 부분 갱신 | 부분 JSON → 현재 config에 병합·적용(런타임 반영) |
 
-- `POST /admin/config`는 `CONFIG` 객체(README §5)의 부분 갱신을 받아 즉시 반영하고, 다음 DELTA/WELCOME부터 새 값 적용. 스키마는 `Partial<typeof CONFIG>`
+- 계정·전적은 H2, 랭킹은 Redis. **랭킹 우승 기록은 서버 `GameLoop.endRound`에서** 사람 우승자(`isAi=false`)만 남긴다. `/admin/config`는 현재 별도 인증이 없다(운영 시 주의).
+- 레벨: `level = 1 + floor(wins/3)`.
 
 ---
 
-## 5. 참조 — 데이터 타입 원본
+## 5. 시간 동기화
 
-| 타입 | 근거 |
-|---|---|
-| `GameState`(서버 내부 상태) | [web/src/game/core.ts](../web/src/game/core.ts) — 서버 이식 시 1:1 대조 자료(plan.md §4) |
-| `Order`, `Holder`, `DongStaticMeta`, `LogEntry` | [web/src/game/types.ts](../web/src/game/types.ts) |
-| `CONFIG` 필드/기본값 | [web/src/config.ts](../web/src/config.ts), README §5 |
-| 이 문서의 메시지 타입 그 자체 | [web/src/net/protocol.ts](../web/src/net/protocol.ts) — 클라가 실제로 쓰는 TS 선언 |
-| "실서버가 어떻게 동작해야 하는가"의 참조 구현 | [web/src/net/localConnection.ts](../web/src/net/localConnection.ts) — 브라우저 내 목 서버. core.ts를 감싸 WELCOME/DELTA/ERROR/LEADERBOARD를 그대로 발신한다. 클램프 범위(SORTIE ratio 0.05~1) 등 이 문서에 없는 세부는 여기 기준 |
-| 서버 실제 구현 | [server/](../server/) (Spring Boot/Kotlin) — `GameCore.kt`가 core.ts 1:1 이식, `README.md`에 진행 상황 |
+- 서버는 `serverTimeMs`(epoch ms)를 WELCOME·DELTA에 싣는다. 클라는 WELCOME 수신 순간의 `serverTimeMs`와 로컬 `performance.now()` 오프셋을 계산해 유닛 도착 시각(`departTick`/`arriveTick`)과 라운드 타이머(`roundEndsAtMs`)를 로컬 시계로 환산한다.
+- 재접속 시 오프셋을 다시 잡으므로 시계 드리프트가 누적되지 않는다.
 
-> 목업 TS 코드(및 그 목 서버 `localConnection.ts`)가 사양의 1차 출처다. 이 문서와 코드가 어긋나면 **plan.md §6 "로직 이식 불일치" 리스크**에 해당하므로 코드를 기준으로 이 문서를 갱신한다.
+---
 
-## 6. 포위 귀속(encirclement capture) — 프로토콜 추가 없음
+## 6. 프로토콜 변경 규칙
 
-`GameCore.kt tickAnnex`(core.ts 1:1 이식, 목 서버가 먼저 구현했던 것을 실서버에도 포팅 완료). 한 플레이어 P가 다른 실제 플레이어 Q의 영역을 **자기 동만으로 완전히 둘러싼 채**(지도 바깥에 닿는 경로 없음) `ANNEX_HOLD_SEC`초(기본 5초) 연속 유지하면 그 영역 전체를 P가 흡수한다(병력 0으로 리셋). 별도 메시지 타입은 없다 — 기존 DELTA `cells`(소유권 변경)와 `events`(로그, `"{P}가 {Q} 포위 — N개 동 흡수"`) 경로를 그대로 쓴다. `GameLoop`이 매 tick(5Hz) 전체 플레이어에 대해 BFS로 판정하며, 25명 동시 접속 부하에서도 성능 문제 없음을 확인했다(`server/tools/smoke-test/annex-chaos-test.mjs`로 실제 발생까지 라이브 검증).
-
-경계 동(borderMask, "동이 지도 바깥에 닿는지") 판정은 클라와 서버가 각자 `web/public/beopjeong-emd.geojson`에서 독립 계산하지만, 같은 파일·같은 topojson 위상 로직이라 결과가 일치한다(§4 데이터 파이프라인과 동일 원리).
+- 필드는 **append-only**를 지향한다(구 클라 호환). 삭제·의미 변경은 `protocol.ts`↔`Messages.kt` **같은 커밋**으로만.
+- 문서와 코드가 어긋나면 코드가 기준 — 이 문서를 코드에 맞춰 갱신한다.

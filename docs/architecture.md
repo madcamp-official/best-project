@@ -1,161 +1,158 @@
-# 시스템 아키텍처 문서
+# 아키텍처
 
-> 게임 규칙은 [README.md](../README.md), 통신 프로토콜은 [api-spec.md](./api-spec.md), 일정/역할은 [plan.md](./plan.md) 참조.
-> 이 문서는 **구성 요소가 어떻게 나뉘고 서로 어떻게 연결되는지**만 다룬다.
+> 게임 규칙·데이터·상수의 원본 사양은 [README.md](../README.md), 프로토콜 상세는 [api-spec.md](./api-spec.md), 코드 컨벤션은 [convention.md](./convention.md).
+> 이 문서는 **"코드가 어떻게 짜여 있는지"**(계층·모듈·데이터 흐름·배포)를 다룬다. 최종 진실은 코드다.
 
 ---
 
 ## 1. 전체 구도
 
-**단일 진실원 원칙**: 게임 로직의 진실은 서버(Spring Boot) 하나에만 둔다. 클라이언트는 렌더러 + 입력 전송기로 축소되며, 예측(client-side prediction) 없이 서버 브로드캐스트만 반영한다(plan.md §3).
-
 ```
-┌─────────────────────────────┐        WebSocket/STOMP        ┌──────────────────────────────┐
-│  브라우저 (web/)              │ ─────────────────────────────▶│  Spring Boot 서버              │
-│                              │        SORTIE, JOIN            │                                │
-│  MapLibre 렌더 · HUD          │◀───────────────────────────── │  월드 상태 (ownerId/troops)     │
-│  좌/우클릭 입력                │   WELCOME, DELTA, LEADERBOARD  │  명령 검증 · tick 루프 · E AI   │
-│  스냅샷/델타 반영              │                                │  STOMP 브로드캐스트             │
-│  유닛 원 보간                  │                                │                                │
-└─────────────────────────────┘                                └──────────────────────────────┘
+┌── 브라우저 (web/, React+Vite+MapLibre) ─────────────┐        ┌── 서버 (server/, Spring Boot 4·Kotlin) ──────┐
+│  UI(Zustand) · MapView(MapLibre) · worldView(사본) │  STOMP │  ws/ 컨트롤러 → GameLoop(단일 스레드 5Hz)    │
+│  net/Connection ───── /app/... 명령 ──────────────▶│◀──────▶│  domain/GameCore(권위 시뮬레이션) · Room 다중  │
+│                ◀──── WELCOME/DELTA/LEADERBOARD ────│  /topic│  auth(H2) · ranking(Redis) · admin           │
+└─────────────────────────────────────────────────────┘        └───────────────────────────────────────────────┘
+        │  REST /api·/ranking (계정·친구·명예의 전당)                        │
+        └──────────────────────────────────────────────────────────────────┘
 ```
 
-- 현재(목업 단계)는 오른쪽 서버 상자가 없다 — `web/src/game/core.ts`가 브라우저 안에서 서버 역할까지 겸한다(README §0, "목업에서 제외: 서버 권위").
-- 온라인 전환 시 `core.ts`의 순수 함수(`tickProduction`, `trySortie`, `tickOrders`, `computeRank` 등)를 **그대로 서버 언어로 이식**한다. 로직을 TS/서버 양쪽에 이중 유지하지 않는다(plan.md §3 — 불일치 버그의 최대 원천).
+- **서버가 권위**: 모든 게임 상태·규칙은 서버 `GameLoop`가 소유·실행. 클라는 **렌더러 + 입력 전송기**다 — 로컬에서 규칙을 돌리지 않는다.
+- **도메인 코어 1:1 미러**: `web/src/game/core.ts`(TS) ↔ `server/.../domain/GameCore.kt`(Kotlin)를 사양서 삼아 동일 로직으로 이식. 둘 다 순수 함수 + 주입 시계라 클라 목 서버가 서버와 같은 규칙을 돌릴 수 있다.
+- **개발 경로 2종**: 실서버(STOMP) 또는 브라우저 내 목 서버(`localConnection`, `VITE_USE_LOCAL_MOCK=1`). 둘 다 같은 `Connection` 계약을 구현하므로 스위치 하나로 교체된다.
 
 ---
 
-## 2. 클라이언트 (`web/`)
+## 2. 클라이언트 (`web/src`)
 
-### 2.1 계층 구조
+### 2.1 계층 (폴더 = 책임)
 
-```
-web/src/
-├─ game/
-│  ├─ core.ts      # 순수 도메인 로직 — React/MapLibre/Zustand/브라우저 시계에 의존하지 않음
-│  └─ types.ts     # Holder / Order / DongStaticMeta / LogEntry 등 공유 타입
-├─ net/
-│  ├─ protocol.ts       # WELCOME/DELTA/SORTIE/ERROR/LEADERBOARD 메시지 타입 (api-spec.md)
-│  ├─ connection.ts     # Connection 인터페이스 — 클라의 유일한 서버 통신 창구
-│  └─ localConnection.ts # 브라우저 내 목 서버 (core.ts를 감싸 tick·메시지 발신). 실서버=STOMP로 교체 예정
-├─ world/
-│  └─ worldView.ts # 상태 반영 계층 — WELCOME/DELTA를 적용해 두는 "서버 상태 사본" (게임 로직 안 돌림)
-├─ data/
-│  ├─ loadDong.ts  # 정적 법정동 GeoJSON(public/beopjeong-emd.geojson) 로드 + topojson 인접 그래프 추출 (README §2), 전국/시도 필터
-│  └─ labelPoint.ts     # polylabel 기반 라벨 좌표 계산
-├─ map/
-│  └─ MapView.tsx  # MapLibre 인스턴스 (useRef 1회 생성). world를 읽어 렌더, 입력은 connection으로 전송
-├─ store/
-│  └─ uiStore.ts   # Zustand — 선택 동, HUD 등 "소량"만. 게임 상태(3,500동)는 넣지 않음
-├─ ui/
-│  └─ Hud.tsx
-└─ App.tsx / main.tsx
-```
-
-핵심 제약(README §1): **3,500개 동 상태를 React state/Zustand에 넣지 않는다.** `GameState`(`core.ts`)는 `Uint8Array`/`Uint16Array` 기반으로 React 밖에 존재하고, 변경분은 `dirty: Set<number>` 로 모아 `drainDirty()`로 꺼내 MapLibre `setFeatureState`에 배치 반영한다(README §7.3).
-
-### 2.2 `core.ts`가 "서버 이식 사양서"인 이유
-
-`GameState`를 인자로 받고 시간을 호출자가 주입하는 순수 함수로 짜여 있다(파일 상단 주석 참조). 그래서:
-- 지금은 브라우저 rAF 루프가 `nowMs`/`wallNowMs`를 주입해 로컬 실행
-- 온라인 전환 후에는 서버 tick 루프가 같은 함수 시그니처로 호출 — **로직 자체는 바뀌지 않는다**
-- 서버 담당은 이 파일을 Kotlin/Java로 1:1 대조 이식하면 된다(plan.md §4)
-
-### 2.3 클라이언트-서버 경계 (이미 도입됨)
-
-클라는 이미 `Connection` 경유로만 동작한다 — 직접 게임 로직을 돌리지 않는다:
-- 로컬 tick 오케스트레이션은 **`net/localConnection.ts`(브라우저 내 목 서버)**로 이동. core.ts를 감싸 tick을 돌리고 WELCOME/DELTA를 발신한다.
-- 클라 상태는 **`world/worldView.ts`(스냅샷/델타 반영 계층)** — WELCOME 1회 적용 + DELTA 누적 적용.
-- 입력은 `connection.sendSortie` 로 전송, 결과는 DELTA/ERROR로 비동기 수신 (클라 예측 없음).
-- **실서버 전환(완료)**: `web/src/net/stompConnection.ts`가 실제 STOMP 구현체다. `App.tsx`가 기본으로 이걸 쓰고(`VITE_USE_LOCAL_MOCK=1`이면 여전히 `localConnection`으로 전환 가능), `Connection` 인터페이스·`worldView`·`MapView`는 실제로 손대지 않았다.
-- 유닛 이동 보간은 그대로. 실서버는 `Order.departTick/arriveTick`이 서버 시각(epoch ms) 기준이므로, `StompConnection`이 WELCOME의 `serverTimeMs`로 `offset`을 1회 계산해 Order들을 클라 rAF 시간축(`performance.now()`)으로 변환한 뒤 콜백에 넘긴다(api-spec.md §3) — `worldView`/`MapView`는 이 차이를 모른다. 목 서버는 애초에 `performance.now()`를 써서 offset이 필요 없었다.
-- 클라·서버가 정적 GeoJSON 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터·순서로 읽어 admIndex를 매기므로(§4) 구조적으로 정렬이 일치한다 — admdongkor 같은 외부 API 버전 드리프트 걱정이 아예 없다.
-
----
-
-## 3. 서버 (Spring Boot 4 · Kotlin, 구현됨)
-
-### 3.1 결정된 사항 (plan.md §2)
-
-| 항목 | 값 |
+| 폴더 | 책임 |
 |---|---|
-| 프레임워크 | Spring Boot 4 |
-| 언어 | Kotlin |
-| 통신 | WebSocket + STOMP (SockJS 엔드포인트로 등록하되 `/ws/websocket` 순수 WS 서브패스로 클라가 직접 붙는다) |
-| 세션 | 게스트 — 닉네임 + UUID 토큰, 로그인 없음 |
-| 월드 | 단일 월드 1개 (방 없음) |
-| 영속화 | 서버 재시작 시 월드 스냅샷 파일 저장/복구 (`SnapshotService`, 30초 주기 자동저장 + 종료 시 저장) |
+| `game/` | 순수 게임 로직 `core.ts` + 공유 타입 `types.ts` — **서버 이식 대상**. React/Map/시계 의존 금지 |
+| `net/` | `connection.ts`(인터페이스) + `protocol.ts`(메시지 타입) + `stompConnection.ts`(실서버) + `localConnection.ts`(목 서버) |
+| `world/` | `worldView.ts` — 서버 상태 사본. WELCOME/DELTA 반영 계층(게임 로직 없음) |
+| `data/` | `loadMapData.ts`(경계·인접·아크 로딩), `labelPoint.ts`, `sggSpecialty.ts` |
+| `map/` | `MapView.tsx` — MapLibre 렌더 전용. `world`를 읽고 `connection`으로 입력 전송 |
+| `store/` | `uiStore.ts`(Zustand) — UI 상태만(phase·선택 셀·순위표 요약 등) |
+| `ui/` | 로비·대기실·결과·HUD 등 프레젠테이션 컴포넌트 |
+| `auth/` | `firebase.ts`(구글 로그인), `api.ts`(계정·친구 REST) |
 
-### 3.2 실제 모듈 구성
+### 2.2 상태 계층 분리 (핵심 제약)
+- **월드 상태**(250셀 typed array, `GameState`)는 React/Zustand에 **절대 넣지 않는다** — React 밖 싱글턴 `world`(`world/worldView.ts`)에 유지하고, `dirty` 변경분만 rAF로 MapLibre에 반영.
+- **UI 상태**(선택 셀, 패널 열림, phase 등 소량)만 `uiStore`.
+- `MapView`의 MapLibre 인스턴스는 `useRef` + `useEffect`로 **1회만 생성** — 이후 React 렌더가 지도를 직접 건드리지 않고, 모든 갱신은 명령형(`setFeatureState`/`setData`).
 
+### 2.3 App phase 상태기계 (`App.tsx` + `uiStore`)
 ```
-server/src/main/kotlin/com/madcamp/server/
-├─ config/      GameConfig(README §5 CONFIG) · ConfigService(런타임 리로드)
-├─ domain/      World(core.ts GameState 대응) · GameCore(순수 로직 이식) · EnvAi(§4.6) · Types
-├─ data/        BoundaryDataLoader — resources/data/nationwide-dong.json 로드
-├─ session/     SessionService — 게스트 토큰/재접속/시작 동 배정
-├─ ws/          WebSocketConfig(STOMP) · JoinController · SortieController · ConnectionRegistry
-├─ loop/        GameLoop — 단일 스레드 tick(5Hz) + DELTA/LEADERBOARD 브로드캐스트
-├─ persistence/ SnapshotService — 월드 저장/복구
-└─ admin/       AdminController — /healthz, /admin/config
+loading → (목업) join / (실서버) authChoice → lobby → room → ready → results → (lobby)
+                                                                    error = 로드 실패
 ```
+- 부트스트랩 `useEffect`에서 `isMock`으로 분기: 목업은 지도를 즉시 로드 후 `LocalConnection`, 실서버는 `StompConnection` 생성 후 WELCOME까지 지도 로드를 미룬다.
+- 서버→클라 콜백(`onWelcome`/`onDelta`/`onError`/`onLeaderboard`/`onRoomList`/`onRoomJoined`/`onRoomState`/`onRoundEnd`/`onFriendPresence`/`onInvite`/`onConnectionChange`)을 전부 배선해 store·phase를 갱신한다.
+- `MapView`는 `prepared`(지도) + `connection`이 있을 때만 마운트. 각 phase는 자기 오버레이 화면(`LobbyScreen`/`RoomWaitScreen`/`ResultsOverlay`/`Hud` 등)을 렌더.
 
-- tick 루프(`GameLoop`, 5Hz): 큐에 쌓인 JOIN/SORTIE 명령 처리 → 생산(lazy 계산) → Order 도착 처리(전투) → E AI → dirty 수집 → DELTA 브로드캐스트. 5틱(1초)마다 LEADERBOARD도 함께.
-- 명령 검증 순서와 동시성 처리: JOIN/SORTIE 모두 `GameLoop`의 **단일 스레드 executor**에서만 World를 건드리므로(`runOnLoop`/`submitOnLoop`), 같은 tick 내 경합이 애초에 발생하지 않는 구조로 짰다. 25명 동시 접속·초당 수백 건 SORTIE 부하 테스트(`server/tools/smoke-test/load-test.mjs`)로 검증(plan.md §5 Day4 대응).
-- 상세는 [server/README.md](../server/README.md) 참조.
+### 2.4 렌더링 파이프라인 (`MapView.tsx`)
+- 빈 스타일 + CARTO 다크 raster 베이스맵. `maxBounds`로 한국 밖 이탈 방지. maplibre 워커 URL을 명시 지정(프로덕션 번들 404 방지).
+- 소스 `dong`(`promoteId: "admIndex"`) feature-state: `owner`(=holder의 **paletteIdx**), `mine`(더 진한 채움), `hover`/`selected`/`flash`/`enclosed`/`aim`. 소스 `arcs`: `frontier`(bool) + `color`(테두리 hex).
+- 레이어(대표): 채움 `dong-fill` · 국경선 `frontier`/`frontier-glow` · 정적 경계 `admin-sgg/sido-boundary` · 라벨 `dong-name/troop-badges`(줌≥7) ↔ 저줌 `owned-dots`/`player-labels`(줌<7) · 유닛 `unit-circle`/`airdrop-unit-icon`(삼각형) · 마커 `missiles`/`nuke-silos`/`attack-queue` · 조준/방어막/폭발/화살표 오버레이.
+- rAF 루프 하나가 WASD/줌 이동, `drainDirty` 배치 리페인트, 함락 플래시·포위 펄스·유닛 보간·미사일/전술핵 조준·공수 2단 조준·폭발 충격파·방어막 돔·순위 요약(250ms 스로틀)을 모두 처리.
 
-### 3.3 배포
+### 2.5 도메인 코어 (`game/core.ts`)
+- `GameState` 하나에 모든 상태(typed array + `holders`/`orders`/`attackQueue`/`shieldUntil`/`nuke*`/`playerPaletteBag` 등)를 담고 순수 함수가 인자로 받아 변경.
+- 시스템별 진입 함수: 생산 `tickProduction` · 출정 `trySortie`/`tryMultiSortie` · 이동/전투 `tickOrders`/`resolveArrival`/`tickOrderClashes` · 행군 `tryMarch` · 공격 큐 `toggleAttackTarget`/`tickAttackQueue` · 보급 `tickSupply` · 미사일 `trySpawnMissile`/`launchMissile` · 전술핵 `launchNuke` · 공수 `tryAirdrop`/`resolveAirdrop` · 방어막 `applyShield` · 포위 `tickAnnex` · 재시작 `respawnPlayer` · 순위/계급 `getLeaderboard`/`dominationHolder`/`computeRank` · AI `fillAiPlayers`/`tickPlayerAi` · 스폰 `mainlandFromSeoul`/`pickStartCell`.
+- 클라 실플레이에서는 이 중 **읽기 전용 쿼리(순위·계급·색)만** `worldView`가 재사용하고, 시뮬레이션 자체는 서버가 돌린다. 목 서버(`localConnection`)만 전체 `tick`을 돌린다.
 
-- Spring이 클라 정적 빌드(`web/dist`)를 서빙 — 단일 origin이라 CORS 불필요(plan.md Day 5). `./gradlew deployJar`가 `npm run build` 후 `web/dist`를 jar에 동봉한다(평소 `bootRun`/`build`엔 안 걸림). `java -jar build/libs/*-deploy.jar`로 실행하면 `:8080` 하나로 API+화면 모두 서빙 — 실제 브라우저로 검증 완료.
-- 데모 당일 네트워크 불안 대비: 로컬 LAN 핫스팟 + `host:true` 폴백 리허설(plan.md §6) — Vite `host:true`는 이미 설정됨, 클라의 서버 URL 자동 판별(`stompConnection.ts`)도 `window.location.hostname` 기준이라 LAN IP로 접속해도 그대로 동작. 다만 실제 다른 기기로 접속해보는 리허설 자체는 아직 안 함.
+---
+
+## 3. 서버 (`server/src/main/kotlin/com/madcamp/server`)
+
+패키지: `ws · game · loop · domain · config · session · auth · ranking · admin · data`. (`persistence`는 **없다** — §6.)
+
+### 3.1 결정사항
+| 항목 | 선택 |
+|---|---|
+| 언어/프레임워크 | Kotlin 2.3 · Spring Boot 4.1 · Jackson 3(`tools.jackson.*`) |
+| 월드 모델 | **다중 방**(`RoomManager`의 `Map<roomId, Room>`), 각 방 = 독립 월드/라운드 |
+| 동시성 | 락 없음 — 단일 스레드 executor(`GameLoop`)가 모든 월드·멤버십·라운드 전환을 실행 |
+| 월드 영속 | **없음(휘발성)** — 방·월드는 인메모리, 라운드마다 새 월드 |
+| 인증 | Firebase(구글) ID 토큰 검증(요청마다). 별도 JWT 계층 없음 |
+| 지속 데이터 | 계정·친구 = H2 파일 DB(JPA) · 랭킹 = Redis ZSET |
+
+### 3.2 모듈
+
+| 패키지 | 핵심 클래스 | 역할 |
+|---|---|---|
+| `ws` | `WebSocketConfig`, `*Controller`, `dto/Messages`, `ConnectionRegistry`, `SessionEventListener`, `WelcomeAssembler`, `RoomBroadcaster` | STOMP 엔드포인트 `/ws`(SockJS), 명령 수신·검증, 룸 스코프 브로드캐스트, principal→방 라우팅, 연결 해제 정리 |
+| `game` | `Room`, `RoomManager` | 방 상태기계(`LOBBY/PLAYING/ENDED`) + 방별 accumulator, 상한(방 32·동시 8·인원 8) |
+| `loop` | `GameLoop`, `LoopMetrics` | 단일 스레드 5Hz 스케줄러, `tickRoom`, 라운드 종료 판정, delta/leaderboard 브로드캐스트 |
+| `domain` | `World`, `GameCore`, `PlayerAi`, `StartCellAssigner`, `Types` | 권위 시뮬레이션(=core.ts 미러). `EnvAi`는 **사장(dead code)** |
+| `config` | `GameConfig`, `ConfigService`, `HolderIds`, `Palette`, `CorsConfig` | 튜닝 상수(WELCOME으로 배포·admin 리로드), 예약 holderId, 색 슬롯 |
+| `session` | `SessionService`, `PlayerSession` | 토큰 기반 세션·재접속 복구(`joinOrRestore`/`roomOf`) |
+| `auth` | `FirebaseAuthService`, `AccountService`, `AppUser`, `Friendship`, `PresenceRegistry`, `AccountController`, `FriendController` | 구글 토큰 검증, 계정·전적, 친구 관계·접속 현황 |
+| `ranking` | `RankingService`, `RankingController` | Redis 명예의 전당(`hof:wins` ZSET), `GET /ranking/top` |
+| `admin` | `AdminController` | `/healthz`, `/admin/metrics`, `/admin/config`(GET/POST) |
+| `data` | `BoundaryDataLoader`, `MapCatalog` | 전처리된 `kr-sgg-cells.json` 로드(인접·경계·반경 precompute) |
+
+### 3.3 GameLoop — 틱 흐름
+- `Executors.newSingleThreadScheduledExecutor("game-loop")` 하나. **모든** 월드 mutate·방 멤버십 변경·라운드 전환이 이 스레드에서만 일어난다(락 불필요). 컨트롤러는 `runOnRoom`/`submitOnRoom`(월드 액션)·`submitRoomTask`(멤버십)로만 접근.
+- `TICK_MS = 200`(5Hz). 매 tick `playingRooms()`를 순회하며 방마다: `tickProduction → tickOrders → tickOrderClashes → tickAnnex` → (주기 게이트) AI/미사일 스폰/보급/공격 큐 → `broadcastDelta` → 순위(1Hz) → `checkRoundEnd`.
+- 방별 예외는 격리(한 방이 죽어도 다른 방은 계속). 빈 방은 주기적으로 청소. tick 통계는 `LoopMetrics`가 집계(`/admin/metrics`).
+- **라운드 종료**: 시간 초과(`roundDurationSec`, 매 tick) 또는 도미네이션(`dominationHolder ≥ 51%`, 1Hz). `endRound`가 `RoundEndMessage` 브로드캐스트 → 사람 우승자 Redis 기록 + 로그인 멤버 전적 갱신 → 월드를 빈 것으로 교체 → `state=LOBBY`.
+- **브리지 기본 방**(`default`): 부팅 시 PLAYING으로 떠서 레거시 `/topic/world`·`/topic/leaderboard`·`/app/join`을 미러링(스모크 테스트용). 로비엔 안 뜨고 라운드 종료도 없다.
+
+### 3.4 재접속·세션
+- WS 핸드셰이크마다 익명 `StompPrincipal(UUID)` 부여(`/user/queue/*` 라우팅 키). 로그인은 WS 계층이 아니라 명령 payload의 `idToken`으로 처리.
+- `ConnectionRegistry`가 `principal → RoomBinding(roomId, holderId)`를 들고, 액션 컨트롤러가 principal로 방을 해석.
+- 재접속: 저장된 `token`으로 `SessionService.roomOf`를 찾아 같은 방·holder 복구(월드에 holder가 남아 있으면 재사용, 없으면 새로 배정). `SessionEventListener`가 연결 해제 시 멤버 제거·방장 승계·빈 방 폐기.
 
 ---
 
 ## 4. 데이터 파이프라인
 
-원본 소스가 admdongkor(npm, 행정동)에서 **gisdeveloper 법정동 SHP**로 바뀌었다 — 클라·서버가 각자 외부 API(admdongkor)를 호출해 독립적으로 admIndex를 매기던 방식은 API가 버전을 올리는 순간 둘의 정렬이 어긋날 수 있어서, 변환 결과를 **정적 파일 하나로 고정해 양쪽이 그 파일만 읽게** 바꿨다.
-
-```
-gisdeveloper 읍면동(법정동) SHP  ── 1회, 오프라인 ──▶  mapshaper (WGS84 변환)
-                                                          │
-                                                          ▼
-                              web/public/beopjeong-emd.geojson (git 커밋, 클라·서버 공통 소스)
-                                                          │
-                        ┌─────────────────────────────────┴─────────────────────────────────┐
-                        ▼                                                                     ▼
-        클라: web/src/data/loadDong.ts (fetch)                         서버: server/tools/data-gen/generate.mjs (readFileSync)
-        - 같은 필터(EMD_CD 존재) · 같은 순회 순서로 admIndex 부여
-        - topojson-server/-client: TopoJSON 위상으로 인접 그래프 추출 — 기하 기반 touches() 금지(부동소수점 슬리버, README §2.2)
-        - polylabel: 각 동 라벨/배지 좌표(centroid 아님)
-                        │                                                                     │
-                        ▼                                                                     ▼
-        MapLibre 소스(promoteId: admIndex)로 렌더                    resources/data/nationwide-dong.json으로 미리 구워 서버 리소스에 포함,
-                                                                       WELCOME의 meta/neighborIndex로 1회 전송
-```
-
-같은 파일·같은 로직을 양쪽이 각자 실행하므로 결과물(centroid·인접 그래프)도 동일하게 나온다 — 서버가 클라에 파일을 내려주는 게 아니라, 빌드 시점에 각자 계산한다는 점에 주의(런타임에 서버가 지오메트리를 보내지는 않는다. 클라 렌더용 폴리곤은 클라가 직접 fetch).
-
-인덱스 체계: `EMD_CD`(법정동코드 8자리, `[시도2][시군구3][읍면동3]`) → 조밀 정수 `admIndex`(0..N-1)로 매핑해 모든 배열/메시지에서 사용(README §2.1, api-spec.md §1).
+- **클라**: `loadMapData(mapId)`가 `kr-sgg.geojson`을 fetch → `DongStaticMeta[]`(polylabel 중심점 포함) 생성 → TopoJSON `topology()`+`neighbors()`로 `neighborIndex` → 아크 추출(`sggBoundary`/`sidoBoundary`/`outer` 플래그, `borderMask`). 지도별로 한 번만 로드·캐시(`App.tsx mapCacheRef`).
+- **서버**: 런타임에 인접을 계산하지 않는다. `server/tools/data-gen`이 오프라인에서 인접·경계·반경을 미리 계산해 `kr-sgg-cells.json`으로 굽고, `BoundaryDataLoader`가 그걸 읽는다(`cells.size == n` 단언).
+- **admIndex 일치**: 클라·서버가 같은 셀 집합을 같은 순서로 읽어 `admIndex`(feature id 겸 배열 인덱스)가 구조적으로 일치한다 — 프로토콜은 인덱스만 주고받는다.
 
 ---
 
-## 5. 성능/렌더링 경로 (README §7 요약)
+## 5. 성능 · 렌더링 원칙
 
-- 상태 갱신: `dirty Set` + rAF 배치 → 한 프레임 내 중복 변경도 `setFeatureState` 1회
-- 병력 숫자: 3,500개를 텍스트 레이어에 넣지 않고, 화면에 보이는 근접 줌 범위만 별도 포인트 소스로 `setData`
-- 줌별 표현: 전국(시군구 집계) → 권역(동 경계) → 근접(병력 숫자)을 `fill-opacity` interpolate로 크로스페이드
-- 유닛 이동: SVG 아닌 Canvas 오버레이(다수 동시 이동 유닛 대비)
+- 250셀을 매 프레임 순회하지 않는다 — `dirty: Set<number>`에 변경 셀만 모아 rAF에서 배치 리페인트.
+- 소유권 색은 `setFeatureState`(paint 재계산만, 지오메트리 유지)로 갱신 — React 리렌더 없음.
+- 국경선은 아크(공유 경계) 단위로, 소유주가 다른 경계만 그린다(내부 경계 숨김) → 선 수 최소화.
+- 서버 DELTA는 변경 셀·유닛·이벤트만 싣고, 순위·포위 집합·전술핵 쿨다운은 바뀐 tick에만 보낸다.
 
 ---
 
-## 6. 확장 이음매 (변경 시 재작성 없이 흡수되는 지점)
+## 6. 영속성 (없음 — 명시)
 
-README §10과 동일한 목록 — 아키텍처 관점에서 왜 이렇게 짰는지만 요약:
+- 게임 월드는 **완전히 휘발성**이다. `RoomManager`의 인메모리 맵에만 존재하며, 라운드마다 새 `World`를 만들고 종료 시 교체한다. 예전의 `SnapshotService`/`persistence` 패키지는 **제거됐다**(코드에 없음, `.gitignore`·구 문서에 잔재 언급만 남음).
+- 유일한 지속 상태: **계정·친구**(H2 파일 DB `server/data/users`) + **랭킹**(Redis `hof:wins`). 이 둘이 없거나 죽어도 게임 진행 자체는 영향받지 않는다(랭킹은 조용히 비활성).
 
-| 이음매 | 지금 구조가 흡수하는 이유 |
-|---|---|
-| `holderId` 간접 계층 | 동 배열이 holderId만 참조 → 팀전 전환 시 `holders` 조회 테이블만 바꾸면 됨, 동 배열/렌더/집계 로직 불변 |
-| `Order` 객체(즉시 apply → 거리 기반 arrive) | 전투 판정 로직은 두 모드에서 동일. "언제 apply 하느냐"만 바뀜 |
-| E = holder 255 | 동 배열·전투·이동·렌더에 E 특수 분기 없음. AI가 명령을 발주하는 주체일 뿐 |
-| `core.ts` 시계 주입 | 브라우저 tick과 서버 tick이 같은 함수를 호출 가능 — 로직 이중 유지 방지 |
-| CONFIG 단일 객체 | 클라 튜닝값 → 서버 동기화 상수로 이관 시 소스 위치만 이동, 참조 방식 불변 |
+---
+
+## 7. 배포 (Docker / GHCR / VM)
+
+- **단일 오리진 3-스테이지 Dockerfile**: ① `node:22-alpine`로 `web/` 빌드(빌드타임 `VITE_FIREBASE_*` 주입) → ② `temurin:21-jdk`로 `web/dist`를 함께 `deployJar` 빌드 → ③ `temurin:21-jre`가 `app.jar` 하나를 `:8080`에서 실행(웹 정적 + REST + WS 동일 오리진, CORS 불필요).
+- **CI**(`.github/workflows/deploy.yml`): `main` push(또는 수동) → 이미지 빌드 후 `ghcr.io/madcamp-official/best-project`에 `:latest`·`:<sha>` 태그 push. 데모 중엔 push 트리거를 꺼서 진행 중인 게임이 끊기지 않게 한다.
+- **VM**(`deploy/docker-compose.yml`): `game`(GHCR 이미지, `3000:8080`, Cloudflare 터널로 TLS 종단) + `redis`(7-alpine, ZSET 랭킹) + `watchtower`(30s마다 `:latest` 자동 pull·재기동). H2 DB·Firebase 키는 볼륨(`./data`, `./secrets`)으로 주입. `:<sha>` 태그를 compose에 고정하면 롤백.
+- **로컬 단일 jar**: `./gradlew deployJar && java -jar build/libs/server-*-deploy.jar`.
+
+### 환경 변수 요약
+| 변수 | 대상 | 용도 |
+|---|---|---|
+| `VITE_USE_LOCAL_MOCK` | 웹 | `"1"` → 브라우저 내 목 서버(백엔드 불필요) |
+| `VITE_WS_URL` / `VITE_API_URL` | 웹 | STOMP/REST 주소 오버라이드(기본은 `window.location`에서 유도) |
+| `VITE_FIREBASE_API_KEY`/`AUTH_DOMAIN`/`PROJECT_ID`/`APP_ID` | 웹(빌드타임) | 구글 로그인. 비면 게스트만 |
+| `REDIS_HOST` | 서버 | 랭킹 Redis 호스트(기본 `localhost`) |
+| `server.port` | 서버 | HTTP+WS+정적(기본 `8080`) |
+| `app.firebase.service-account-path` | 서버 | Firebase Admin 키 경로(없으면 로그인 비활성) |
+
+---
+
+## 8. 확장 이음매
+
+- **새 명령 추가**: `net/protocol.ts`(TS 타입) ↔ `ws/dto/Messages.kt`(Kotlin DTO)를 같은 커밋으로 정의 → `Connection`에 메서드 + `stompConnection`/`localConnection` 구현 → 서버 `*Controller`가 `runOnRoom`으로 `GameCore` 호출. 게임 규칙은 반드시 `core.ts`↔`GameCore.kt` 양쪽에 1:1로.
+- **새 지도 추가**: `MapCatalog.RESOURCE_PATHS`(서버) + `MAP_ASSETS`(클라)에 항목 추가, `server/tools/data-gen`으로 셀 JSON 굽기. 현재는 `kr-sgg` 단일.
+- **새 렌더 이펙트**: `MapView`의 rAF 루프 + 레이어 추가만으로. 게임 규칙 판단을 `map/`에 넣지 않는다(이식 대조가 깨짐).

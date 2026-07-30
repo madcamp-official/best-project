@@ -1,165 +1,79 @@
 # server
 
-구청장 시뮬레이터(PvPvE) 서버 — Spring Boot 4 · Kotlin · WebSocket/STOMP.
-프로토콜은 [../docs/api-spec.md](../docs/api-spec.md), 게임 규칙은 [../README.md](../README.md), 일정은 [../docs/plan.md](../docs/plan.md) 참조.
+구청장 시뮬레이터 서버 — Spring Boot 4 · Kotlin · WebSocket/STOMP. 게임 로직의 **권위**이며, 클라는 렌더러+입력 전송기다.
+프로토콜은 [../docs/api-spec.md](../docs/api-spec.md), 게임 규칙은 [../README.md](../README.md), 아키텍처는 [../docs/architecture.md](../docs/architecture.md) §3 참조. 최종 진실은 코드다.
 
 ## 실행
 
 ```bash
-./gradlew bootRun          # http://localhost:8080, WS 엔드포인트 /ws (개발용 — 클라는 별도로 npm run dev)
-./gradlew build             # 컴파일 + 테스트 + jar
-./gradlew deployJar          # web/ 프로덕션 빌드까지 동봉한 단일 jar (아래 "배포" 참조)
+./gradlew bootRun          # http://localhost:8080 — WS /ws, REST /api·/ranking·/admin (개발용)
+./gradlew build            # 컴파일 + 테스트 + jar
+./gradlew deployJar        # web/ 프로덕션 빌드까지 동봉한 단일 jar (아래 "배포")
 ```
 
-JDK 17+ 필요(툴체인 고정 안 함 — `./gradlew`를 실행하는 JDK를 그대로 씀). 첫 실행 시 Gradle 배포판(9.5.1)을 인터넷에서 내려받는다.
+- **JDK 17+** 필요(툴체인 고정 안 함 — `./gradlew`를 실행하는 JDK를 그대로 씀). 첫 실행 시 Gradle 배포판(9.5.1)을 내려받는다.
+- 스택: **Kotlin 2.3 · Spring Boot 4.1 · Jackson 3(`tools.jackson.*`)**. 의존성: websocket · data-jpa(H2) · data-redis · firebase-admin.
+- 계정 DB는 H2 파일(`server/data/users`, 자동 생성). Redis(:6379)는 랭킹 전용 — 없으면 랭킹만 조용히 비활성(게임은 정상). `REDIS_HOST` 환경변수로 호스트 지정.
 
 ### 구글 로그인 설정 (선택 — 없어도 게스트 플레이는 그대로 동작)
 
-로그인은 **클라·서버 양쪽에 자격 증명 파일이 있어야** 켜진다. 둘 다 git에 없으므로(아래 참조),
-받아온 저장소를 그대로 실행하면 로그인만 비활성 상태가 된다("로그인이 고장난 것"이 아니다).
+로그인은 **클라·서버 양쪽에 자격 증명 파일이 있어야** 켜진다. 둘 다 git에 없으므로, 받아온 저장소를 그대로 실행하면 로그인만 비활성 상태가 된다("로그인이 고장난 것"이 아니다).
 
 | 파일 | 내용 | 없을 때 |
 |---|---|---|
-| `web/.env.local` | Firebase **웹** 설정(`web/.env.example` 복사해 채움) | 로그인 버튼이 비활성 + 안내 문구 |
-| `server/secrets/firebase-service-account.json` | Firebase **Admin** 서비스 계정 키 | 서버가 토큰을 전부 거부(기동 시 warn 로그) |
+| `web/.env.local` | Firebase **웹** 설정(`web/.env.example` 복사해 채움) | 로그인 버튼 비활성 + 안내 문구 |
+| `server/secrets/firebase-service-account.json` | Firebase **Admin** 서비스 계정 키 | 서버가 토큰을 전부 거부(기동 시 warn) |
 
-- 웹 설정값은 빌드 결과 JS에 그대로 실려 나가는 공개 정보라 팀 내 공유에 제약이 없다.
-- **서비스 계정 키는 진짜 비밀이다**(개인키 포함 — 가지면 임의 사용자를 위조할 수 있다).
-  `server/.gitignore`의 `/secrets/`로 막아두었으니 절대 커밋하지 말고, 안전한 경로로 직접 전달할 것.
-
-- `GET /healthz` → `ok`
-- `GET /admin/config` → 현재 CONFIG
-- `POST /admin/config` → CONFIG 부분 갱신(JSON body, 재시작 없이 즉시 반영)
-- STOMP: `/app/join`, `/app/sortie` 수신 / `/user/queue/welcome`, `/user/queue/error`, `/topic/world`, `/topic/leaderboard` 발신 — 필드는 [api-spec.md](../docs/api-spec.md) 참조
+- 웹 설정값은 빌드 결과 JS에 실려 나가는 공개 정보라 공유 제약이 없다.
+- **서비스 계정 키는 진짜 비밀**(개인키 포함)이다. `server/.gitignore`의 `/secrets/`로 막아두었으니 절대 커밋하지 말 것. 경로는 `app.firebase.service-account-path`(기본 `secrets/firebase-service-account.json`).
 
 ## 구조
 
 ```
 src/main/kotlin/com/madcamp/server/
-├─ config/      GameConfig(README §5 CONFIG) · ConfigService(런타임 리로드)
-├─ domain/      World(core.ts GameState 대응) · GameCore(순수 로직 이식) · EnvAi(§4.6) · Types
-├─ data/        BoundaryDataLoader — resources/data/nationwide-dong.json 로드
-├─ session/     SessionService — 게스트 토큰/재접속/시작 동 배정
-├─ ws/          WebSocketConfig(STOMP) · JoinController · SortieController · MissileController · ConnectionRegistry
-├─ loop/        GameLoop — 단일 스레드 tick(5Hz) + DELTA/LEADERBOARD 브로드캐스트
-├─ persistence/ SnapshotService — 월드 저장/복구(data/world-snapshot.json, .gitignore 처리됨)
-└─ admin/       AdminController — /healthz, /admin/config
+├─ ws/        WebSocketConfig(STOMP /ws) · 컨트롤러(Join·Sortie·March·MultiSortie·Missile·Nuke·Airdrop·
+│             AttackQueue·Restart · Lobby·Room · FriendInvite) · dto/Messages · ConnectionRegistry ·
+│             SessionEventListener(연결 해제 정리) · WelcomeAssembler · RoomBroadcaster
+├─ game/      Room(LOBBY/PLAYING/ENDED 상태기계 + 방별 accumulator) · RoomManager(상한: 방 32·동시 8·인원 8)
+├─ loop/      GameLoop(단일 스레드 5Hz tick + 라운드 종료 판정 + DELTA/LEADERBOARD) · LoopMetrics
+├─ domain/    World(core.ts GameState 대응) · GameCore(순수 로직 이식) · PlayerAi(AI 채우기·확장·증원) ·
+│             StartCellAssigner(서울 BFS 본토·제주 제외 스폰) · Types · EnvAi(사장 — 미사용)
+├─ config/    GameConfig(README §8 CONFIG 미러, WELCOME으로 배포) · ConfigService · HolderIds · Palette · CorsConfig
+├─ session/   SessionService(토큰 세션·재접속 복구 joinOrRestore/roomOf)
+├─ auth/      FirebaseAuthService(구글 토큰 검증) · AccountService · AppUser/Friendship(JPA) ·
+│             PresenceRegistry · AccountController · FriendController
+├─ ranking/   RankingService(Redis hof:wins ZSET) · RankingController(GET /ranking/top)
+├─ admin/     AdminController(/healthz · /admin/metrics · /admin/config)
+└─ data/      BoundaryDataLoader · MapCatalog — resources/data/kr-sgg-cells.json 로드
 ```
 
-**동시성 원칙**: World는 [GameLoop](src/main/kotlin/com/madcamp/server/loop/GameLoop.kt)의 단일 스레드에서만 mutate된다. JOIN/SORTIE 컨트롤러는 `GameLoop.runOnLoop{}`(응답 필요) 또는 `submitOnLoop{}`(fire-and-forget)로 위임할 뿐 World를 직접 건드리지 않는다 — 락 없이 레이스를 원천 차단. `tools/smoke-test/load-test.mjs`로 25명 동시 접속·명령 난사 상황에서 실측 검증함(아래 참조).
+**동시성 원칙**: 모든 `World` mutate·방 멤버십 변경·라운드 전환은 [GameLoop](src/main/kotlin/com/madcamp/server/loop/GameLoop.kt)의 **단일 스레드 executor**에서만 일어난다. 컨트롤러는 `runOnRoom{}`/`submitOnRoom{}`(월드 액션)·`submitRoomTask{}`(멤버십)로 위임할 뿐 World를 직접 건드리지 않는다 — 락 없이 레이스를 원천 차단.
 
-## 전국 경계 데이터
+**월드는 휘발성**이다. 방·월드는 `RoomManager` 인메모리 맵에만 있고 라운드마다 새로 만든다. 스냅샷 영속(`persistence`/`SnapshotService`)은 **제거됐다**(지속 데이터는 H2 계정·Redis 랭킹뿐).
 
-`resources/data/nationwide-dong.json`(약 1MB)은 `tools/data-gen/generate.mjs`(Node)가 `web/public/beopjeong-emd.geojson`(gisdeveloper 법정동 SHP를 mapshaper로 변환한 정적 자산, 5,065개)을 읽어 topojson 위상으로 인접 그래프·`border`(지도 바깥에 닿는 동인지, 포위 귀속 판정용)까지 뽑아낸 산출물이다.
+## 주요 엔드포인트
 
-**클라·서버가 정확히 같은 파일 하나(`web/public/beopjeong-emd.geojson`)를 같은 필터(`EMD_CD` 존재)·같은 순회 순서로 읽는다** — `web/src/data/loadDong.ts`는 fetch로, `generate.mjs`는 `readFileSync`로. admdongkor 같은 외부 API를 거치지 않고 정적 파일 하나를 공유하므로, admIndex 정렬이 어긋날 여지가 구조적으로 없다(예전엔 admdongkor 버전 드리프트를 걱정해야 했는데, 이 방식으로 그 문제 자체가 사라졌다).
+- **STOMP** `/ws`(SockJS): 룸 스코프 토픽 `/topic/room/{id}/world|leaderboard|state`, 로비 `/topic/rooms`, 개인 `/user/queue/{welcome,error,roomJoined,...}`. 명령은 `/app/...`. 전체 목록·페이로드는 [api-spec.md](../docs/api-spec.md).
+- **REST**: `POST /api/account/me`·`/api/account/nickname`, `POST /api/friends/{search,request,respond,list}`, `GET /ranking/top?limit=`, `GET /healthz`, `GET /admin/metrics`, `GET|POST /admin/config`(부분 갱신·즉시 반영, 현재 인증 없음).
 
-**시군구/시도명**(`sggnm`/`sidonm`)은 `beopjeong-emd.geojson`엔 코드(`EMD_CD`)만 있고 이름이 없어서, `tools/data-gen/generate-sgg-names.mjs`가 admdongkor의 sgg/sido 레벨에서 이름만 뽑아 `web/public/sgg-sido-names.json`(작은 code→name 딕셔너리, 클라·서버 공유)으로 미리 구워둔다. `generate.mjs`/`loadDong.ts` 둘 다 이 파일을 읽어 채운다. **주의**: admdongkor의 "latest"를 그대로 쓰면 안 된다 — 법정동 원본(2023-07-29 스냅샷)과 시군구/시도 코드 체계가 달라(그 사이 전북특별자치도 출범 등 행정구역 개편) 실제로 시도 3개·시군구 47개가 매칭 실패했다. 그래서 원본과 같은 시기 스냅샷(`20230701`)으로 고정했다(스크립트 상단 `NAME_SNAPSHOT_VERSION`).
+## 경계 데이터 (시/군/구)
 
-데이터를 다시 뽑으려면(원본 SHP가 갱신됐을 때 등):
+- 서버는 런타임에 인접을 계산하지 않는다. `resources/data/kr-sgg-cells.json`(시/군/구 **250개**, `sourceVersion "admdongkor sgg 20230701"`)을 `BoundaryDataLoader`가 읽는다 — 인접(`neighbors`)·경계(`border`)·반경(`radiusDeg`)이 **전처리로 포함**돼 있다.
+- 이 파일은 `server/tools/data-gen`이 `web/public/kr-sgg.geojson`에서 오프라인으로 굽는다. 클라·서버가 같은 셀 집합을 같은 순서로 읽어 `admIndex`가 구조적으로 일치한다.
+- `MapCatalog.DEFAULT = "kr-sgg"`, `RESOURCE_PATHS`엔 `kr-sgg`만 등록. 구 법정동 지도(`nationwide-dong.json`, ~5065동)는 리소스에 남아 있으나 **로드되지 않는다**(`BoundaryDataLoader`에서 비활성).
 
-```bash
-cd tools/data-gen
-node generate-sgg-names.mjs   # web/public/sgg-sido-names.json 갱신 (이름 코드 체계가 바뀌었을 때만 재실행 필요)
-node generate.mjs             # resources/data/nationwide-dong.json 갱신
-```
-
-실행 결과 인접 차수 0(섬·월경지)인 동이 62개 있다(인천 도서 지역, 여수 등) — README §6 리스크 그대로. 현재는 그대로 두어 해당 동은 고립 상태다(공격 불가). 페리 엣지 수동 추가는 아직 미적용(README 부록A 미정 항목).
-
-## 배포 (plan.md Day 5 — 단일 origin 서빙)
+## 배포 (단일 오리진)
 
 ```bash
 ./gradlew deployJar
-java -jar build/libs/server-*-deploy.jar
+java -jar build/libs/server-*-deploy.jar     # :8080 하나로 웹 정적 + REST + WS (같은 오리진, CORS 불필요)
 ```
 
-`deployJar`는 별도 Gradle 태스크로, `web/`을 `npm run build`로 프로덕션 빌드한 뒤 그 결과물(`web/dist`)을 jar 안 `/static`으로 동봉한다. 평소 쓰는 `bootRun`/`build`/`bootJar`에는 전혀 안 걸려 있어(서버만 만지는 동안엔 npm 빌드가 안 돌고, Node 없는 머신에서도 평소 개발이 된다), 배포 직전에만 명시적으로 돌리면 된다. 실행하면 `:8080` 하나로 API·WebSocket·화면이 전부 나온다(같은 origin이라 CORS 문제 없음) — Playwright로 실제 브라우저에서 `http://localhost:8080` 접속→JOIN→렌더까지 검증 완료.
+`deployJar`는 `web/`을 `npm run build`한 결과(`web/dist`)를 jar 안 `/static`으로 동봉한다. 평소 `bootRun`/`build`/`bootJar`엔 안 걸려 있어(서버만 만지는 동안 npm 빌드가 안 돌고 Node 없는 머신에서도 개발 가능), 배포 직전에만 명시적으로 돌린다.
+프로덕션은 Docker 3-스테이지 이미지 → GHCR → VM(`deploy/docker-compose.yml`, watchtower 자동 갱신 + Redis). 상세는 [architecture.md](../docs/architecture.md) §7.
 
 ## 테스트 도구 (`tools/`)
 
-서버를 `./gradlew bootRun`(또는 `deployJar`로 만든 jar)으로 띄운 상태에서:
+`./gradlew bootRun`(또는 deployJar jar)으로 서버를 띄운 상태에서 `tools/smoke-test`의 STOMP 클라 스크립트로 검증한다(`npm install` 후 `node <script>.mjs`): 기본 라운드트립(JOIN→WELCOME→SORTIE→DELTA), 재접속(같은 토큰=holder 유지), 부하(N명 동시 SORTIE 난사 → 상태 불변식), 색상 동기화(늦게 합류한 플레이어의 paletteIdx가 DELTA.newHolders로 즉시 전파되는지) 등. `server/tools/data-gen`은 경계 데이터 재생성용.
 
-```bash
-cd tools/smoke-test
-npm install
-node smoke.mjs                  # 기본 라운드트립: JOIN→WELCOME, 잘못된 SORTIE→ERROR, 정상 SORTIE(ratio 포함)→DELTA→함락+토벌 로그
-node reconnect-test.mjs         # 같은 토큰 재접속=holderId·영토 유지 / 가짜 토큰=신규 참가자 처리
-node auto-reconnect-test.mjs    # stompjs 자동 재연결(reconnectDelay)까지 포함해 holderId 유지되는지 검증
-node load-test.mjs 25 8         # N명 동시 접속(기본 25) × 초(기본 8) 동안 SORTIE 난사 → 서버 생존·월드 상태 불변식 확인
-node missile-test.mjs           # 미사일: 미보유 발사 거부(NO_MISSILE), 스폰 브로드캐스트 확인
-node missile-launch-forced.mjs  # /admin/config로 생산 속도를 잠깐 올려 발사→중립화까지 결정적으로 재현
-node env-cluster-check.mjs      # E 다중 클러스터가 실제로 여러 곳에 흩어져 스폰되는지 확인
-node annex-chaos-test.mjs       # 여러 명 동시 국소 확장 → 포위 귀속(흡수)이 실제로 발생하는지 관찰
-```
-
-`load-test.mjs`는 25명·8초·약 2,300건 SORTIE 기준으로 healthz 정상, 클라이언트측 WS/STOMP 오류 0건, 월드 상태 불변식(모든 동의 ownerId가 0~255 유효 범위) 위반 0건을 확인했다(Day 4 "동시성 검증"에 대응). `annex-chaos-test.mjs`는 8명이 45초 동시 확장하는 시나리오에서 포위 흡수 264건이 실제로 발생함을 확인했다 — 매 tick 전체 플레이어에 대해 BFS 판정이 도는데도 성능 문제 없음.
-
-## plan.md 대비 진행 상황
-
-| Day | 항목 | 상태 |
-|---|---|---|
-| 1 | 프로젝트 셋업, STOMP, 전국 경계 데이터 로드 | 완료 |
-| 2 | 월드 tick(생산·SORTIE 검증·Order·전투), DELTA | 완료 |
-| 3 | E AI, 게스트 세션/재접속, 시작 동 배정 | 완료 |
-| 4 | 동시성 검증(다인 플레이테스트), 재접속 엣지 케이스 | 완료 — 자동화 부하/재접속 테스트로 검증(위 "테스트 도구") |
-| 5 | 배포(정적 서빙), 스냅샷 저장/복구 | 완료 — `deployJar`로 실제 단일 jar 배포까지 브라우저 검증 |
-| 6 | 프리즈, 리허설 | 팀 차원 활동 — 코드로 대체 불가. 실제 청중 앞 리허설·LAN 폴백 리허설은 남아 있음 |
-
-## 클라(web/) 연동 — StompConnection으로 실서버 연결 완료
-
-클라의 `Connection` 인터페이스 실서버 구현체 `web/src/net/stompConnection.ts`를 추가하고, `App.tsx`의 기본 연결을 이걸로 교체했다(`VITE_USE_LOCAL_MOCK=1`로 이전 브라우저 내 목 서버(`localConnection`)로도 되돌릴 수 있게 스위치는 남겨둠). 클라가 먼저 구현해둔 `localConnection.ts`(목 서버)가 사실상 "실서버가 어떻게 동작해야 하는가"의 참조 구현이라, 서버도 거기 맞춰 검증·조정했다:
-
-- `SortieCommand.ratio`(출정 비율 슬라이더) 반영 — 서버가 `[0.05, 1]`로 클램프, 비정상값은 `CONFIG.SORTIE_RATIO`로 대체
-- `WELCOME.config`에 `ENV_HOLDER_ID` 포함 — 클라 `CONFIG` 객체 그대로 매칭(`@JsonProperty`로 SCREAMING_SNAKE_CASE 유지)
-- 환경 세력(E) holder 이름 `"야만인"`, `paletteIdx = 6`(클라 `ENV_PALETTE_IDX`)
-- 플레이어 `paletteIdx`는 클라 `PLAYER_PALETTE_IDXS = [1,2,3,4,5]`와 동일한 5슬롯 순환
-- 함락 로그에 토벌 보너스 표기(`"... (+10 토벌)"`) — `core.ts resolveArrival`과 문구 통일
-- `DELTA.events`를 최신순(newest-first)으로 전송 — `worldView.ts applyDelta`의 prepend 가정과 일치
-- **시간 동기화**(api-spec.md §3): `StompConnection`이 WELCOME의 `serverTimeMs`로 offset을 1회 계산해, 서버가 보낸 `Order.departTick/arriveTick`(epoch ms)을 클라 rAF 시간축(`performance.now()`)으로 변환한다 — `worldView`/`MapView`는 이 차이를 몰라도 되게 경계(Connection)에서만 처리
-- **admIndex 정렬**: 클라·서버가 같은 정적 GeoJSON 파일(`web/public/beopjeong-emd.geojson`)을 같은 순서로 읽어 admIndex를 매기므로 구조적으로 일치한다(위 "전국 경계 데이터" 참조)
-
-**실제 브라우저(Playwright, Chrome)로 검증**: `npm run dev`(5173) + `./gradlew bootRun`(8080) 조합, 그리고 `deployJar`로 만든 단일 jar(8080, 같은 origin) 둘 다에서 접속→JOIN→WELCOME 반영→지도 렌더→좌클릭 선택까지 콘솔 에러 없이 동작 확인.
-
-## 클라 추가 기능 3종 — 미사일 / 포위 귀속 / E 다중 클러스터
-
-클라가 이후 추가한 기능들을 서버에도 이식·검증했다(둘 다 core.ts와 1:1):
-
-- **미사일**: 전국 무작위 동에 스폰(`MISSILE_SPAWN_SEC` 주기, 맵 전체 상한 `MISSILE_MAX_TOTAL`만 적용 — 개인 보유 한도 없음) → 그 동을 소유한 플레이어가 즉발로 발사 → 지정 원(중심+반경)에 겹치는 동 전부 중립화. `MissileController.kt`가 클라가 계산해 보낸 반경·타격 목록을 신뢰하지 않고 서버가 다시 검증(centroid 근접 근사, 폴리곤은 서버에 없음).
-- **포위 귀속(encirclement)**: 위 §6(api-spec.md) 참조. `GameCore.kt tickAnnex` — 서버가 직접 이식. 별도 프로토콜 없이 기존 DELTA 경로 재사용.
-- **E 다중 클러스터**: `EnvAi.kt spawn`을 최원점(farthest-point) 샘플링으로 다시 짜서 `ENV_CLUSTER_COUNT`(기본 3)개 무리를 전국에 흩뿌린다. 실측: 강화도·울릉도·제주 3곳에 분산 스폰 확인(`env-cluster-check.mjs`). 클라의 "플레이어 근처 첫 씨앗" 로직은 뺐다 — 서버는 아무도 접속하기 전에 스폰하므로 기준 삼을 플레이어가 없다(README §4.6 "외곽 스폰"에 맞춰 첫 씨앗도 outer-score 최고점).
-
-이 세 기능 모두 25명 동시 부하(`load-test.mjs`)·45초 8명 동시 확장(`annex-chaos-test.mjs`)에서 서버가 죽거나 느려지지 않는 것까지 확인됐다.
-
-## 플레이 피드백 반영 (미사일 수량·분포, 색상 동기화)
-
-- **미사일 수량 2배**: `MISSILE_SPAWN_SEC` 10→5초, `MISSILE_MAX_TOTAL` 30→60. 개인 보유 한도(`MISSILE_MAX_PER_PLAYER`)는 팀원이 별도로 완전히 제거(맵 총량만으로 제한하는 게 더 단순하고 공급 병목도 원천적으로 없앰) — 두 변경을 병합해 반영.
-- **미사일 스폰 분포 균등화**: 기존엔 전국 동을 그냥 균등 추첨해서, 서울·부산처럼 동이 촘촘히 쪼개진(=동 개수가 많은) 지역에 자연히 쏠렸다. `World.cellsBySido`(시도별 admIndex 목록, 생성 시 1회 계산)를 두고 **시도를 먼저 균등 추첨**한 뒤 그 안에서 동을 고르도록 `GameCore.trySpawnMissile`을 바꿨다 — 클라 `core.ts`도 동일 로직. 40개 표본 실측 결과 15/17개 시도에 5~12%씩 고르게 분산됨을 확인(`missile-distribution-test.mjs`).
-- **플레이어 색상 불일치 버그**: 이미 접속 중인 클라의 `world.holders`는 **자기 WELCOME 시점 스냅샷에 고정**돼 있어서, 그 이후 합류한 플레이어의 `paletteIdx`를 영영 모른 채 땅을 fallback 회색으로 칠하고 있었다(반면 리더보드 텍스트는 매번 새로 오는 LEADERBOARD로 이름만은 정확해서, "닉네임은 맞는데 색은 회색"으로 보였을 것). `DeltaMessage.newHolders`(신규 참가자 정보)를 추가해 **그 holder가 처음 동을 갖게 되는 것과 같은 DELTA**에 실어 보내도록 고쳤다 — 시점상 색이 틀리게 칠해지는 순간 자체가 아예 없어진다. 실브라우저 2세션으로 리더보드 스와치 색·지도 색이 모두 정확히 일치함을 확인(`color-sync-test.mjs`, Playwright 시각 확인).
-
-## 궤멸 후 재시작 (자동 → GAME OVER + 유저 선택으로 변경)
-
-실사용 중 발견: 미사일이 플레이어의 유일한 동을 직격하면 소유 동이 0개가 되고, SORTIE는 내 소유 동에서만 가능해서 이후 아무것도 할 수 없는 궤멸 상태가 됐다. README/plan.md 어디에도 "영구 제거" 규칙은 없고 지속형 캔버스 컨셉이므로, 처음엔 **소유 동이 0개가 된 실제 플레이어에게 매 tick 새 시작 동을 자동 배정**하는 식으로 고쳤다.
-
-그런데 실사용해보니 이게 또 다른 문제였다 — 죽자마자 바로 다음 tick에 부활해버려서 "게임오버" 순간 자체가 안 보이고, 계속 죽어도 알아서 부활하니 판이 끝나는 느낌이 없었다(유저 피드백: "계속 죽어도 살아나서 끝이 안 난다"). 그래서 **자동 재배정을 없애고 유저가 명시적으로 선택하는 방식**으로 바꿨다:
-
-- 소유 동이 0개가 되면 더 이상 자동으로 부활하지 않는다(`GameLoop.kt` tick에서 자동 호출 제거).
-- 클라가 이 순간(`worldView.ts drainDefeat` — delta 적용 전엔 살아있었는데 적용 후 0개)을 감지해 **GAME OVER 오버레이**를 띄운다(`Hud.tsx`, 예전 "패배" 토스트를 대체).
-- 오버레이의 "재시작" 버튼이 신규 프로토콜 `/app/restart`(C→S, 페이로드 없음)를 보내면, 그때 서버가 새 시작 동을 배정한다(`RestartController.kt` → `GameCore.kt respawnPlayer` — 예전 `respawnEliminatedPlayers`를 단일 플레이어용으로 리팩터링, 신규 참가자와 같은 `StartCellAssigner` 재사용). 아직 살아있으면(소유 동 > 0) 조용히 무시한다.
-- "메인 화면" 버튼은 접속 화면으로 돌아간다.
-
-클라(`core.ts respawnPlayer`/`localConnection.ts sendRestart`)에도 동일하게 이식해 목 서버도 같은 규칙을 따른다. E(255)는 여전히 예외 — README §4.6대로 소탕되면 재스폰 없음.
-
-실서버에 실제 시나리오(갓 접속한 플레이어가 미사일 직격으로 동 1개→0개)를 재현해, 재시작 요청 전엔 자동으로 부활하지 않고(소유 동 0개 유지) 요청을 보내야만 새 동을 받는 것까지 확인했다(`respawn-test.mjs`).
-
-## 야만인(E)이 안 움직이는 버그 수정
-
-실사용 중 발견: 실제로 접속해보면 야만인(E)이 아무리 기다려도 확장 공격을 전혀 하지 않았다. 원인은 E 다중 클러스터 도입 시(위 "클라 추가 기능 3종") 생긴 값 불일치였다 — `ENV_CLUSTER_COUNT`(3) × `ENV_START_CELLS`(3) = **9개**로 스폰하는데, `EnvAi.maybeAct`/`core.ts tickEnv`의 상한 계산 `min(하드 상한, max(ENV_MIN_PRESENCE, 최대 플레이어 점유 동 수))`에서 당시 `ENV_MIN_PRESENCE`가 옛날 단일-클러스터(3개 스폰) 시절 값인 **4**로 남아 있었다. 초반엔 플레이어도 몇 동 안 가지고 있어 이 상한이 곧 `ENV_MIN_PRESENCE`가 되므로, **스폰 직후부터 `envCells(9) ≥ cap(4)`가 성립해 E가 첫 행동도 못 해보고 영구히 얼어붙었다.**
-
-`ENV_MIN_PRESENCE`를 스폰 총량(9)보다 확실히 크게 12로 올려 해소했다(`GameConfig.kt`/`config.ts` 동기화). 실서버에서 스폰 직후 12개까지(클러스터 하나가 3→6개로) 확장 공격하는 것을 확인했고, 이 클래스의 버그가 재발하지 않도록 `ENV_MIN_PRESENCE ≥ ENV_CLUSTER_COUNT × ENV_START_CELLS` 불변식을 직접 검증하는 회귀 테스트를 추가했다(`env-active-check.mjs`).
-
-## 아직 안 한 것 / 다음에 할 것
-
-- 계급(Rank) 계산은 구현했지만 어떤 메시지로도 아직 안 내려줌(api-spec.md에 계급 필드 없음 — 필요해지면 LEADERBOARD나 별도 메시지에 추가)
-- 실제 청중 다수가 동시에 접속하는 Day 6 리허설(로컬 LAN 핫스팟 + `host:true` 폴백 포함) — 이건 실제 사람과 네트워크가 필요해 코드로 못 끝냄
-- 클라우드 VM/교내 서버로의 실제 배포(현재는 로컬에서 `deployJar` 산출물 실행까지만 검증) 및 도메인/포트 확정
-- 12색 팔레트(현재 5슬롯) 확장 여부 — 5명 넘게 동시 플레이하면 색이 겹침(README 부록A 미정 항목, 클라 쪽 결정 필요)
+> 참고: 예전 환경 세력(E) 관련 스크립트(`env-*`)는 E가 AI 플레이어로 대체되며 **의미가 없어졌다**(하위 호환용 잔존).
